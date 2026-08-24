@@ -1,0 +1,191 @@
+{{/*
+  Grafana dashboard as code — the kube-prometheus-stack Grafana sidecar
+  (enabled by default) watches for ConfigMaps labeled grafana_dashboard: "1"
+  and auto-imports them. No manual "Import Dashboard" click needed.
+  Place this file at: helm/homeease/templates/grafana-dashboard.yaml
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "homeease.fullname" . }}-grafana-dashboard
+  labels:
+    {{- include "homeease.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "HomeEase"
+data:
+  homeease-business.json: |
+    {
+      "title": "HomeEase - Business & App Metrics",
+      "uid": "homeease-business",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "15s",
+      "time": { "from": "now-6h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Total Bookings",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+          "targets": [{ "expr": "serviceexpress_total_bookings", "legendFormat": "Bookings" }]
+        },
+        {
+          "id": 2,
+          "title": "Total Revenue",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+          "fieldConfig": { "defaults": { "unit": "currencyINR" }, "overrides": [] },
+          "targets": [{ "expr": "serviceexpress_total_revenue", "legendFormat": "Revenue" }]
+        },
+        {
+          "id": 3,
+          "title": "Total Users",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+          "targets": [{ "expr": "serviceexpress_total_users", "legendFormat": "Users" }]
+        },
+        {
+          "id": 4,
+          "title": "Active Bookings",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+          "targets": [{ "expr": "serviceexpress_active_bookings", "legendFormat": "Active" }]
+        },
+        {
+          "id": 5,
+          "title": "Queue Length",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+          "targets": [{ "expr": "serviceexpress_queue_length", "legendFormat": "Queue" }]
+        },
+        {
+          "id": 6,
+          "title": "Total Emergencies",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+          "fieldConfig": { "defaults": { "thresholds": { "steps": [
+            { "color": "green", "value": null },
+            { "color": "red", "value": 1 }
+          ]}}, "overrides": [] },
+          "targets": [{ "expr": "serviceexpress_total_emergencies", "legendFormat": "Emergencies" }]
+        },
+        {
+          "id": 7,
+          "title": "Bookings by Status",
+          "type": "piechart",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 4 },
+          "targets": [{ "expr": "serviceexpress_bookings_by_status", "legendFormat": "{{`{{status}}`}}" }]
+        },
+        {
+          "id": 8,
+          "title": "Professionals: Available vs Busy",
+          "type": "barchart",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 4 },
+          "targets": [
+            { "expr": "serviceexpress_available_professionals", "legendFormat": "Available" },
+            { "expr": "serviceexpress_busy_professionals", "legendFormat": "Busy" }
+          ]
+        },
+        {
+          "id": 9,
+          "title": "Services & Professionals Catalog",
+          "type": "stat",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 4 },
+          "targets": [
+            { "expr": "serviceexpress_total_services", "legendFormat": "Total Services" },
+            { "expr": "serviceexpress_total_professionals", "legendFormat": "Total Professionals" }
+          ]
+        },
+        {
+          "id": 10,
+          "title": "Booking Requests Rate (per min)",
+          "type": "timeseries",
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 12 },
+          "targets": [
+            { "expr": "rate(serviceexpress_booking_requests_total[5m]) * 60", "legendFormat": "Requests/min" },
+            { "expr": "rate(serviceexpress_bookings_confirmed_total[5m]) * 60", "legendFormat": "Confirmed/min" },
+            { "expr": "rate(serviceexpress_bookings_cancelled_total[5m]) * 60", "legendFormat": "Cancelled/min" },
+            { "expr": "rate(serviceexpress_bookings_completed_total[5m]) * 60", "legendFormat": "Completed/min" }
+          ]
+        },
+        {
+          "id": 11,
+          "title": "Payments: Success vs Failure Rate",
+          "type": "timeseries",
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 12 },
+          "targets": [
+            { "expr": "rate(serviceexpress_payment_success_total[5m]) * 60", "legendFormat": "Success/min" },
+            { "expr": "rate(serviceexpress_payment_failures_total[5m]) * 60", "legendFormat": "Failures/min" }
+          ],
+          "fieldConfig": { "defaults": { "custom": { "lineWidth": 2 } }, "overrides": [
+            { "matcher": { "id": "byName", "options": "Failures/min" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+          ]}
+        },
+        {
+          "id": 12,
+          "title": "Professional Assignment Time (p50/p95)",
+          "type": "timeseries",
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 19 },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, rate(serviceexpress_professional_assignment_time_seconds_bucket[5m]))", "legendFormat": "p50" },
+            { "expr": "histogram_quantile(0.95, rate(serviceexpress_professional_assignment_time_seconds_bucket[5m]))", "legendFormat": "p95" }
+          ]
+        },
+        {
+          "id": 13,
+          "title": "Booking End-to-End Latency (p50/p95)",
+          "type": "timeseries",
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 19 },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, rate(serviceexpress_booking_latency_seconds_bucket[5m]))", "legendFormat": "p50" },
+            { "expr": "histogram_quantile(0.95, rate(serviceexpress_booking_latency_seconds_bucket[5m]))", "legendFormat": "p95" }
+          ]
+        },
+        {
+          "id": 14,
+          "title": "HTTP Requests In Flight",
+          "type": "timeseries",
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 26 },
+          "targets": [{ "expr": "http_requests_in_flight", "legendFormat": "{{`{{service}}`}}" }]
+        },
+        {
+          "id": 15,
+          "title": "HTTP Request Rate by Status",
+          "type": "timeseries",
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 26 },
+          "targets": [{ "expr": "sum by (status_code) (rate(http_requests_total[5m]))", "legendFormat": "{{`{{status_code}}`}}" }]
+        },
+        {
+          "id": 16,
+          "title": "HTTP p95 Latency",
+          "type": "timeseries",
+          "gridPos": { "h": 6, "w": 8, "x": 16, "y": 26 },
+          "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95" }]
+        },
+        {
+          "id": 17,
+          "title": "Node.js Heap Used",
+          "type": "timeseries",
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 32 },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "targets": [{ "expr": "nodejs_heap_size_used_bytes", "legendFormat": "{{`{{pod}}`}}" }]
+        },
+        {
+          "id": 18,
+          "title": "Event Loop Lag (p99)",
+          "type": "timeseries",
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 32 },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "targets": [{ "expr": "nodejs_eventloop_lag_p99_seconds", "legendFormat": "{{`{{pod}}`}}" }]
+        },
+        {
+          "id": 19,
+          "title": "Process CPU Usage",
+          "type": "timeseries",
+          "gridPos": { "h": 6, "w": 8, "x": 16, "y": 32 },
+          "targets": [{ "expr": "rate(process_cpu_seconds_total[5m])", "legendFormat": "{{`{{pod}}`}}" }]
+        }
+      ]
+    }

@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: {{ include "homeease.fullname" . }}-frontend
+  labels:
+    {{- include "homeease.labels" . | nindent 4 }}
+    app: frontend
+
+spec:
+  replicas: {{ .Values.replicaCount.frontend }}
+
+  selector:
+    matchLabels:
+      {{- include "homeease.selectorLabels" . | nindent 6 }}
+      app: frontend
+
+  template:
+    metadata:
+      labels:
+        {{- include "homeease.selectorLabels" . | nindent 8 }}
+        app: frontend
+
+    spec:
+      containers:
+        - name: frontend
+
+          image: "{{ .Values.images.frontend.repository }}:{{ .Values.images.frontend.tag }}"
+          imagePullPolicy: {{ .Values.images.frontend.pullPolicy }}
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+
+          resources:
+            {{- toYaml .Values.resources.frontend | nindent 12 }}
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3

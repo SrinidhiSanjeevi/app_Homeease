@@ -1,0 +1,25 @@
+{{- if .Values.autoscaling.adminBackend.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "homeease.fullname" . }}-admin-hpa
+  labels:
+    {{- include "homeease.labels" . | nindent 4 }}
+
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "homeease.fullname" . }}-admin
+
+  minReplicas: {{ .Values.autoscaling.adminBackend.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.adminBackend.maxReplicas }}
+
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.adminBackend.targetCPUUtilizationPercentage }}
+{{- end }}

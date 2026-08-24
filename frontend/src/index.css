@@ -1,0 +1,408 @@
+:root {
+  /* Premium Monochrome (Black & White) Color Palette */
+  --primary: #000000;
+  --primary-hover: #1e1e1e;
+  --primary-light: #f5f5f5;
+  
+  --secondary: #404040;
+  --accent: #e11d48; /* Crimson Red for Emergency Alert */
+  --success: #10b981;
+  --warning: #f59e0b;
+  
+  --bg-main: #fafafa;
+  --bg-card: #ffffff;
+  --bg-glass: rgba(255, 255, 255, 0.85);
+  
+  --text-main: #000000;
+  --text-muted: #737373;
+  --border: #e5e5e5;
+  --ring: rgba(0, 0, 0, 0.1);
+  
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.02);
+  --shadow-md: 0 4px 16px -1px rgba(0, 0, 0, 0.04), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+  --shadow-lg: 0 16px 24px -4px rgba(0, 0, 0, 0.06), 0 8px 8px -4px rgba(0, 0, 0, 0.03);
+  
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  
+  --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: all 0.12s ease;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background: var(--bg-main);
+  color: var(--text-main);
+  min-height: 100vh;
+  overflow-x: hidden;
+  width: 100%;
+}
+
+/* Ensure main containers maintain width & don't shift when zooming */
+#root {
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+}
+
+.main-container, .container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+
+/* Enhance Date & Calendar Input Visibility & Sizing */
+input[type="date"] {
+  font-size: 1rem;
+  padding: 12px 16px;
+  min-height: 48px;
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 4px;
+  filter: opacity(0.8);
+  transition: transform 0.15s ease;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  filter: opacity(1);
+  transform: scale(1.1);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-main);
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Global Button Styles */
+button, .btn {
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 12px 24px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: var(--transition);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.btn-primary:hover {
+  background: var(--primary-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: white;
+  color: var(--text-main);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.btn-secondary:hover {
+  background: var(--bg-main);
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.btn-danger {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 4px 14px rgba(244, 63, 94, 0.3);
+}
+.btn-danger:hover {
+  background: hsl(343, 90%, 50%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(244, 63, 94, 0.4);
+}
+
+/* Inputs & Form Fields */
+.form-group {
+  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.form-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+input, select, textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-main);
+  font-size: 0.95rem;
+  outline: none;
+  transition: var(--transition-fast);
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--ring);
+}
+textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* Card UI Helper */
+.glass-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  transition: var(--transition);
+}
+
+/* Badge Styles */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.badge-pending {
+  background: hsl(38, 92%, 95%);
+  color: hsl(38, 92%, 40%);
+}
+.badge-confirmed {
+  background: hsl(210, 100%, 95%);
+  color: hsl(210, 100%, 45%);
+}
+.badge-completed {
+  background: hsl(142, 70%, 95%);
+  color: hsl(142, 70%, 35%);
+}
+.badge-cancelled {
+  background: hsl(343, 90%, 95%);
+  color: hsl(343, 90%, 50%);
+}
+
+/* Grid Layouts */
+.services-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+}
+
+/* Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ============================================================
+   RESPONSIVE MEDIA QUERIES & SCREEN SCALING CORRECTIONS
+   ============================================================ */
+
+/* Laptop & Tablet Large Screens (<= 1024px) */
+@media (max-width: 1024px) {
+  html {
+    font-size: 15px;
+  }
+
+  .main-container, .container {
+    max-width: 100%;
+    padding: 0 20px;
+  }
+
+  .services-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 18px;
+  }
+
+  /* Admin Dashboard Layout Responsive Adjustments */
+  aside[style*="width: 240px"],
+  aside[style*="width:240px"] {
+    width: 100% !important;
+    position: relative !important;
+    height: auto !important;
+  }
+
+  main[style*="marginLeft: 240px"],
+  main[style*="margin-left: 240px"],
+  main[style*="margin-left:240px"] {
+    margin-left: 0 !important;
+    padding: 20px 16px !important;
+  }
+}
+
+/* Mobile & Tablet Small Screens (<= 768px) */
+@media (max-width: 768px) {
+  html {
+    font-size: 14px;
+  }
+
+  body {
+    font-size: 1rem;
+  }
+
+  /* Navigation Bar Adaptations */
+  nav {
+    padding: 12px 16px !important;
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    justify-content: center !important;
+  }
+
+  /* Button Touch Targets & Scaling */
+  button, .btn {
+    font-size: 0.9rem !important;
+    padding: 10px 16px !important;
+    min-height: 42px;
+  }
+
+  /* Typography Fluid Scaling */
+  h1 {
+    font-size: 1.8rem !important;
+    line-height: 1.25 !important;
+  }
+
+  h2 {
+    font-size: 1.4rem !important;
+  }
+
+  h3 {
+    font-size: 1.15rem !important;
+  }
+
+  p {
+    font-size: 0.95rem !important;
+  }
+
+  /* Form Controls & Inputs */
+  input, select, textarea {
+    font-size: 1rem !important;
+    padding: 12px 14px !important;
+  }
+
+  /* Services Grid for Mobile */
+  .services-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  /* Glass Card Padding */
+  .glass-card {
+    padding: 18px 16px !important;
+    border-radius: var(--radius-md) !important;
+  }
+
+  /* Responsive Tables */
+  table {
+    min-width: 580px;
+  }
+
+  /* Stat Cards & Grid Wrappers */
+  div[style*="gridTemplateColumns"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Extra Small Screens (<= 480px) */
+@media (max-width: 480px) {
+  html {
+    font-size: 13.5px;
+  }
+
+  .main-container, .container {
+    padding: 0 12px;
+  }
+
+  h1 {
+    font-size: 1.55rem !important;
+  }
+
+  button, .btn {
+    width: 100% !important;
+  }
+
+  /* Stack flex containers on small devices */
+  div[style*="display: flex"][style*="justify-content: space-between"] {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+}
+

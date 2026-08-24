@@ -1,0 +1,102 @@
+replicaCount:
+  backend: 1
+  adminBackend: 1
+  frontend: 1
+
+images:
+  backend:
+    repository: acrhomeeasedev.azurecr.io/homeease-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  adminBackend:
+    repository: acrhomeeasedev.azurecr.io/homeease-admin-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  frontend:
+    repository: acrhomeeasedev.azurecr.io/homeease-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+services:
+  backend:
+    port: 5000
+    targetPort: 5000
+
+  adminBackend:
+    port: 5001
+    targetPort: 5001
+
+  frontend:
+    port: 80
+    targetPort: 8080
+
+ingress:
+  enabled: false
+  className: nginx
+  host: homeease.local
+
+  tls:
+    enabled: false
+    clusterIssuer: letsencrypt-prod
+
+resources:
+  backend:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  adminBackend:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  frontend:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+autoscaling:
+  backend:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+
+  adminBackend:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+
+  frontend:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+
+keyVault:
+  name: kv-homeease-dev-001
+  tenantId: "25ea82b6-dfae-45a3-8712-f925d1b3397d"
+
+secrets:
+  keyVault:
+    enabled: true
+    secretProviderClass: homeease-secrets
+
+workloadIdentity:
+  clientId: "0663c3d7-55c5-41ff-95c9-dbe93c7ead44"
+
+monitoring:
+  enabled: true
+  prometheusReleaseLabel: kube-prometheus-stack
