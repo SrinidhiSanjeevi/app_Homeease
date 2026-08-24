@@ -1,0 +1,28 @@
+images:
+  backend:
+    repository: acrhomeeasedev.azurecr.io/homeease-backend
+    tag: bcff715223cc64ac878a35c1135cad94c45834f9
+    pullPolicy: IfNotPresent
+
+  adminBackend:
+    repository: acrhomeeasedev.azurecr.io/homeease-admin-backend
+    tag: a782af35c730dc28849e19801273567d0ac32279
+    pullPolicy: IfNotPresent
+
+  frontend:
+    repository: acrhomeeasedev.azurecr.io/homeease-frontend
+    tag: c5d977f731c8bc9ca3c9e544025246d5b3bb0202
+    pullPolicy: IfNotPresent
+
+ingress:
+  enabled: true
+  className: nginx
+  host: homeease.local
+
+  tls:
+    enabled: false
+    clusterIssuer: letsencrypt-prod
+
+monitoring:
+  enabled: true
+  prometheusReleaseLabel: kube-prometheus-stack

@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "homeease.fullname" . }}-backend-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "homeease.selectorLabels" . | nindent 6 }}
+      app: backend

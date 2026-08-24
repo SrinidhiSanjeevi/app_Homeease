@@ -1,0 +1,435 @@
+---
+# Source: homeease/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+
+metadata:
+  name: homeease-workload-sa
+
+  labels:
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/managed-by: Helm
+
+  annotations:
+    azure.workload.identity/client-id: "0663c3d7-55c5-41ff-95c9-dbe93c7ead44"
+---
+# Source: homeease/templates/backend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  labels:
+    helm.sh/chart: homeease-1.0.0
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app: backend
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+---
+# Source: homeease/templates/frontend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  labels:
+    helm.sh/chart: homeease-1.0.0
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# Source: homeease/templates/admin-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: homeease-release-homeease-admin
+  labels:
+    helm.sh/chart: homeease-1.0.0
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app.kubernetes.io/managed-by: Helm
+    app: admin
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homeease
+      app.kubernetes.io/instance: homeease-release
+      app: admin
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homeease
+        app.kubernetes.io/instance: homeease-release
+        app: admin
+        azure.workload.identity/use: "true"
+
+    spec:
+      serviceAccountName: homeease-workload-sa
+
+      containers:
+        - name: admin-backend
+
+          image: "acrhomeeasedev.azurecr.io/homeease-admin-backend:a0d965e901af5c0aca32fcd7ab50631fb42be726"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 5001
+              protocol: TCP
+
+          env:
+            - name: NODE_ENV
+              value: production
+
+            - name: PORT
+              value: "5001"
+
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: MONGO_URI
+
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: JWT_SECRET
+
+            - name: ALLOWED_ORIGINS
+              value: "*"
+
+            - name: EMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_USER
+
+            - name: EMAIL_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_PASS
+
+            - name: EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_FROM
+
+          volumeMounts:
+            - name: keyvault-secrets
+              mountPath: "/mnt/secrets-store"
+              readOnly: true
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5001
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: keyvault-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: homeease-secrets
+---
+# Source: homeease/templates/backend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: homeease-release-homeease-backend
+  labels:
+    helm.sh/chart: homeease-1.0.0
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app.kubernetes.io/managed-by: Helm
+    app: backend
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homeease
+      app.kubernetes.io/instance: homeease-release
+      app: backend
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homeease
+        app.kubernetes.io/instance: homeease-release
+        app: backend
+        azure.workload.identity/use: "true"
+
+    spec:
+      serviceAccountName: homeease-workload-sa
+
+      containers:
+        - name: backend
+
+          image: "acrhomeeasedev.azurecr.io/homeease-backend:a0d965e901af5c0aca32fcd7ab50631fb42be726"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+
+          env:
+            - name: NODE_ENV
+              value: production
+
+            - name: PORT
+              value: "5000"
+
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: MONGO_URI
+
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: JWT_SECRET
+
+            - name: EMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_USER
+
+            - name: EMAIL_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_PASS
+
+            - name: EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_FROM
+
+          volumeMounts:
+            - name: keyvault-secrets
+              mountPath: "/mnt/secrets-store"
+              readOnly: true
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: keyvault-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: homeease-secrets
+---
+# Source: homeease/templates/frontend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homeease-release-homeease-frontend
+  labels:
+    helm.sh/chart: homeease-1.0.0
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app.kubernetes.io/managed-by: Helm
+    app: frontend
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homeease
+      app.kubernetes.io/instance: homeease-release
+      app: frontend
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homeease
+        app.kubernetes.io/instance: homeease-release
+        app: frontend
+
+    spec:
+      containers:
+        - name: frontend
+          image: "acrhomeeasedev.azurecr.io/homeease-frontend:ed899005e56349a539dda4d894bc6192244ab9e8"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 80
+
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+
+          resources:
+            limits:
+              cpu: 300m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 20
+            periodSeconds: 20
+---
+# Source: homeease/templates/secretproviderclass.yaml
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+
+metadata:
+  name: homeease-secrets
+
+spec:
+  provider: azure
+
+  parameters:
+
+    usePodIdentity: "false"
+
+    clientID: "0663c3d7-55c5-41ff-95c9-dbe93c7ead44"
+
+    keyvaultName: "kv-homeease-dev-001"
+
+    tenantId: "25ea82b6-dfae-45a3-8712-f925d1b3397d"
+
+    objects: |
+      array:
+        - |
+          objectName: MONGO-URI
+          objectType: secret
+
+        - |
+          objectName: JWT-SECRET
+          objectType: secret
+
+        - |
+          objectName: EMAIL-USER
+          objectType: secret
+
+        - |
+          objectName: EMAIL-PASS
+          objectType: secret
+
+        - |
+          objectName: EMAIL-FROM
+          objectType: secret
+
+  secretObjects:
+
+    - secretName: homeease-release-homeease-secrets
+      type: Opaque
+
+      data:
+        - objectName: MONGO-URI
+          key: MONGO_URI
+
+        - objectName: JWT-SECRET
+          key: JWT_SECRET
+
+        - objectName: EMAIL-USER
+          key: EMAIL_USER
+
+        - objectName: EMAIL-PASS
+          key: EMAIL_PASS
+
+        - objectName: EMAIL-FROM
+          key: EMAIL_FROM

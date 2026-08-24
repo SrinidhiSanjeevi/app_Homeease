@@ -1,0 +1,312 @@
+---
+# Source: homeease/templates/backend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  labels:
+    helm.sh/chart: homeease-1.0.0
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app: backend
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+---
+# Source: homeease/templates/frontend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  labels:
+    helm.sh/chart: homeease-1.0.0
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# Source: homeease/templates/admin-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homeease-release-homeease-admin
+  labels:
+    helm.sh/chart: homeease-1.0.0
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app.kubernetes.io/managed-by: Helm
+    app: admin
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homeease
+      app.kubernetes.io/instance: homeease-release
+      app: admin
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homeease
+        app.kubernetes.io/instance: homeease-release
+        app: admin
+
+    spec:
+      containers:
+        - name: admin-backend
+          image: "acrhomeeasedev.azurecr.io/homeease-admin-backend:latest"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 5001
+
+          env:
+            - name: NODE_ENV
+              value: production
+
+            - name: PORT
+              value: "5001"
+
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: MONGO_URI
+
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: JWT_SECRET
+
+            - name: ALLOWED_ORIGINS
+              value: "*"
+
+            - name: EMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_USER
+
+            - name: EMAIL_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_PASS
+
+            - name: EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_FROM
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5001
+            initialDelaySeconds: 30
+            periodSeconds: 20
+---
+# Source: homeease/templates/backend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homeease-release-homeease-backend
+  labels:
+    helm.sh/chart: homeease-1.0.0
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app.kubernetes.io/managed-by: Helm
+    app: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homeease
+      app.kubernetes.io/instance: homeease-release
+      app: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homeease
+        app.kubernetes.io/instance: homeease-release
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: "acrhomeeasedev.azurecr.io/homeease-backend:latest"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+
+          env:
+            - name: NODE_ENV
+              value: production
+
+            - name: PORT
+              value: "5000"
+
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: MONGO_URI
+
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: JWT_SECRET
+
+            - name: EMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_USER
+
+            - name: EMAIL_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_PASS
+
+            - name: EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: homeease-release-homeease-secrets
+                  key: EMAIL_FROM
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+# Source: homeease/templates/frontend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homeease-release-homeease-frontend
+  labels:
+    helm.sh/chart: homeease-1.0.0
+    app.kubernetes.io/name: homeease
+    app.kubernetes.io/instance: homeease-release
+    app.kubernetes.io/managed-by: Helm
+    app: frontend
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homeease
+      app.kubernetes.io/instance: homeease-release
+      app: frontend
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homeease
+        app.kubernetes.io/instance: homeease-release
+        app: frontend
+
+    spec:
+      containers:
+        - name: frontend
+          image: "acrhomeeasedev.azurecr.io/homeease-frontend:latest"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 80
+
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+
+          resources:
+            limits:
+              cpu: 300m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 20
+            periodSeconds: 20
