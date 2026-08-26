@@ -3,6 +3,7 @@ const Booking = require("../models/Booking");
 const Service = require("../models/Service");
 const Professional = require("../models/Professional");
 const EmergencyRequest = require("../models/EmergencyRequest");
+const { reassignWaitingWork } = require("../services/professionalMatcher");
 
 const getStats = async (req, res) => {
   try {
@@ -23,7 +24,7 @@ const getStats = async (req, res) => {
       Service.countDocuments(),
       Professional.countDocuments(),
       EmergencyRequest.countDocuments(),
-      Booking.countDocuments({ status: "Assigned" }),   // "pendingBookings" = not yet confirmed
+      Booking.countDocuments({ status: "Assigned" }),
       Booking.countDocuments({ status: "Confirmed" }),
       Booking.countDocuments({ status: "Cancelled" }),
       Booking.countDocuments({ status: "Completed" }),
@@ -34,10 +35,9 @@ const getStats = async (req, res) => {
         .populate("service", "name category"),
     ]);
 
-
     const revenueAgg = await Booking.aggregate([
-    { $match: { status: { $in: ["Confirmed", "Completed"] } } },
-    { $group: { _id: null, total: { $sum: "$totalPrice" } } },
+      { $match: { status: { $in: ["Confirmed", "Completed"] } } },
+      { $group: { _id: null, total: { $sum: "$totalPrice" } } },
     ]);
     const totalRevenue = revenueAgg.length > 0 ? revenueAgg[0].total : 0;
 
@@ -107,6 +107,11 @@ const updateBookingStatus = async (req, res) => {
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ success: false, message: "Invalid status value" });
     }
+
+    // Need the pre-update doc to know which professional (if any) is
+    // being released, and its category, before we overwrite the status.
+    const existingBooking = await Booking.findById(req.params.id).populate("professional", "category");
+
     const booking = await Booking.findByIdAndUpdate(
       req.params.id,
       { status },
@@ -114,6 +119,23 @@ const updateBookingStatus = async (req, res) => {
     ).populate("user", "name email").populate("service", "name");
 
     if (!booking) return res.status(404).json({ success: false, message: "Booking not found" });
+
+    // FIX: admin manually cancelling a booking releases its professional
+    // but previously never checked whether another customer was waiting
+    // for that same category. Same gap that existed in emergency handling.
+    if (status === "Cancelled" && existingBooking?.professional) {
+      const freedProfessional = await Professional.findByIdAndUpdate(
+        existingBooking.professional._id,
+        { status: "Available" },
+        { new: true }
+      );
+      if (freedProfessional) {
+        reassignWaitingWork(freedProfessional.category).catch((err) =>
+          console.error("Auto-reassignment error:", err.message)
+        );
+      }
+    }
+
     res.status(200).json({ success: true, message: `Booking marked as ${status}`, booking });
   } catch (error) {
     console.error("Update Booking Status Error:", error);
@@ -161,12 +183,30 @@ const updateEmergencyStatus = async (req, res) => {
     if (!emergency) return res.status(404).json({ success: false, message: "Emergency request not found" });
 
     emergency.status = status;
+
     if (status === "Resolved" || status === "Cancelled") {
       emergency.resolvedAt = new Date();
+
       if (emergency.assignedProfessional) {
-        await Professional.findByIdAndUpdate(emergency.assignedProfessional, { status: "Available" });
+        const freedProfessional = await Professional.findByIdAndUpdate(
+          emergency.assignedProfessional,
+          { status: "Available" },
+          { new: true }
+        );
+
+        // FIX: this was the actual bug behind the screenshot — resolving
+        // or cancelling an emergency freed the professional but never
+        // checked if another waiting booking/emergency in the same
+        // category could now be matched. Without this, "No specialist
+        // available" stayed stuck indefinitely even after someone freed up.
+        if (freedProfessional) {
+          reassignWaitingWork(freedProfessional.category).catch((err) =>
+            console.error("Auto-reassignment error:", err.message)
+          );
+        }
       }
     }
+
     await emergency.save();
     res.status(200).json({ success: true, message: `Emergency status updated to ${status}`, emergency });
   } catch (error) {
@@ -229,6 +269,16 @@ const updateProfessional = async (req, res) => {
   try {
     const professional = await Professional.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!professional) return res.status(404).json({ success: false, message: "Professional not found" });
+
+    // FIX: if admin manually flips a professional's status to
+    // "Available" (e.g. correcting a stuck "Busy" record from testing),
+    // sweep for anyone waiting in that category too.
+    if (req.body.status === "Available") {
+      reassignWaitingWork(professional.category).catch((err) =>
+        console.error("Auto-reassignment error:", err.message)
+      );
+    }
+
     res.status(200).json({ success: true, message: "Professional updated successfully", professional });
   } catch (error) {
     console.error("Update Professional Error:", error);

@@ -18,16 +18,28 @@ const paymentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Success", "Failure"],
+      enum: ["Pending", "Success", "Failure", "Refunded"],
       required: true
     },
     paymentMethod: {
       type: String,
-      default: "Simulated Payment"
+      default: "Razorpay"
     },
     transactionId: {
       type: String,
       required: true
+    },
+    // ─── Razorpay-specific fields ────────────────────────────────
+    // Only populated for online payments; undefined/absent for
+    // Cash on Delivery entries, which is fine — none of these are `required`.
+    razorpayOrderId: {
+      type: String
+    },
+    razorpaySignature: {
+      type: String
+    },
+    refundId: {
+      type: String
     },
     failureReason: {
       type: String,

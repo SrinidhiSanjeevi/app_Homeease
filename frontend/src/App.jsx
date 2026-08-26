@@ -16,11 +16,9 @@ import Toast from "./components/Toast";
 const getStoredUser = () => {
   try {
     const storedUser = localStorage.getItem("user");
-
     if (!storedUser) {
       return null;
     }
-
     return JSON.parse(storedUser);
   } catch (error) {
     console.error("Invalid stored user data:", error);
@@ -303,6 +301,20 @@ export default function App() {
 
   // ============================================================
   // CREATE BOOKING
+  //
+  // FIX: this must now:
+  //  1. RETURN the parsed response — BookingModal's Razorpay flow
+  //     needs `data.booking._id` to create the payment order. Without
+  //     a return value, BookingModal received `undefined` and threw
+  //     "Booking creation did not return a booking id".
+  //  2. NOT close the modal or refresh booking lists here for the
+  //     Razorpay path — the booking exists but is still "Pending"
+  //     until /api/payments/verify confirms it. BookingModal itself
+  //     calls onClose() only after cash confirmation or successful
+  //     Razorpay verification. Closing early would tear down the
+  //     modal before Razorpay's checkout popup even had a chance to
+  //     open, and refreshing "My Bookings" too early would show a
+  //     booking stuck at "Pending" with no visible next step.
   // ============================================================
 
   const handleBookSubmit = async (
@@ -313,59 +325,55 @@ export default function App() {
         "Please login to book a service",
         "error"
       );
-      return;
+      throw new Error("Not authenticated");
     }
 
-    try {
-      const response = await fetch(
-        "/api/bookings",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify(
-            bookingData
-          )
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (response.ok && data.success) {
-        showToast(
-          data.message ||
-            "Booking created successfully",
-          "success"
-        );
-
-        setBookingService(null);
-
-        await Promise.all([
-          fetchBookings(),
-          fetchProfessionals()
-        ]);
-      } else {
-        showToast(
-          data.message ||
-            "Failed to book service",
-          "error"
-        );
+    const response = await fetch(
+      "/api/bookings",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(
+          bookingData
+        )
       }
-    } catch (error) {
-      console.error(
-        "Booking submit error:",
-        error
-      );
+    );
 
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
       showToast(
-        "Server communication error",
+        data.message ||
+          "Failed to book service",
         "error"
       );
+      throw new Error(
+        data.message || "Booking failed"
+      );
     }
+
+    // Cash bookings are fully confirmed immediately — refresh lists
+    // and let the toast show now. Razorpay bookings stay "Pending";
+    // BookingModal will refresh/close things itself once payment is
+    // verified, so we deliberately skip that here.
+    if (bookingData.paymentMethod === "Cash on Delivery") {
+      showToast(
+        data.message ||
+          "Booking confirmed!",
+        "success"
+      );
+      setBookingService(null);
+      await Promise.all([
+        fetchBookings(),
+        fetchProfessionals()
+      ]);
+    }
+
+    return data; // <-- the actual fix: BookingModal reads data.booking._id from this
   };
 
   // ============================================================
@@ -795,15 +803,17 @@ export default function App() {
 
       {/* Booking Modal */}
       {bookingService && (
-        <BookingModal
-          service={bookingService}
-          onClose={() =>
-            setBookingService(null)
-          }
-          onSubmit={handleBookSubmit}
-          professionals={professionals}
-        />
-      )}
+  <BookingModal
+    service={bookingService}
+    onClose={() => setBookingService(null)}
+    onSubmit={handleBookSubmit}
+    onBookingSettled={() => {
+      fetchBookings();
+      fetchProfessionals();
+    }}
+    professionals={professionals}
+  />
+   )}
 
       {/* Toast */}
       {toast && (

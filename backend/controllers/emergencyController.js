@@ -1,5 +1,6 @@
 const EmergencyRequest = require("../models/EmergencyRequest");
 const Professional = require("../models/Professional");
+const { reassignWaitingWork } = require("../services/professionalMatcher");
 
 const SEVERITY_CONFIG = {
   Low: {
@@ -40,6 +41,9 @@ const CATEGORY_DEFAULT_SEVERITY = {
   Security: "High"
 };
 
+// Categories that don't map to a real professional roster yet.
+const CATEGORIES_WITHOUT_DEDICATED_ROSTER = new Set(["Fire", "Medical"]);
+
 // DISPATCH EMERGENCY SERVICE
 const dispatchEmergency = async (req, res) => {
   try {
@@ -65,15 +69,14 @@ const dispatchEmergency = async (req, res) => {
 
     const severityConfig = SEVERITY_CONFIG[resolvedSeverity];
 
-    const professional = await Professional.findOne({
-      category: category === "Fire" || category === "Medical" ? "Electrical" : category,
-      status: "Available"
-    }).sort({ rating: -1 });
-
-    if (professional) {
-      professional.status = "Busy";
-      await professional.save();
-    }
+    const professional = await Professional.findOneAndUpdate(
+      {
+        category: CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(category) ? { $exists: true } : category,
+        status: "Available"
+      },
+      { $set: { status: "Busy" } },
+      { sort: { rating: -1 }, new: true }
+    );
 
     const emergency = await EmergencyRequest.create({
       user: userId,
@@ -94,7 +97,7 @@ const dispatchEmergency = async (req, res) => {
 
     let message = professional
       ? `Emergency dispatched! Assigned provider: ${professional.name}.`
-      : "Emergency requested! Searching for an available nearby provider...";
+      : "Emergency requested! No specialist is currently available — you'll be assigned automatically the moment one is free.";
 
     if (severityConfig.fireEngineDispatched) {
       message += ` Fire Engine ${severityConfig.fireEngineNumber} has been alerted. Call ${severityConfig.emergencyServiceNumber} for immediate fire/safety assistance.`;
@@ -121,12 +124,6 @@ const dispatchEmergency = async (req, res) => {
 };
 
 // CANCEL EMERGENCY REQUEST
-// FIX: replaces the old updateEmergencyStatus, which had NO
-// ownership check — any authenticated user could change the status
-// of any other user's emergency by ID. Customers may now only
-// cancel their own, non-resolved/non-cancelled request. Full status
-// control (OnTheWay/Arrived/Resolved) is admin-only — see
-// admin-backend's adminController.updateEmergencyStatus.
 const cancelEmergency = async (req, res) => {
   try {
     if (!req.user || !req.user._id) {
@@ -147,9 +144,24 @@ const cancelEmergency = async (req, res) => {
     }
 
     emergency.status = "Cancelled";
+
     if (emergency.assignedProfessional) {
-      await Professional.findByIdAndUpdate(emergency.assignedProfessional, { status: "Available" });
+      const freedProfessional = await Professional.findByIdAndUpdate(
+        emergency.assignedProfessional,
+        { status: "Available" },
+        { new: true }
+      );
+      // FIX: this was the missing piece — releasing a professional
+      // previously never checked whether another customer (booking OR
+      // emergency) in the same category was still waiting. That's why
+      // "No specialist available" stayed stuck even after someone freed up.
+      if (freedProfessional) {
+        reassignWaitingWork(freedProfessional.category).catch((err) =>
+          console.error("Auto-reassignment error:", err.message)
+        );
+      }
     }
+
     await emergency.save();
 
     const populatedEmergency = await EmergencyRequest.findById(emergency._id).populate("assignedProfessional");
