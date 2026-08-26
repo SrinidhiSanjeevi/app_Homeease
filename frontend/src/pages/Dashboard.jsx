@@ -1,42 +1,78 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import ServiceCard from "../components/ServiceCard";
-import { Search, Sparkles, FileText, ChevronRight } from "lucide-react";
+import {
+  Search,
+  Sparkles,
+  FileText,
+  ChevronRight,
+} from "lucide-react";
 
-export default function Dashboard({ services, onBookClick }) {
+export default function Dashboard({ services = [], onBookClick }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
 
-  const categories = ["All", "Spa", "Electrician", "Carpentry", "Plumbing", "Security", "Repair"];
+  const categories = [
+    "All",
+    "Spa",
+    "Electrician",
+    "Carpentry",
+    "Plumbing",
+    "Security",
+    "Repair",
+  ];
 
-  // Filter logic
-  const filteredServices = services.filter((service) => {
-    const matchesSearch =
-      service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      service.description.toLowerCase().includes(searchTerm.toLowerCase());
+  // Filter services
+  const filteredServices = useMemo(() => {
+    const search = searchTerm.trim().toLowerCase();
 
-    const matchesCategory = selectedCategory === "All" || service.category === selectedCategory;
+    return services.filter((service) => {
+      const name = service?.name?.toLowerCase() || "";
+      const description = service?.description?.toLowerCase() || "";
+      const category = service?.category || "";
 
-    return matchesSearch && matchesCategory;
-  });
+      const matchesSearch =
+        !search ||
+        name.includes(search) ||
+        description.includes(search);
 
+      const matchesCategory =
+        selectedCategory === "All" ||
+        category === selectedCategory;
+
+      return matchesSearch && matchesCategory;
+    });
+  }, [services, searchTerm, selectedCategory]);
+
+  // Open custom service booking
   const handleCustomRequest = () => {
-    // Open BookingModal with a virtual custom service payload
     const customServicePayload = {
       _id: "custom_request_id",
       isCustom: true,
       name: "Custom Service Request",
-      price: 999, // default base quote price
-      category: selectedCategory === "All" ? "Spa" : selectedCategory,
-      description: "Request customized home services tailored to your specific criteria.",
+      price: 999,
+      category:
+        selectedCategory === "All"
+          ? "Repair"
+          : selectedCategory,
+      description:
+        "Request customized home services tailored to your specific requirements.",
       products: [],
-      duration: "Flexible"
+      duration: "Flexible",
     };
-    onBookClick(customServicePayload);
+
+    if (typeof onBookClick === "function") {
+      onBookClick(customServicePayload);
+    }
   };
 
   return (
-    <div style={{ animation: "fadeInUp 0.4s ease-out", padding: "40px 0" }}>
-      {/* Hero Header */}
+    <div
+      style={{
+        animation: "fadeInUp 0.4s ease-out",
+        padding: "40px 0",
+      }}
+    >
+      {/* ================= HERO HEADER ================= */}
       <div
         style={{
           textAlign: "center",
@@ -62,16 +98,34 @@ export default function Dashboard({ services, onBookClick }) {
             letterSpacing: "0.05em",
           }}
         >
-          <Sparkles size={14} /> Book trusted local specialists
+          <Sparkles size={14} />
+          Book trusted local specialists
         </span>
-        <h1 style={{ fontSize: "2.75rem", fontWeight: 800, letterSpacing: "-0.03em" }}>
+
+        <h1
+          style={{
+            fontSize: "2.75rem",
+            fontWeight: 800,
+            letterSpacing: "-0.03em",
+            margin: 0,
+          }}
+        >
           Find Home Services, Instantly
         </h1>
-        <p style={{ color: "var(--text-muted)", fontSize: "1.1rem", maxWidth: "600px" }}>
-          Choose from certified electricians, plumbers, carpenters, spa therapists, and professional cleaning teams.
+
+        <p
+          style={{
+            color: "var(--text-muted)",
+            fontSize: "1.1rem",
+            maxWidth: "600px",
+            margin: 0,
+          }}
+        >
+          Choose from certified electricians, plumbers, carpenters,
+          spa therapists, and professional cleaning teams.
         </p>
 
-        {/* Search Input Box */}
+        {/* ================= SEARCH ================= */}
         <div
           style={{
             position: "relative",
@@ -91,23 +145,27 @@ export default function Dashboard({ services, onBookClick }) {
               color: "var(--text-muted)",
             }}
           />
+
           <input
             type="text"
             placeholder="Search for 'haircut', 'plumber', 'AC cleaning'..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{
+              width: "100%",
+              boxSizing: "border-box",
               padding: "16px 16px 16px 54px",
               borderRadius: "8px",
               border: "1px solid var(--border)",
               fontSize: "1rem",
               background: "#ffffff",
+              outline: "none",
             }}
           />
         </div>
       </div>
 
-      {/* Categories Filter list */}
+      {/* ================= CATEGORY FILTER ================= */}
       <div
         style={{
           display: "flex",
@@ -117,45 +175,83 @@ export default function Dashboard({ services, onBookClick }) {
           marginBottom: "36px",
         }}
       >
-        {categories.map((cat) => {
-          const isActive = selectedCategory === cat;
+        {categories.map((category) => {
+          const isActive = selectedCategory === category;
+
           return (
             <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
+              key={category}
+              type="button"
+              onClick={() => setSelectedCategory(category)}
               style={{
-                background: isActive ? "var(--primary)" : "white",
-                color: isActive ? "white" : "var(--text-muted)",
-                border: "1px solid " + (isActive ? "var(--primary)" : "var(--border)"),
+                background: isActive
+                  ? "var(--primary)"
+                  : "#ffffff",
+                color: isActive
+                  ? "#ffffff"
+                  : "var(--text-muted)",
+                border: `1px solid ${
+                  isActive
+                    ? "var(--primary)"
+                    : "var(--border)"
+                }`,
                 padding: "8px 20px",
                 borderRadius: "8px",
                 fontWeight: 700,
                 fontSize: "0.85rem",
-                boxShadow: isActive ? "0 4px 12px rgba(0, 0, 0, 0.1)" : "var(--shadow-sm)",
+                cursor: "pointer",
+                boxShadow: isActive
+                  ? "0 4px 12px rgba(0, 0, 0, 0.1)"
+                  : "var(--shadow-sm)",
                 transition: "var(--transition-fast)",
               }}
             >
-              {cat}
+              {category}
             </button>
           );
         })}
       </div>
 
-      {/* Services Grid Render */}
+      {/* ================= SERVICES ================= */}
       {filteredServices.length > 0 ? (
         <div className="services-grid">
           {filteredServices.map((service) => (
-            <ServiceCard key={service._id} service={service} onBook={onBookClick} />
+            <ServiceCard
+              key={service._id}
+              service={service}
+              onBook={onBookClick}
+            />
           ))}
         </div>
       ) : (
-        <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--text-muted)" }}>
-          <p style={{ fontSize: "1.1rem", fontWeight: 600 }}>No services found matching your criteria.</p>
-          <p style={{ fontSize: "0.9rem", marginTop: "4px" }}>Try searching for a different keyword.</p>
+        <div
+          style={{
+            textAlign: "center",
+            padding: "60px 20px",
+            color: "var(--text-muted)",
+          }}
+        >
+          <p
+            style={{
+              fontSize: "1.1rem",
+              fontWeight: 600,
+            }}
+          >
+            No services found matching your criteria.
+          </p>
+
+          <p
+            style={{
+              fontSize: "0.9rem",
+              marginTop: "4px",
+            }}
+          >
+            Try searching for a different keyword or category.
+          </p>
         </div>
       )}
 
-      {/* Custom Service Request Banner */}
+      {/* ================= CUSTOM SERVICE ================= */}
       <div
         style={{
           marginTop: "60px",
@@ -171,7 +267,15 @@ export default function Dashboard({ services, onBookClick }) {
           boxShadow: "var(--shadow-md)",
         }}
       >
-        <div style={{ display: "flex", gap: "20px", alignItems: "center", minWidth: "280px", flex: 1 }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "20px",
+            alignItems: "center",
+            minWidth: "280px",
+            flex: 1,
+          }}
+        >
           <div
             style={{
               background: "var(--primary-light)",
@@ -182,21 +286,44 @@ export default function Dashboard({ services, onBookClick }) {
           >
             <FileText size={28} />
           </div>
+
           <div>
-            <h3 style={{ fontSize: "1.25rem", fontWeight: 800, marginBottom: "4px" }}>
+            <h3
+              style={{
+                fontSize: "1.25rem",
+                fontWeight: 800,
+                marginBottom: "4px",
+              }}
+            >
               Can't find your service?
             </h3>
-            <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-              Submit a customized requirements query. We will assign a specialized local expert for your work.
+
+            <p
+              style={{
+                color: "var(--text-muted)",
+                fontSize: "0.9rem",
+                margin: 0,
+              }}
+            >
+              Submit a customized requirements query. We will
+              assign a specialized local expert for your work.
             </p>
           </div>
         </div>
+
         <button
+          type="button"
           onClick={handleCustomRequest}
           className="btn btn-primary"
-          style={{ padding: "14px 28px" }}
+          style={{
+            padding: "14px 28px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+          }}
         >
-          Request Custom Service <ChevronRight size={16} />
+          Request Custom Service
+          <ChevronRight size={16} />
         </button>
       </div>
     </div>

@@ -70,6 +70,12 @@ const paymentFailures = new client.Counter({
   registers: [register]
 });
 
+const paymentRefunded = new client.Counter({
+  name: 'serviceexpress_payment_refunded_total',
+  help: 'Total number of payments refunded due to booking cancellation',
+  registers: [register]
+});
+
 // ─── Notification Counters ────────────────────────────────────────────────────
 const notificationSuccess = new client.Counter({
   name: 'serviceexpress_notification_success_total',

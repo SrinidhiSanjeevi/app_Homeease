@@ -23,16 +23,17 @@ app.use(express.json());
 app.use((req, res, next) => {
   if (req.path === '/metrics' || req.path === '/api/health') return next();
   metrics.httpRequestsInFlight.inc();
-  const end = metrics.httpRequestDurationSeconds.startTimer({ method: req.method, route: req.path });
-
+  const end = metrics.httpRequestDurationSeconds.startTimer({ method: req.method });
   res.on('finish', () => {
+    const routeLabel = req.route ? (req.baseUrl + req.route.path) : req.path;
     metrics.httpRequestsInFlight.dec();
-    metrics.httpRequestsTotal.inc({ method: req.method, route: req.path, code: res.statusCode });
-    end({ code: res.statusCode });
+    metrics.httpRequestsTotal.inc({ method: req.method, route: routeLabel, code: res.statusCode });
+    end({ route: routeLabel, code: res.statusCode });
   });
-
   next();
 });
+
+
 
 app.get("/", (req, res) => {
   res.send("HomeEase Admin Service Running");
