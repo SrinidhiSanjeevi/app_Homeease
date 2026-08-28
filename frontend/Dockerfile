@@ -1,30 +1,29 @@
 # ==========================================================
 # Stage 1: Build React/Vite application
 # ==========================================================
-
 FROM node:22-alpine AS build
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-
 RUN npm ci --no-audit --no-fund
 
 COPY . .
-
 RUN npm run build
 
-
-# ============================================================
+# ==========================================================
 # Stage 2: Non-root Nginx production runtime
-# ============================================================
-
+# ==========================================================
 FROM nginxinc/nginx-unprivileged:1.31.2-alpine3.23-slim AS runtime
 
+# Same reasoning as the Node images — patch base OS packages before
+# Trivy scans, since this base image accumulates CVEs like any other.
+USER root
+RUN apk update && apk upgrade --no-cache
+USER nginx
+
 RUN rm -f /etc/nginx/conf.d/default.conf
-
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 8080
@@ -37,4 +36,4 @@ HEALTHCHECK \
     CMD wget --no-verbose --tries=1 --spider \
     http://127.0.0.1:8080/health || exit 1
 
-CMD ["nginx", "-g", "daemon off;"]# CI rebuild
+CMD ["nginx", "-g", "daemon off;"]
