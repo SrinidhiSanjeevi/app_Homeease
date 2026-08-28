@@ -12,10 +12,12 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund \
     && npm cache clean --force
 
-# ============================================================
+# ==========================================================
 # Stage 2: Production runtime image
-# ============================================================
+# ==========================================================
 FROM node:22-alpine AS runtime
+
+RUN apk update && apk upgrade --no-cache
 
 # Install dumb-init for PID 1 signal handling & wget for health checks
 RUN apk add --no-cache dumb-init wget
@@ -55,4 +57,4 @@ HEALTHCHECK \
 # Process supervisor signal forwarding
 ENTRYPOINT ["dumb-init", "--"]
 
-CMD ["node", "server.js"]# CI rebuild
+CMD ["node", "server.js"]
