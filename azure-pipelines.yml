@@ -1,5 +1,5 @@
 # ============================================================
-# HomeEase CI/CD Pipeline
+# HomeEase CI Pipeline
 #
 # Flow:
 # Git push
@@ -9,11 +9,13 @@
 #   -> Docker build
 #   -> Trivy HIGH/CRITICAL scan
 #   -> Push immutable image to Azure Container Registry
-#   -> Deploy to AKS (main branch only)
+#
+# This pipeline is CI ONLY. It does NOT deploy to AKS.
+# Deployment is a separate, deliberate step added once the
+# Kubernetes namespace, service account, SecretProviderClass,
+# and Deployments already exist in the cluster.
 #
 # Application secrets are NOT used during CI.
-# Runtime secrets are stored in Azure Key Vault and consumed
-# by AKS through Workload Identity + Secrets Store CSI Driver.
 # ============================================================
 
 trigger:
@@ -28,7 +30,7 @@ trigger:
       - azure-pipelines.yml
 
 # Run CI (validate + build + scan) for pull requests too,
-# but images are only PUSHED and DEPLOYED on main (see branch guards below).
+# but images are only PUSHED on main (see branch guards below).
 pr:
   branches:
     include:
@@ -61,12 +63,6 @@ variables:
   # acrhomeeasedev.azurecr.io/homeease-backend:123
   - name: imageTag
     value: '$(Build.BuildId)'
-  - name: aksClusterName
-    value: 'aks-homeease-dev'
-  - name: aksResourceGroup
-    value: 'rg-homeease-dev'
-  - name: k8sNamespace
-    value: 'homeease'
 
 # ============================================================
 # STAGES
@@ -82,10 +78,10 @@ stages:
     - job: BackendValidation
       displayName: 'Validate Backend'
       steps:
-        - task: NodeTool@0
+        - task: UseNode@1
           displayName: 'Install Node.js 22'
           inputs:
-            versionSpec: '22.x'
+            version: '22.x'
         - script: |
             set -e
             node --version
@@ -102,10 +98,10 @@ stages:
     - job: AdminBackendValidation
       displayName: 'Validate Admin Backend'
       steps:
-        - task: NodeTool@0
+        - task: UseNode@1
           displayName: 'Install Node.js 22'
           inputs:
-            versionSpec: '22.x'
+            version: '22.x'
         - script: |
             set -e
             node --version
@@ -122,10 +118,10 @@ stages:
     - job: FrontendValidation
       displayName: 'Validate Frontend'
       steps:
-        - task: NodeTool@0
+        - task: UseNode@1
           displayName: 'Install Node.js 22'
           inputs:
-            versionSpec: '22.x'
+            version: '22.x'
         - script: |
             set -e
             node --version
@@ -307,64 +303,3 @@ stages:
             command: 'logout'
             containerRegistry: 'acr-service-connection'
           condition: always()
-
-# ============================================================
-# STAGE 5 — DEPLOY TO AKS
-#
-# Only runs on main, and only after all three images have
-# built, scanned clean, and pushed successfully.
-# Uses kubectl set image so each service's Deployment picks
-# up the new immutable tag without touching Key Vault-backed
-# secrets, which are mounted separately via the CSI driver.
-#
-# NOTE: this stage authenticates using aks-service-connection
-# (Azure Resource Manager type), NOT acr-service-connection
-# (Docker Registry type) — AzureCLI@2 requires an ARM connection.
-# ============================================================
-- stage: DeployToAKS
-  displayName: 'Deploy to AKS'
-  dependsOn:
-    - BackendContainer
-    - AdminBackendContainer
-    - FrontendContainer
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-  jobs:
-    - job: Deploy
-      displayName: 'Rollout new images'
-      steps:
-        - task: AzureCLI@2
-          displayName: 'Get AKS credentials'
-          inputs:
-            azureSubscription: 'aks-service-connection'
-            scriptType: 'bash'
-            scriptLocation: 'inlineScript'
-            inlineScript: |
-              set -e
-              az aks get-credentials \
-                --resource-group $(aksResourceGroup) \
-                --name $(aksClusterName) \
-                --overwrite-existing
-
-        - script: |
-            set -e
-            kubectl set image deployment/homeease-backend \
-              backend=$(acrLoginServer)/homeease-backend:$(imageTag) \
-              -n $(k8sNamespace)
-            kubectl rollout status deployment/homeease-backend -n $(k8sNamespace) --timeout=180s
-          displayName: 'Deploy backend'
-
-        - script: |
-            set -e
-            kubectl set image deployment/homeease-admin-backend \
-              admin-backend=$(acrLoginServer)/homeease-admin-backend:$(imageTag) \
-              -n $(k8sNamespace)
-            kubectl rollout status deployment/homeease-admin-backend -n $(k8sNamespace) --timeout=180s
-          displayName: 'Deploy admin-backend'
-
-        - script: |
-            set -e
-            kubectl set image deployment/homeease-frontend \
-              frontend=$(acrLoginServer)/homeease-frontend:$(imageTag) \
-              -n $(k8sNamespace)
-            kubectl rollout status deployment/homeease-frontend -n $(k8sNamespace) --timeout=180s
-          displayName: 'Deploy frontend'
