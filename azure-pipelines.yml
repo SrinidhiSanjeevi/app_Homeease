@@ -95,7 +95,7 @@ variables:
   # GitHub Actions pipeline before (trivy-action tag invalidation,
   # March 2026). Pin a real release tag and bump deliberately.
   - name: trivyVersion
-    value: '0.58.1'
+    value: '0.74.0'
 
   # Node version used across all three services
   - name: nodeVersion
