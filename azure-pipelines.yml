@@ -316,6 +316,10 @@ stages:
 # Uses kubectl set image so each service's Deployment picks
 # up the new immutable tag without touching Key Vault-backed
 # secrets, which are mounted separately via the CSI driver.
+#
+# NOTE: this stage authenticates using aks-service-connection
+# (Azure Resource Manager type), NOT acr-service-connection
+# (Docker Registry type) — AzureCLI@2 requires an ARM connection.
 # ============================================================
 - stage: DeployToAKS
   displayName: 'Deploy to AKS'
@@ -331,7 +335,7 @@ stages:
         - task: AzureCLI@2
           displayName: 'Get AKS credentials'
           inputs:
-            azureSubscription: 'acr-service-connection'
+            azureSubscription: 'aks-service-connection'
             scriptType: 'bash'
             scriptLocation: 'inlineScript'
             inlineScript: |
