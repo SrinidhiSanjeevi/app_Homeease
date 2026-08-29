@@ -9,17 +9,17 @@
 #   -> Docker build
 #   -> Trivy HIGH/CRITICAL scan
 #   -> Push immutable image to Azure Container Registry
+#   -> Deploy to AKS (main branch only)
 #
 # Application secrets are NOT used during CI.
 # Runtime secrets are stored in Azure Key Vault and consumed
-# by AKS through Workload Identity.
+# by AKS through Workload Identity + Secrets Store CSI Driver.
 # ============================================================
 
 trigger:
   branches:
     include:
       - main
-
   paths:
     include:
       - backend/**
@@ -27,12 +27,12 @@ trigger:
       - frontend/**
       - azure-pipelines.yml
 
-# Run CI for pull requests as well.
+# Run CI (validate + build + scan) for pull requests too,
+# but images are only PUSHED and DEPLOYED on main (see branch guards below).
 pr:
   branches:
     include:
       - main
-
   paths:
     include:
       - backend/**
@@ -40,192 +40,121 @@ pr:
       - frontend/**
       - azure-pipelines.yml
 
-
 # ============================================================
 # AGENT
 # ============================================================
-
 pool:
   vmImage: 'ubuntu-latest'
-
 
 # ============================================================
 # VARIABLES
 # ============================================================
-
 variables:
-
   # Terraform created this ACR:
   # acrhomeeasedev
   - name: acrName
     value: 'acrhomeeasedev'
-
   - name: acrLoginServer
     value: '$(acrName).azurecr.io'
-
   # Every pipeline run receives a unique immutable tag.
   # Example:
   # acrhomeeasedev.azurecr.io/homeease-backend:123
   - name: imageTag
     value: '$(Build.BuildId)'
-
+  - name: aksClusterName
+    value: 'aks-homeease-dev'
+  - name: aksResourceGroup
+    value: 'rg-homeease-dev'
+  - name: k8sNamespace
+    value: 'homeease'
 
 # ============================================================
-# STAGE 1
-# APPLICATION VALIDATION
+# STAGES
 # ============================================================
+stages:
 
+# ============================================================
+# STAGE 1 — APPLICATION VALIDATION
+# ============================================================
 - stage: Validate
   displayName: 'Validate Application'
-
   jobs:
-
-    # ========================================================
-    # BACKEND
-    # ========================================================
-
     - job: BackendValidation
       displayName: 'Validate Backend'
-
       steps:
-
         - task: NodeTool@0
           displayName: 'Install Node.js 22'
           inputs:
             versionSpec: '22.x'
-
         - script: |
             set -e
-
             node --version
             npm --version
-
             cd backend
-
             npm ci --no-audit --no-fund
           displayName: 'Install backend dependencies'
-
         - script: |
             set -e
-
             cd backend
-
             npm test --if-present
           displayName: 'Run backend tests'
 
-
-    # ========================================================
-    # ADMIN BACKEND
-    # ========================================================
-
     - job: AdminBackendValidation
       displayName: 'Validate Admin Backend'
-
       steps:
-
         - task: NodeTool@0
           displayName: 'Install Node.js 22'
           inputs:
             versionSpec: '22.x'
-
         - script: |
             set -e
-
             node --version
             npm --version
-
             cd admin-backend
-
             npm ci --no-audit --no-fund
           displayName: 'Install admin-backend dependencies'
-
         - script: |
             set -e
-
             cd admin-backend
-
             npm test --if-present
           displayName: 'Run admin-backend tests'
 
-
-    # ========================================================
-    # FRONTEND
-    # ========================================================
-
     - job: FrontendValidation
       displayName: 'Validate Frontend'
-
       steps:
-
         - task: NodeTool@0
           displayName: 'Install Node.js 22'
           inputs:
             versionSpec: '22.x'
-
         - script: |
             set -e
-
             node --version
             npm --version
-
             cd frontend
-
             npm ci --no-audit --no-fund
           displayName: 'Install frontend dependencies'
-
         - script: |
             set -e
-
             cd frontend
-
             npm run build
           displayName: 'Build frontend'
 
-
 # ============================================================
-# STAGE 2
-# BACKEND CONTAINER
-#
-# Build + scan + push happen on THE SAME AGENT.
+# STAGE 2 — BACKEND CONTAINER
 # ============================================================
-
 - stage: BackendContainer
   displayName: 'Backend Container'
   dependsOn: Validate
-
   condition: succeeded()
-
   jobs:
-
     - job: BuildScanPushBackend
       displayName: 'Build, Scan and Push Backend'
-
       steps:
-
-        # ----------------------------------------------------
-        # Node.js
-        # ----------------------------------------------------
-
-        - task: NodeTool@0
-          displayName: 'Install Node.js 22'
-          inputs:
-            versionSpec: '22.x'
-
-
-        # ----------------------------------------------------
-        # ACR LOGIN
-        # ----------------------------------------------------
-
         - task: Docker@2
           displayName: 'Login to Azure Container Registry'
           inputs:
             command: 'login'
             containerRegistry: 'acr-service-connection'
-
-
-        # ----------------------------------------------------
-        # DOCKER BUILD
-        # ----------------------------------------------------
 
         - task: Docker@2
           displayName: 'Build backend Docker image'
@@ -237,114 +166,52 @@ variables:
             tags: |
               $(imageTag)
 
-
-        # ----------------------------------------------------
-        # TRIVY
-        # ----------------------------------------------------
-
         - script: |
             set -e
-
             echo "Installing Trivy..."
-
             curl -sfL \
               https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
               | sh -s -- -b /usr/local/bin
-
-            echo "Trivy version:"
             trivy --version
-
             echo "Scanning backend image..."
-
             trivy image \
               --severity HIGH,CRITICAL \
               --exit-code 1 \
               --ignore-unfixed \
               homeease-backend:$(imageTag)
-
           displayName: 'Trivy scan backend'
 
-
-        # ----------------------------------------------------
-        # TAG
-        # ----------------------------------------------------
-
+        # Push only from main — PR builds are validated and scanned but never published.
         - script: |
             set -e
-
-            docker tag \
-              homeease-backend:$(imageTag) \
-              $(acrLoginServer)/homeease-backend:$(imageTag)
-
-          displayName: 'Tag backend image'
-
-
-        # ----------------------------------------------------
-        # PUSH
-        # ----------------------------------------------------
-
-        - script: |
-            set -e
-
-            docker push \
-              $(acrLoginServer)/homeease-backend:$(imageTag)
-
-          displayName: 'Push backend image to ACR'
-
-
-        # ----------------------------------------------------
-        # LOGOUT
-        # ----------------------------------------------------
+            docker tag homeease-backend:$(imageTag) $(acrLoginServer)/homeease-backend:$(imageTag)
+            docker push $(acrLoginServer)/homeease-backend:$(imageTag)
+          displayName: 'Tag & push backend image'
+          condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
         - task: Docker@2
           displayName: 'Logout from Azure Container Registry'
           inputs:
             command: 'logout'
             containerRegistry: 'acr-service-connection'
-
+          condition: always()
 
 # ============================================================
-# STAGE 3
-# ADMIN BACKEND CONTAINER
+# STAGE 3 — ADMIN BACKEND CONTAINER
 # ============================================================
-
 - stage: AdminBackendContainer
   displayName: 'Admin Backend Container'
   dependsOn: Validate
-
   condition: succeeded()
-
   jobs:
-
     - job: BuildScanPushAdminBackend
       displayName: 'Build, Scan and Push Admin Backend'
-
       steps:
-
-        # ----------------------------------------------------
-        # Node.js
-        # ----------------------------------------------------
-
-        - task: NodeTool@0
-          displayName: 'Install Node.js 22'
-          inputs:
-            versionSpec: '22.x'
-
-
-        # ----------------------------------------------------
-        # ACR LOGIN
-        # ----------------------------------------------------
-
         - task: Docker@2
           displayName: 'Login to Azure Container Registry'
           inputs:
             command: 'login'
             containerRegistry: 'acr-service-connection'
-
-
-        # ----------------------------------------------------
-        # DOCKER BUILD
-        # ----------------------------------------------------
 
         - task: Docker@2
           displayName: 'Build admin-backend Docker image'
@@ -356,114 +223,51 @@ variables:
             tags: |
               $(imageTag)
 
-
-        # ----------------------------------------------------
-        # TRIVY
-        # ----------------------------------------------------
-
         - script: |
             set -e
-
             echo "Installing Trivy..."
-
             curl -sfL \
               https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
               | sh -s -- -b /usr/local/bin
-
-            echo "Trivy version:"
             trivy --version
-
             echo "Scanning admin-backend image..."
-
             trivy image \
               --severity HIGH,CRITICAL \
               --exit-code 1 \
               --ignore-unfixed \
               homeease-admin-backend:$(imageTag)
-
           displayName: 'Trivy scan admin-backend'
 
-
-        # ----------------------------------------------------
-        # TAG
-        # ----------------------------------------------------
-
         - script: |
             set -e
-
-            docker tag \
-              homeease-admin-backend:$(imageTag) \
-              $(acrLoginServer)/homeease-admin-backend:$(imageTag)
-
-          displayName: 'Tag admin-backend image'
-
-
-        # ----------------------------------------------------
-        # PUSH
-        # ----------------------------------------------------
-
-        - script: |
-            set -e
-
-            docker push \
-              $(acrLoginServer)/homeease-admin-backend:$(imageTag)
-
-          displayName: 'Push admin-backend image to ACR'
-
-
-        # ----------------------------------------------------
-        # LOGOUT
-        # ----------------------------------------------------
+            docker tag homeease-admin-backend:$(imageTag) $(acrLoginServer)/homeease-admin-backend:$(imageTag)
+            docker push $(acrLoginServer)/homeease-admin-backend:$(imageTag)
+          displayName: 'Tag & push admin-backend image'
+          condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
         - task: Docker@2
           displayName: 'Logout from Azure Container Registry'
           inputs:
             command: 'logout'
             containerRegistry: 'acr-service-connection'
-
+          condition: always()
 
 # ============================================================
-# STAGE 4
-# FRONTEND CONTAINER
+# STAGE 4 — FRONTEND CONTAINER
 # ============================================================
-
 - stage: FrontendContainer
   displayName: 'Frontend Container'
   dependsOn: Validate
-
   condition: succeeded()
-
   jobs:
-
     - job: BuildScanPushFrontend
       displayName: 'Build, Scan and Push Frontend'
-
       steps:
-
-        # ----------------------------------------------------
-        # Node.js
-        # ----------------------------------------------------
-
-        - task: NodeTool@0
-          displayName: 'Install Node.js 22'
-          inputs:
-            versionSpec: '22.x'
-
-
-        # ----------------------------------------------------
-        # ACR LOGIN
-        # ----------------------------------------------------
-
         - task: Docker@2
           displayName: 'Login to Azure Container Registry'
           inputs:
             command: 'login'
             containerRegistry: 'acr-service-connection'
-
-
-        # ----------------------------------------------------
-        # DOCKER BUILD
-        # ----------------------------------------------------
 
         - task: Docker@2
           displayName: 'Build frontend Docker image'
@@ -475,67 +279,88 @@ variables:
             tags: |
               $(imageTag)
 
-
-        # ----------------------------------------------------
-        # TRIVY
-        # ----------------------------------------------------
-
         - script: |
             set -e
-
             echo "Installing Trivy..."
-
             curl -sfL \
               https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
               | sh -s -- -b /usr/local/bin
-
-            echo "Trivy version:"
             trivy --version
-
             echo "Scanning frontend image..."
-
             trivy image \
               --severity HIGH,CRITICAL \
               --exit-code 1 \
               --ignore-unfixed \
               homeease-frontend:$(imageTag)
-
           displayName: 'Trivy scan frontend'
 
-
-        # ----------------------------------------------------
-        # TAG
-        # ----------------------------------------------------
-
         - script: |
             set -e
-
-            docker tag \
-              homeease-frontend:$(imageTag) \
-              $(acrLoginServer)/homeease-frontend:$(imageTag)
-
-          displayName: 'Tag frontend image'
-
-
-        # ----------------------------------------------------
-        # PUSH
-        # ----------------------------------------------------
-
-        - script: |
-            set -e
-
-            docker push \
-              $(acrLoginServer)/homeease-frontend:$(imageTag)
-
-          displayName: 'Push frontend image to ACR'
-
-
-        # ----------------------------------------------------
-        # LOGOUT
-        # ----------------------------------------------------
+            docker tag homeease-frontend:$(imageTag) $(acrLoginServer)/homeease-frontend:$(imageTag)
+            docker push $(acrLoginServer)/homeease-frontend:$(imageTag)
+          displayName: 'Tag & push frontend image'
+          condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
         - task: Docker@2
           displayName: 'Logout from Azure Container Registry'
           inputs:
             command: 'logout'
             containerRegistry: 'acr-service-connection'
+          condition: always()
+
+# ============================================================
+# STAGE 5 — DEPLOY TO AKS
+#
+# Only runs on main, and only after all three images have
+# built, scanned clean, and pushed successfully.
+# Uses kubectl set image so each service's Deployment picks
+# up the new immutable tag without touching Key Vault-backed
+# secrets, which are mounted separately via the CSI driver.
+# ============================================================
+- stage: DeployToAKS
+  displayName: 'Deploy to AKS'
+  dependsOn:
+    - BackendContainer
+    - AdminBackendContainer
+    - FrontendContainer
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+    - job: Deploy
+      displayName: 'Rollout new images'
+      steps:
+        - task: AzureCLI@2
+          displayName: 'Get AKS credentials'
+          inputs:
+            azureSubscription: 'acr-service-connection'
+            scriptType: 'bash'
+            scriptLocation: 'inlineScript'
+            inlineScript: |
+              set -e
+              az aks get-credentials \
+                --resource-group $(aksResourceGroup) \
+                --name $(aksClusterName) \
+                --overwrite-existing
+
+        - script: |
+            set -e
+            kubectl set image deployment/homeease-backend \
+              backend=$(acrLoginServer)/homeease-backend:$(imageTag) \
+              -n $(k8sNamespace)
+            kubectl rollout status deployment/homeease-backend -n $(k8sNamespace) --timeout=180s
+          displayName: 'Deploy backend'
+
+        - script: |
+            set -e
+            kubectl set image deployment/homeease-admin-backend \
+              admin-backend=$(acrLoginServer)/homeease-admin-backend:$(imageTag) \
+              -n $(k8sNamespace)
+            kubectl rollout status deployment/homeease-admin-backend -n $(k8sNamespace) --timeout=180s
+          displayName: 'Deploy admin-backend'
+
+        - script: |
+            set -e
+            kubectl set image deployment/homeease-frontend \
+              frontend=$(acrLoginServer)/homeease-frontend:$(imageTag) \
+              -n $(k8sNamespace)
+            kubectl rollout status deployment/homeease-frontend -n $(k8sNamespace) --timeout=180s
+          displayName: 'Deploy frontend'
