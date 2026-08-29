@@ -29,8 +29,6 @@
 # No application secrets are required during CI.
 #
 # Images are transferred between stages using Pipeline Artifacts.
-# This is required because each Azure DevOps stage may run on
-# a different hosted agent.
 # ============================================================
 
 
@@ -42,6 +40,7 @@ trigger:
   branches:
     include:
       - main
+
   paths:
     include:
       - backend/**
@@ -81,7 +80,7 @@ pool:
 
 variables:
 
-  # Actual HomeEase Azure Container Registry
+  # Azure Container Registry
   - name: acrName
     value: 'acrhomeeasedev'
 
@@ -89,7 +88,7 @@ variables:
   - name: acrLoginServer
     value: '$(acrName).azurecr.io'
 
-  # Immutable image version
+  # Immutable image tag
   - name: imageTag
     value: '$(Build.BuildId)'
 
@@ -108,7 +107,7 @@ variables:
 # - Run admin-backend tests
 # - Build frontend
 #
-# All three services run in parallel.
+# Backend / Admin Backend / Frontend run in parallel.
 # ============================================================
 
 - stage: Validate
@@ -116,7 +115,6 @@ variables:
   displayName: '1. Validate Application'
 
   jobs:
-
 
     # ========================================================
     # BACKEND VALIDATION
@@ -268,10 +266,9 @@ variables:
 # Purpose:
 # Build Docker images for all three services.
 #
-# Images are saved as Pipeline Artifacts so they can be
-# transferred to the Trivy stage.
+# Images are saved as Pipeline Artifacts.
 #
-# NO ACR login is needed here.
+# No ACR login is required here.
 # ============================================================
 
 - stage: Build
@@ -283,7 +280,6 @@ variables:
   condition: succeeded()
 
   jobs:
-
 
     # ========================================================
     # BUILD BACKEND
@@ -476,7 +472,6 @@ variables:
 
   jobs:
 
-
     # ========================================================
     # SCAN BACKEND
     # ========================================================
@@ -655,16 +650,15 @@ variables:
 # STAGE 4 — TAG
 #
 # Purpose:
-# Apply the final ACR-qualified immutable tags.
+# Apply ACR-qualified tags to the exact images that passed
+# Trivy scanning.
 #
 # Example:
 #
 # acrhomeeasedev.azurecr.io/homeease-backend:123
+# acrhomeeasedev.azurecr.io/homeease-backend:latest
 #
-# We also create the convenient "latest" tag.
-#
-# This stage only runs on main.
-# Pull requests are validated and scanned but never published.
+# Only main is tagged for publishing.
 # ============================================================
 
 - stage: Tag
@@ -673,13 +667,12 @@ variables:
 
   dependsOn: SecurityScan
 
-  condition: and(
-    succeeded(),
-    eq(variables['Build.SourceBranch'], 'refs/heads/main')
-  )
+  # IMPORTANT:
+  # Keep this condition on ONE LINE.
+  # This avoids the YAML trigger/parser problem.
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
   jobs:
-
 
     # ========================================================
     # TAG BACKEND
@@ -924,13 +917,11 @@ variables:
 
   dependsOn: Tag
 
-  condition: and(
-    succeeded(),
-    eq(variables['Build.SourceBranch'], 'refs/heads/main')
-  )
+  # IMPORTANT:
+  # Keep this condition on ONE LINE.
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
   jobs:
-
 
     # ========================================================
     # PUSH BACKEND
