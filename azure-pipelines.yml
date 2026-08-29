@@ -140,7 +140,7 @@ stages:
 
       steps:
 
-        - task: NodeTool@0
+        - task: UseNode@1
           displayName: 'Install Node.js $(nodeVersion)'
           inputs:
             versionSpec: '$(nodeVersion)'
@@ -184,7 +184,7 @@ stages:
 
       steps:
 
-        - task: NodeTool@0
+        - task: UseNode@1
           displayName: 'Install Node.js $(nodeVersion)'
           inputs:
             versionSpec: '$(nodeVersion)'
@@ -228,7 +228,7 @@ stages:
 
       steps:
 
-        - task: NodeTool@0
+        - task: UseNode@1
           displayName: 'Install Node.js $(nodeVersion)'
           inputs:
             versionSpec: '$(nodeVersion)'
@@ -485,11 +485,11 @@ stages:
               | docker load
 
             echo "========================================"
-            echo "Installing Trivy v$(trivyVersion) (pinned)"
+            echo "Installing Trivy v$(trivyVersion) (pinned, via .deb release asset)"
             echo "========================================"
-            curl -sfL \
-              https://raw.githubusercontent.com/aquasecurity/trivy/v$(trivyVersion)/contrib/install.sh \
-              | sh -s -- -b /usr/local/bin v$(trivyVersion)
+            curl -fsSL -o /tmp/trivy.deb \
+              https://github.com/aquasecurity/trivy/releases/download/v$(trivyVersion)/trivy_$(trivyVersion)_Linux-64bit.deb
+            sudo dpkg -i /tmp/trivy.deb
             trivy --version
 
             echo "========================================"
@@ -531,11 +531,11 @@ stages:
               | docker load
 
             echo "========================================"
-            echo "Installing Trivy v$(trivyVersion) (pinned)"
+            echo "Installing Trivy v$(trivyVersion) (pinned, via .deb release asset)"
             echo "========================================"
-            curl -sfL \
-              https://raw.githubusercontent.com/aquasecurity/trivy/v$(trivyVersion)/contrib/install.sh \
-              | sh -s -- -b /usr/local/bin v$(trivyVersion)
+            curl -fsSL -o /tmp/trivy.deb \
+              https://github.com/aquasecurity/trivy/releases/download/v$(trivyVersion)/trivy_$(trivyVersion)_Linux-64bit.deb
+            sudo dpkg -i /tmp/trivy.deb
             trivy --version
 
             echo "========================================"
@@ -577,11 +577,11 @@ stages:
               | docker load
 
             echo "========================================"
-            echo "Installing Trivy v$(trivyVersion) (pinned)"
+            echo "Installing Trivy v$(trivyVersion) (pinned, via .deb release asset)"
             echo "========================================"
-            curl -sfL \
-              https://raw.githubusercontent.com/aquasecurity/trivy/v$(trivyVersion)/contrib/install.sh \
-              | sh -s -- -b /usr/local/bin v$(trivyVersion)
+            curl -fsSL -o /tmp/trivy.deb \
+              https://github.com/aquasecurity/trivy/releases/download/v$(trivyVersion)/trivy_$(trivyVersion)_Linux-64bit.deb
+            sudo dpkg -i /tmp/trivy.deb
             trivy --version
 
             echo "========================================"
