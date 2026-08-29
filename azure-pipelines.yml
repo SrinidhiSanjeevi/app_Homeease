@@ -11,9 +11,14 @@
 #   -> Push immutable image to Azure Container Registry
 #
 # This pipeline is CI ONLY. It does NOT deploy to AKS.
-# Deployment is a separate, deliberate step added once the
-# Kubernetes namespace, service account, SecretProviderClass,
-# and Deployments already exist in the cluster.
+#
+# NOTE ON IMAGE NAMING:
+# Docker@2's build command inherits the registry from the prior
+# 'login' step in the same job, so the image it produces is
+# ALREADY tagged as $(acrLoginServer)/homeease-<service>:$(imageTag),
+# not the bare repository name. Every step after build (scan,
+# push) must reference that fully-qualified name — using the
+# bare name causes "No such image" errors in later steps.
 #
 # Application secrets are NOT used during CI.
 # ============================================================
@@ -29,8 +34,6 @@ trigger:
       - frontend/**
       - azure-pipelines.yml
 
-# Run CI (validate + build + scan) for pull requests too,
-# but images are only PUSHED on main (see branch guards below).
 pr:
   branches:
     include:
@@ -42,31 +45,17 @@ pr:
       - frontend/**
       - azure-pipelines.yml
 
-# ============================================================
-# AGENT
-# ============================================================
 pool:
   vmImage: 'ubuntu-latest'
 
-# ============================================================
-# VARIABLES
-# ============================================================
 variables:
-  # Terraform created this ACR:
-  # acrhomeeasedev
   - name: acrName
     value: 'acrhomeeasedev'
   - name: acrLoginServer
     value: '$(acrName).azurecr.io'
-  # Every pipeline run receives a unique immutable tag.
-  # Example:
-  # acrhomeeasedev.azurecr.io/homeease-backend:123
   - name: imageTag
     value: '$(Build.BuildId)'
 
-# ============================================================
-# STAGES
-# ============================================================
 stages:
 
 # ============================================================
@@ -84,8 +73,6 @@ stages:
             version: '22.x'
         - script: |
             set -e
-            node --version
-            npm --version
             cd backend
             npm ci --no-audit --no-fund
           displayName: 'Install backend dependencies'
@@ -104,8 +91,6 @@ stages:
             version: '22.x'
         - script: |
             set -e
-            node --version
-            npm --version
             cd admin-backend
             npm ci --no-audit --no-fund
           displayName: 'Install admin-backend dependencies'
@@ -124,8 +109,6 @@ stages:
             version: '22.x'
         - script: |
             set -e
-            node --version
-            npm --version
             cd frontend
             npm ci --no-audit --no-fund
           displayName: 'Install frontend dependencies'
@@ -162,6 +145,8 @@ stages:
             tags: |
               $(imageTag)
 
+        # Image is already tagged $(acrLoginServer)/homeease-backend:$(imageTag)
+        # by the build task above — scan that exact name.
         - script: |
             set -e
             echo "Installing Trivy..."
@@ -174,15 +159,14 @@ stages:
               --severity HIGH,CRITICAL \
               --exit-code 1 \
               --ignore-unfixed \
-              homeease-backend:$(imageTag)
+              $(acrLoginServer)/homeease-backend:$(imageTag)
           displayName: 'Trivy scan backend'
 
-        # Push only from main — PR builds are validated and scanned but never published.
+        # No re-tag needed — the image is already registry-qualified.
         - script: |
             set -e
-            docker tag homeease-backend:$(imageTag) $(acrLoginServer)/homeease-backend:$(imageTag)
             docker push $(acrLoginServer)/homeease-backend:$(imageTag)
-          displayName: 'Tag & push backend image'
+          displayName: 'Push backend image'
           condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
         - task: Docker@2
@@ -231,14 +215,13 @@ stages:
               --severity HIGH,CRITICAL \
               --exit-code 1 \
               --ignore-unfixed \
-              homeease-admin-backend:$(imageTag)
+              $(acrLoginServer)/homeease-admin-backend:$(imageTag)
           displayName: 'Trivy scan admin-backend'
 
         - script: |
             set -e
-            docker tag homeease-admin-backend:$(imageTag) $(acrLoginServer)/homeease-admin-backend:$(imageTag)
             docker push $(acrLoginServer)/homeease-admin-backend:$(imageTag)
-          displayName: 'Tag & push admin-backend image'
+          displayName: 'Push admin-backend image'
           condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
         - task: Docker@2
@@ -287,14 +270,13 @@ stages:
               --severity HIGH,CRITICAL \
               --exit-code 1 \
               --ignore-unfixed \
-              homeease-frontend:$(imageTag)
+              $(acrLoginServer)/homeease-frontend:$(imageTag)
           displayName: 'Trivy scan frontend'
 
         - script: |
             set -e
-            docker tag homeease-frontend:$(imageTag) $(acrLoginServer)/homeease-frontend:$(imageTag)
             docker push $(acrLoginServer)/homeease-frontend:$(imageTag)
-          displayName: 'Tag & push frontend image'
+          displayName: 'Push frontend image'
           condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
         - task: Docker@2
