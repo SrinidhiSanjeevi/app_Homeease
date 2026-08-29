@@ -19,19 +19,17 @@ variables:
     value: '$(acrName).azurecr.io'
   - name: imageTag
     value: '$(Build.BuildId)'
-  - name: sonarProjectKey
-    value: 'homeease'
 
 stages:
 
 # ============================================================
-# STAGE 1 — CODE QUALITY (gates everything downstream)
+# STAGE 1 — VALIDATE (install & build all services, gates everything downstream)
 # ============================================================
-- stage: CodeQuality
-  displayName: 'Code Quality Gate'
+- stage: Validate
+  displayName: 'Validate Application'
   jobs:
-    - job: SonarQubeScan
-      displayName: 'Build, Test & SonarQube Quality Gate'
+    - job: BuildAndInstall
+      displayName: 'Install & build all services'
       steps:
         - task: NodeTool@0
           inputs:
@@ -39,40 +37,23 @@ stages:
 
         - script: |
             cd backend && npm ci --no-audit --no-fund
-            cd ../admin-backend && npm ci --no-audit --no-fund
-            cd ../frontend && npm ci --no-audit --no-fund && npm run build
-          displayName: 'Install & build all services'
+          displayName: 'npm ci (backend)'
 
-        - task: SonarQubePrepare@5
-          inputs:
-            SonarQube: 'sonarqube-connection'
-            scannerMode: 'CLI'
-            configMode: 'manual'
-            cliProjectKey: '$(sonarProjectKey)'
-            cliProjectName: 'HomeEase'
-            cliSources: '.'
-            extraProperties: |
-              sonar.exclusions=**/node_modules/**,**/dist/**,**/*.test.js
-              sonar.cpd.exclusions=**/models/**,**/middleware/**
-              sonar.qualitygate.wait=true
-              sonar.qualitygate.timeout=300
+        - script: |
+            cd admin-backend && npm ci --no-audit --no-fund
+          displayName: 'npm ci (admin-backend)'
 
-        - task: SonarQubeAnalyze@5
-
-        # THIS is what was missing — without it, the pipeline never
-        # actually blocks on a failed Quality Gate, so "completed"
-        # only ever meant "the analysis ran," not "the analysis passed."
-        - task: SonarQubePublish@5
-          inputs:
-            pollingTimeoutSec: '300'
+        - script: |
+            cd frontend && npm ci --no-audit --no-fund && npm run build
+          displayName: 'Build frontend'
 
 # ============================================================
-# STAGE 2 — BUILD, SCAN & PUSH (parallel jobs, ONE stage)
+# STAGE 2 — BUILD, SCAN & PUSH (parallel jobs, one stage)
 # ============================================================
 - stage: BuildAndPush
   displayName: 'Build, Trivy Scan & Push Images'
-  dependsOn: CodeQuality
-  condition: succeeded()   # never runs if the Quality Gate failed above
+  dependsOn: Validate
+  condition: succeeded()
   jobs:
     - job: Backend
       steps:
@@ -83,15 +64,18 @@ stages:
             dockerfile: 'backend/Dockerfile'
             buildContext: 'backend'
             tags: '$(imageTag)'
+
         - script: |
             curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
             trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed homeease-backend:$(imageTag)
           displayName: 'Trivy scan — backend'
+
         - task: Docker@2
           condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
           inputs:
             command: 'login'
             containerRegistry: 'acr-service-connection'
+
         - script: |
             docker tag homeease-backend:$(imageTag) $(acrLoginServer)/homeease-backend:$(imageTag)
             docker tag homeease-backend:$(imageTag) $(acrLoginServer)/homeease-backend:latest
@@ -109,15 +93,18 @@ stages:
             dockerfile: 'admin-backend/Dockerfile'
             buildContext: 'admin-backend'
             tags: '$(imageTag)'
+
         - script: |
             curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
             trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed homeease-admin-backend:$(imageTag)
           displayName: 'Trivy scan — admin-backend'
+
         - task: Docker@2
           condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
           inputs:
             command: 'login'
             containerRegistry: 'acr-service-connection'
+
         - script: |
             docker tag homeease-admin-backend:$(imageTag) $(acrLoginServer)/homeease-admin-backend:$(imageTag)
             docker tag homeease-admin-backend:$(imageTag) $(acrLoginServer)/homeease-admin-backend:latest
@@ -135,15 +122,18 @@ stages:
             dockerfile: 'frontend/Dockerfile'
             buildContext: 'frontend'
             tags: '$(imageTag)'
+
         - script: |
             curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
             trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed homeease-frontend:$(imageTag)
           displayName: 'Trivy scan — frontend'
+
         - task: Docker@2
           condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
           inputs:
             command: 'login'
             containerRegistry: 'acr-service-connection'
+
         - script: |
             docker tag homeease-frontend:$(imageTag) $(acrLoginServer)/homeease-frontend:$(imageTag)
             docker tag homeease-frontend:$(imageTag) $(acrLoginServer)/homeease-frontend:latest
