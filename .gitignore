@@ -1,0 +1,13 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+
+# Frontend build
+frontend/dist/
+
+# Sonar
+.sonar/
