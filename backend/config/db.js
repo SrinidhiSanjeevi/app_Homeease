@@ -1,9 +1,4 @@
 const mongoose = require("mongoose");
-const dns = require("dns");
-
-// Fix for Node.js v24+ SRV DNS resolution issue with some system DNS servers
-// Forces Node to use Google's public DNS which properly handles MongoDB Atlas SRV records
-dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 const connectDB = async () => {
   try {
@@ -11,13 +6,28 @@ const connectDB = async () => {
       serverSelectionTimeoutMS: 30000,
       socketTimeoutMS: 45000,
     });
-
     console.log("MongoDB Connected Successfully");
   } catch (error) {
     console.error("MongoDB Connection Failed:", error.message);
     console.error("Tip: Make sure your IP is whitelisted in MongoDB Atlas Network Access (0.0.0.0/0 for anywhere).");
     process.exit(1);
   }
+
+  // Handle errors/disconnects that happen AFTER the initial connect.
+  // Without these listeners, an 'error' event on the connection is
+  // unhandled and crashes the whole process (exit code 1) instead of
+  // letting mongoose's own reconnection logic handle it.
+  mongoose.connection.on("error", (err) => {
+    console.error("MongoDB runtime error:", err.message);
+  });
+
+  mongoose.connection.on("disconnected", () => {
+    console.warn("MongoDB disconnected — mongoose will attempt to reconnect");
+  });
+
+  mongoose.connection.on("reconnected", () => {
+    console.log("MongoDB reconnected");
+  });
 };
 
 module.exports = connectDB;
