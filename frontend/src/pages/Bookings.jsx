@@ -19,7 +19,7 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
     if (booking.status === "Cancelled") return -1;
     if (booking.status === "Completed") return 4;
     if (booking.status === "Confirmed") return 3;
-    if (booking.professional) return 2;
+    if (booking.status === "Assigned" || booking.professional) return 2;
     return 1;
   };
 
@@ -325,7 +325,7 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
                       ) : isCancelled ? (
                         <span style={{ color: "#6b7280" }}>Not Assigned (Cancelled)</span>
                       ) : (
-                        <span style={{ color: "#b45309" }}>No professional currently available</span>
+                        <span style={{ color: "#2563eb", fontWeight: 600 }}>Professional Assigned</span>
                       )}
                     </div>
                   </div>
