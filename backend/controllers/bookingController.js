@@ -10,6 +10,8 @@ const {
 } = require("../services/simulationService");
 const { refundPayment } = require("./paymentController");
 const metrics = require("../metrics");
+const { canTransition } = require("../services/booking/bookingStateMachine");
+
 
 const DEFAULT_BOOKING_AMOUNT = 500;
 
@@ -278,14 +280,15 @@ const acceptBooking = async (req, res) => {
       return res.status(404).json({ success: false, message: "Booking not found" });
     }
 
-    if (booking.status === "Cancelled" || booking.status === "Completed") {
+    if (!canTransition(booking.status, "Confirmed")) {
       return res.status(400).json({
         success: false,
-        message: `Cannot accept booking in ${booking.status} status`
+        message: `Cannot transition booking from ${booking.status} to Confirmed`
       });
     }
 
     booking.status = "Confirmed";
+
 
     if (booking.paymentMethod === "Cash on Delivery") {
       booking.paymentStatus = "Pending (Cash on Delivery)";
@@ -336,15 +339,15 @@ const completeBooking = async (req, res) => {
       });
     }
 
-    if (booking.status === "Cancelled") {
-      return res.status(400).json({ success: false, message: "Cannot complete a cancelled booking" });
-    }
-
-    if (booking.status === "Completed") {
-      return res.status(400).json({ success: false, message: "Booking is already completed" });
+    if (!canTransition(booking.status, "Completed")) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot transition booking from ${booking.status} to Completed`
+      });
     }
 
     booking.status = "Completed";
+
 
     if (booking.paymentMethod === "Cash on Delivery") {
       booking.paymentStatus = "Paid (Cash Collected)";
@@ -410,14 +413,15 @@ const cancelBooking = async (req, res) => {
       return res.status(404).json({ success: false, message: "Booking not found" });
     }
 
-    if (booking.status === "Cancelled" || booking.status === "Completed") {
+    if (!canTransition(booking.status, "Cancelled")) {
       return res.status(400).json({
         success: false,
-        message: `Booking cannot be cancelled. Current status is ${booking.status}`
+        message: `Cannot transition booking from ${booking.status} to Cancelled`
       });
     }
 
     booking.status = "Cancelled";
+
 
     if (booking.paymentStatus === "Paid") {
       const refund = await refundPayment(booking._id);
