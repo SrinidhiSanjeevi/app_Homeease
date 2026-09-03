@@ -37,6 +37,8 @@ const professionalSchema = new mongoose.Schema(
   }
 );
 
+professionalSchema.index({ category: 1, status: 1 }); // hot path: professional matching
+
 module.exports =
   mongoose.models.Professional ||
   mongoose.model("Professional", professionalSchema);
