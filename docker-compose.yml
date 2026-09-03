@@ -5,6 +5,7 @@ networks:
     driver: bridge
 
 services:
+
   backend:
     build:
       context: ./backend
@@ -21,14 +22,11 @@ services:
     networks:
       - homeease-net
     healthcheck:
-
-
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5000/health/ready"]
       interval: 15s
       timeout: 5s
       start_period: 15s
       retries: 3
-
 
   admin-backend:
     build:
@@ -47,14 +45,11 @@ services:
     networks:
       - homeease-net
     healthcheck:
-
-
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5001/health/ready"]
       interval: 15s
       timeout: 5s
       start_period: 15s
       retries: 3
-
 
   frontend:
     build:
@@ -78,3 +73,21 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+  sonarqube:
+    image: sonarqube:lts-community
+    container_name: sonarqube
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_logs:/opt/sonarqube/logs
+      - sonarqube_extensions:/opt/sonarqube/extensions
+    networks:
+      - homeease-net
+
+volumes:
+  sonarqube_data:
+  sonarqube_logs:
+  sonarqube_extensions:
