@@ -8,6 +8,16 @@ node_modules/
 
 # Frontend build
 frontend/dist/
+dist/
+
+# Test coverage
+coverage/
 
 # Sonar
 .sonar/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform/
