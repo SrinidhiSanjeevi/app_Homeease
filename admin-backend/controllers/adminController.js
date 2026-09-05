@@ -5,6 +5,8 @@ const Professional = require("../models/Professional");
 const EmergencyRequest = require("../models/EmergencyRequest");
 const { reassignWaitingWork } = require("../services/professionalMatcher");
 const { canTransition } = require("../services/booking/bookingStateMachine");
+const logger = require("../utils/logger");
+const { parsePagination, formatPaginationResult } = require("../utils/pagination");
 
 const getStats = async (req, res) => {
   try {
@@ -14,7 +16,8 @@ const getStats = async (req, res) => {
       totalServices,
       totalProfessionals,
       totalEmergencies,
-      pendingBookings,
+      createdBookings,
+      assignedBookings,
       confirmedBookings,
       cancelledBookings,
       completedBookings,
@@ -25,6 +28,7 @@ const getStats = async (req, res) => {
       Service.countDocuments(),
       Professional.countDocuments(),
       EmergencyRequest.countDocuments(),
+      Booking.countDocuments({ status: "Created" }),
       Booking.countDocuments({ status: "Assigned" }),
       Booking.countDocuments({ status: "Confirmed" }),
       Booking.countDocuments({ status: "Cancelled" }),
@@ -35,6 +39,8 @@ const getStats = async (req, res) => {
         .populate("user", "name email")
         .populate("service", "name category"),
     ]);
+
+    const pendingBookings = createdBookings + assignedBookings;
 
     const revenueAgg = await Booking.aggregate([
       { $match: { status: { $in: ["Confirmed", "Completed"] } } },
@@ -50,6 +56,8 @@ const getStats = async (req, res) => {
         totalServices,
         totalProfessionals,
         totalEmergencies,
+        createdBookings,
+        assignedBookings,
         pendingBookings,
         confirmedBookings,
         cancelledBookings,
@@ -59,17 +67,45 @@ const getStats = async (req, res) => {
       recentBookings,
     });
   } catch (error) {
-    console.error("Admin Stats Error:", error);
+    logger.error({ err: error.message }, "Admin Stats Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
 
 const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select("-password").sort({ createdAt: -1 });
-    res.status(200).json({ success: true, users });
+    const { page, limit, skip } = parsePagination(req.query);
+
+    const filter = {};
+    if (req.query.role && ["user", "admin", "professional"].includes(req.query.role)) {
+      filter.role = req.query.role;
+    }
+    if (req.query.search) {
+      const escaped = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const searchRegex = new RegExp(escaped, "i");
+      filter.$or = [{ name: searchRegex }, { email: searchRegex }];
+    }
+
+    const [total, users] = await Promise.all([
+      User.countDocuments(filter),
+      User.find(filter)
+        .select("name email role phone address createdAt updatedAt")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+    ]);
+
+    const pagination = formatPaginationResult({ page, limit, total });
+
+    res.status(200).json({
+      success: true,
+      ...pagination,
+      pagination,
+      users
+    });
   } catch (error) {
-    console.error("Get All Users Error:", error);
+    logger.error({ err: error.message }, "Get All Users Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -82,21 +118,55 @@ const deleteUser = async (req, res) => {
     await User.findByIdAndDelete(req.params.id);
     res.status(200).json({ success: true, message: "User deleted successfully" });
   } catch (error) {
-    console.error("Delete User Error:", error);
+    logger.error({ err: error.message }, "Delete User Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
 
 const getAllBookings = async (req, res) => {
   try {
-    const bookings = await Booking.find()
-      .sort({ createdAt: -1 })
-      .populate("user", "name email")
-      .populate("service", "name category price")
-      .populate("professional", "name category experience");
-    res.status(200).json({ success: true, bookings });
+    const { page, limit, skip } = parsePagination(req.query);
+
+    const filter = {};
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+    if (req.query.paymentStatus) {
+      filter.paymentStatus = req.query.paymentStatus;
+    }
+    if (req.query.user) {
+      filter.user = req.query.user;
+    }
+    if (req.query.professional) {
+      filter.professional = req.query.professional;
+    }
+    if (req.query.service) {
+      filter.service = req.query.service;
+    }
+
+    const [total, bookings] = await Promise.all([
+      Booking.countDocuments(filter),
+      Booking.find(filter)
+        .select("user service professional isCustom customCategory customDescription date timeSlot address contactNumber notes selectedProduct paymentMethod paymentStatus status totalPrice userRating userReview createdAt")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("user", "name email phone")
+        .populate("service", "name category price")
+        .populate("professional", "name category experience")
+        .lean()
+    ]);
+
+    const pagination = formatPaginationResult({ page, limit, total });
+
+    res.status(200).json({
+      success: true,
+      ...pagination,
+      pagination,
+      bookings
+    });
   } catch (error) {
-    console.error("Get All Bookings Error:", error);
+    logger.error({ err: error.message }, "Get All Bookings Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -104,7 +174,7 @@ const getAllBookings = async (req, res) => {
 const updateBookingStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const validStatuses = ["Assigned", "Confirmed", "Completed", "Cancelled"];
+    const validStatuses = ["Created", "Assigned", "Confirmed", "Completed", "Cancelled"];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ success: false, message: "Invalid status value" });
     }
@@ -127,7 +197,7 @@ const updateBookingStatus = async (req, res) => {
       { new: true }
     ).populate("user", "name email").populate("service", "name");
 
-    if (status === "Cancelled" && existingBooking?.professional) {
+    if ((status === "Cancelled" || status === "Completed") && existingBooking?.professional) {
       const freedProfessional = await Professional.findByIdAndUpdate(
         existingBooking.professional._id,
         { status: "Available" },
@@ -135,55 +205,154 @@ const updateBookingStatus = async (req, res) => {
       );
       if (freedProfessional) {
         reassignWaitingWork(freedProfessional.category).catch((err) =>
-          console.error("Auto-reassignment error:", err.message)
+          logger.error({ err: err.message }, "Auto-reassignment error")
         );
       }
     }
 
     res.status(200).json({ success: true, message: `Booking marked as ${status}`, booking });
   } catch (error) {
-    console.error("Update Booking Status Error:", error);
+    logger.error({ err: error.message }, "Update Booking Status Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
 
 const getAllServices = async (req, res) => {
   try {
-    const services = await Service.find().sort({ category: 1, name: 1 });
-    res.status(200).json({ success: true, services });
+    const { page, limit, skip } = parsePagination(req.query);
+
+    const filter = {};
+    if (req.query.category) {
+      filter.category = req.query.category;
+    }
+    if (req.query.active !== undefined) {
+      filter.active = req.query.active === "true" || req.query.active === true;
+    }
+    if (req.query.search) {
+      const escaped = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.name = new RegExp(escaped, "i");
+    }
+
+    const [total, services] = await Promise.all([
+      Service.countDocuments(filter),
+      Service.find(filter)
+        .select("name category price description imageKey imageAlt duration rating ratingCount bookingCount completedBookingCount active products createdAt")
+        .sort({ category: 1, name: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+    ]);
+
+    const pagination = formatPaginationResult({ page, limit, total });
+
+    res.status(200).json({
+      success: true,
+      ...pagination,
+      pagination,
+      services
+    });
   } catch (error) {
-    console.error("Get All Services Error:", error);
+    logger.error({ err: error.message }, "Get All Services Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
 
 const getAllProfessionals = async (req, res) => {
   try {
-    const professionals = await Professional.find().sort({ name: 1 });
-    res.status(200).json({ success: true, professionals });
+    const { page, limit, skip } = parsePagination(req.query);
+
+    const filter = {};
+    if (req.query.category) {
+      filter.category = req.query.category;
+    }
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+    if (req.query.active !== undefined) {
+      filter.active = req.query.active === "true" || req.query.active === true;
+    }
+    if (req.query.search) {
+      const escaped = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.name = new RegExp(escaped, "i");
+    }
+
+    const [total, professionals] = await Promise.all([
+      Professional.countDocuments(filter),
+      Professional.find(filter)
+        .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs createdAt")
+        .sort({ name: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+    ]);
+
+    const pagination = formatPaginationResult({ page, limit, total });
+
+    res.status(200).json({
+      success: true,
+      ...pagination,
+      pagination,
+      professionals
+    });
   } catch (error) {
-    console.error("Get All Professionals Error:", error);
+    logger.error({ err: error.message }, "Get All Professionals Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
 
 const getAllEmergencies = async (req, res) => {
   try {
-    const emergencies = await EmergencyRequest.find()
-      .sort({ createdAt: -1 })
-      .populate("user", "name email phone contactNumber")
-      .populate("assignedProfessional", "name category experience");
-    res.status(200).json({ success: true, emergencies });
+    const { page, limit, skip } = parsePagination(req.query);
+
+    const filter = {};
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+    if (req.query.category) {
+      filter.category = req.query.category;
+    }
+    if (req.query.severity) {
+      filter.severity = req.query.severity;
+    }
+
+    const [total, emergencies] = await Promise.all([
+      EmergencyRequest.countDocuments(filter),
+      EmergencyRequest.find(filter)
+        .select("user category severity description contactNumber address status assignedProfessional fireEngineDispatched fireEngineNumber emergencyServiceNumber estimatedArrivalMinutes resolvedAt createdAt")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("user", "name email phone contactNumber")
+        .populate("assignedProfessional", "name category experience")
+        .lean()
+    ]);
+
+    const pagination = formatPaginationResult({ page, limit, total });
+
+    res.status(200).json({
+      success: true,
+      ...pagination,
+      pagination,
+      emergencies
+    });
   } catch (error) {
-    console.error("Get All Emergencies Error:", error);
+    logger.error({ err: error.message }, "Get All Emergencies Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
 
 const updateEmergencyStatus = async (req, res) => {
   try {
-    const { status } = req.body;
-    const validStatuses = ["Dispatched", "Assigned", "En Route", "On Scene", "Resolved", "Cancelled"];
+    let { status } = req.body;
+    const statusMap = {
+      "En Route": "OnTheWay",
+      "On Scene": "Arrived",
+      "Assigned": "Dispatched"
+    };
+    if (statusMap[status]) {
+      status = statusMap[status];
+    }
+    const validStatuses = ["Dispatched", "OnTheWay", "Arrived", "Resolved", "Cancelled"];
     if (!status || !validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -208,7 +377,7 @@ const updateEmergencyStatus = async (req, res) => {
 
         if (freedProfessional) {
           reassignWaitingWork(freedProfessional.category).catch((err) =>
-            console.error("Auto-reassignment error:", err.message)
+            logger.error({ err: err.message }, "Auto-reassignment error")
           );
         }
       }
@@ -217,7 +386,7 @@ const updateEmergencyStatus = async (req, res) => {
     await emergency.save();
     res.status(200).json({ success: true, message: `Emergency status updated to ${status}`, emergency });
   } catch (error) {
-    console.error("Update Emergency Status Error:", error);
+    logger.error({ err: error.message }, "Update Emergency Status Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -249,7 +418,7 @@ const createService = async (req, res) => {
 
     res.status(201).json({ success: true, message: "Service created successfully", service });
   } catch (error) {
-    console.error("Create Service Error:", error);
+    logger.error({ err: error.message }, "Create Service Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -260,7 +429,7 @@ const updateService = async (req, res) => {
     if (!service) return res.status(404).json({ success: false, message: "Service not found" });
     res.status(200).json({ success: true, message: "Service updated successfully", service });
   } catch (error) {
-    console.error("Update Service Error:", error);
+    logger.error({ err: error.message }, "Update Service Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -282,7 +451,7 @@ const deleteService = async (req, res) => {
     if (!service) return res.status(404).json({ success: false, message: "Service not found" });
     res.status(200).json({ success: true, message: "Service deleted successfully" });
   } catch (error) {
-    console.error("Delete Service Error:", error);
+    logger.error({ err: error.message }, "Delete Service Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -313,7 +482,7 @@ const createProfessional = async (req, res) => {
 
     res.status(201).json({ success: true, message: "Professional added successfully", professional });
   } catch (error) {
-    console.error("Create Professional Error:", error);
+    logger.error({ err: error.message }, "Create Professional Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -325,13 +494,13 @@ const updateProfessional = async (req, res) => {
 
     if (req.body.status === "Available") {
       reassignWaitingWork(professional.category).catch((err) =>
-        console.error("Auto-reassignment error:", err.message)
+        logger.error({ err: err.message }, "Auto-reassignment error")
       );
     }
 
     res.status(200).json({ success: true, message: "Professional updated successfully", professional });
   } catch (error) {
-    console.error("Update Professional Error:", error);
+    logger.error({ err: error.message }, "Update Professional Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -353,7 +522,7 @@ const deleteProfessional = async (req, res) => {
     if (!professional) return res.status(404).json({ success: false, message: "Professional not found" });
     res.status(200).json({ success: true, message: "Professional deleted successfully" });
   } catch (error) {
-    console.error("Delete Professional Error:", error);
+    logger.error({ err: error.message }, "Delete Professional Error");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
