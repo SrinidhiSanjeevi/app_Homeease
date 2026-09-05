@@ -6,15 +6,16 @@ const mongoose = require("mongoose");
 
 dotenv.config();
 
+const logger = require("./utils/logger");
+
 // ─── Startup validation ───────────────────────────────────────────────────────
 const REQUIRED_ENV = ["MONGO_URI", "JWT_SECRET"];
 const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
 if (missing.length > 0) {
-  console.error(`[Startup] FATAL: Missing required environment variables: ${missing.join(", ")}`);
+  logger.fatal(`[Startup] FATAL: Missing required environment variables: ${missing.join(", ")}`);
   process.exit(1);
 }
 
-const logger = require("./utils/logger");
 const connectDB = require("./config/db");
 const metrics = require("./metrics");
 const { startMetricsCollector } = require("./services/metricsCollector");
@@ -54,7 +55,12 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({
+  limit: "1mb",
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(express.urlencoded({ extended: false }));
 
 // ─── Request correlation ID ───────────────────────────────────────────────────

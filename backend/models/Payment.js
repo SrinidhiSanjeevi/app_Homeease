@@ -44,11 +44,21 @@ const paymentSchema = new mongoose.Schema(
     failureReason: {
       type: String,
       default: ""
+    },
+    webhookEventId: {
+      type: String
+    },
+    webhookProcessedAt: {
+      type: Date
     }
   },
   {
     timestamps: true
   }
 );
+
+paymentSchema.index({ transactionId: 1 });
+paymentSchema.index({ razorpayOrderId: 1 });
+paymentSchema.index({ webhookEventId: 1 }, { sparse: true });
 
 module.exports = mongoose.model("Payment", paymentSchema);
