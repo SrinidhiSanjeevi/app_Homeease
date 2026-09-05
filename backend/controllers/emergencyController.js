@@ -1,48 +1,12 @@
 const EmergencyRequest = require("../models/EmergencyRequest");
 const Professional = require("../models/Professional");
-const { reassignWaitingWork } = require("../services/professionalMatcher");
-
-const SEVERITY_CONFIG = {
-  Low: {
-    fireEngineDispatched: false,
-    fireEngineNumber: null,
-    emergencyServiceNumber: null,
-    estimatedArrivalMinutes: 30,
-    label: "Standard Response"
-  },
-  Medium: {
-    fireEngineDispatched: false,
-    fireEngineNumber: null,
-    emergencyServiceNumber: "1800-SERV-HELP",
-    estimatedArrivalMinutes: 20,
-    label: "Priority Response"
-  },
-  High: {
-    fireEngineDispatched: true,
-    fireEngineNumber: "FE-2024",
-    emergencyServiceNumber: "101",
-    estimatedArrivalMinutes: 10,
-    label: "High Priority — Fire/Emergency Services Alerted"
-  },
-  Critical: {
-    fireEngineDispatched: true,
-    fireEngineNumber: "FE-ALPHA-01",
-    emergencyServiceNumber: "101",
-    estimatedArrivalMinutes: 5,
-    label: "CRITICAL — All Emergency Units Dispatched"
-  }
-};
-
-const CATEGORY_DEFAULT_SEVERITY = {
-  Electrical: "High",
-  Fire: "Critical",
-  Medical: "Critical",
-  Plumbing: "Medium",
-  Security: "High"
-};
-
-// Categories that don't map to a real professional roster yet.
-const CATEGORIES_WITHOUT_DEDICATED_ROSTER = new Set(["Fire", "Medical"]);
+const logger = require("../utils/logger");
+const {
+  SEVERITY_CONFIG,
+  CATEGORY_DEFAULT_SEVERITY,
+  VALID_EMERGENCY_CATEGORIES
+} = require("../services/customerCore/emergencyConfig");
+const { claimProfessional, reassignWaitingWork } = require("../services/customerCore");
 
 // DISPATCH EMERGENCY SERVICE
 const dispatchEmergency = async (req, res) => {
@@ -50,11 +14,10 @@ const dispatchEmergency = async (req, res) => {
     const { category, severity, description, contactNumber, address } = req.body;
     const userId = req.user._id;
 
-    const validCategories = ["Electrical", "Plumbing", "Security", "Fire", "Medical"];
-    if (!category || !validCategories.includes(category)) {
+    if (!category || !VALID_EMERGENCY_CATEGORIES.includes(category)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid emergency category. Must be one of: ${validCategories.join(", ")}.`
+        message: `Invalid emergency category. Must be one of: ${VALID_EMERGENCY_CATEGORIES.join(", ")}.`
       });
     }
 
@@ -69,14 +32,7 @@ const dispatchEmergency = async (req, res) => {
 
     const severityConfig = SEVERITY_CONFIG[resolvedSeverity];
 
-    const professional = await Professional.findOneAndUpdate(
-      {
-        category: CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(category) ? { $exists: true } : category,
-        status: "Available"
-      },
-      { $set: { status: "Busy" } },
-      { sort: { rating: -1 }, new: true }
-    );
+    const professional = await claimProfessional(category);
 
     const emergency = await EmergencyRequest.create({
       user: userId,
@@ -118,7 +74,7 @@ const dispatchEmergency = async (req, res) => {
       emergency: populatedEmergency
     });
   } catch (error) {
-    console.error("EMERGENCY DISPATCH ERROR:", error);
+    logger.error({ err: error.message }, "EMERGENCY DISPATCH ERROR");
     return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -157,7 +113,7 @@ const cancelEmergency = async (req, res) => {
       // "No specialist available" stayed stuck even after someone freed up.
       if (freedProfessional) {
         reassignWaitingWork(freedProfessional.category).catch((err) =>
-          console.error("Auto-reassignment error:", err.message)
+          logger.error({ err: err.message }, "Auto-reassignment error")
         );
       }
     }
@@ -172,7 +128,7 @@ const cancelEmergency = async (req, res) => {
       emergency: populatedEmergency
     });
   } catch (error) {
-    console.error("CANCEL EMERGENCY ERROR:", error);
+    logger.error({ err: error.message }, "CANCEL EMERGENCY ERROR");
     return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -189,7 +145,7 @@ const getActiveEmergencies = async (req, res) => {
       .sort({ createdAt: -1 });
     return res.status(200).json({ success: true, emergencies });
   } catch (error) {
-    console.error("GET EMERGENCIES ERROR:", error);
+    logger.error({ err: error.message }, "GET EMERGENCIES ERROR");
     return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -203,7 +159,7 @@ const getAllEmergencies = async (req, res) => {
       .sort({ createdAt: -1 });
     return res.status(200).json({ success: true, emergencies });
   } catch (error) {
-    console.error("GET ALL EMERGENCIES ERROR:", error);
+    logger.error({ err: error.message }, "GET ALL EMERGENCIES ERROR");
     return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };

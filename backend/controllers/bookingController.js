@@ -1,29 +1,25 @@
+const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
 const Service = require("../models/Service");
 const Professional = require("../models/Professional");
 const Payment = require("../models/Payment");
 const Notification = require("../models/Notification");
-const { reassignWaitingWork } = require("../services/professionalMatcher");
+const { reassignWaitingWork, claimProfessional, canTransition } = require("../services/customerCore");
 const {
   processNotificationSimulation,
   processCompletionEmailNotification
 } = require("../services/simulationService");
-const { refundPayment } = require("./paymentController");
+const { refundPayment } = require("../services/payment/paymentService");
 const metrics = require("../metrics");
-const { canTransition } = require("../services/booking/bookingStateMachine");
 const logger = require("../utils/logger");
 
 const DEFAULT_BOOKING_AMOUNT = 500;
 
 // ============================================================
-// CLAIM AVAILABLE PROFESSIONAL
+// CLAIM AVAILABLE PROFESSIONAL (Delegates to Authoritative Matcher)
 // ============================================================
-async function claimAvailableProfessional(filter = {}) {
-  return Professional.findOneAndUpdate(
-    { ...filter, status: "Available", active: true },
-    { $set: { status: "Busy" } },
-    { sort: { rating: -1 }, new: true }
-  );
+async function claimAvailableProfessional(filter = {}, session = null) {
+  return claimProfessional(filter, { session });
 }
 
 // ============================================================
@@ -31,7 +27,6 @@ async function claimAvailableProfessional(filter = {}) {
 // ============================================================
 const createBooking = async (req, res) => {
   let queueIncremented = false;
-  let claimedProfessional = null;
 
   try {
     const {
@@ -51,38 +46,96 @@ const createBooking = async (req, res) => {
       queueIncremented = true;
     }
 
+    const rawPaymentMethod = paymentMethod || "Razorpay";
+    const normalizedRawPaymentMethod = String(rawPaymentMethod).trim();
+
+    const isCash =
+      normalizedRawPaymentMethod === "Cash" ||
+      normalizedRawPaymentMethod === "Cash on Delivery" ||
+      normalizedRawPaymentMethod.toLowerCase().includes("cash");
+
+    const normalizedPaymentMethod = isCash ? "Cash on Delivery" : "Razorpay";
+    const bookingAmount = Number(totalPrice) > 0 ? Number(totalPrice) : DEFAULT_BOOKING_AMOUNT;
+
     let service = null;
     let professional = null;
+    let booking = null;
 
-    if (isCustom) {
-      const targetCategory = customCategory || "Spa";
-      professional = await claimAvailableProfessional({ category: targetCategory });
-      if (!professional) {
-        professional = await claimAvailableProfessional();
-      }
-    } else {
-      if (serviceId) {
-        service = await Service.findById(serviceId);
-      }
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        if (isCustom) {
+          const targetCategory = customCategory || "Spa";
+          professional = await claimAvailableProfessional({ category: targetCategory }, session);
+          if (!professional) {
+            professional = await claimAvailableProfessional({}, session);
+          }
+        } else {
+          if (serviceId) {
+            service = await Service.findById(serviceId).session(session);
+          }
 
-      if (professionalId) {
-        professional = await Professional.findOneAndUpdate(
-          { _id: professionalId, status: "Available", active: true },
-          { $set: { status: "Busy" } },
-          { new: true }
+          if (professionalId) {
+            professional = await Professional.findOneAndUpdate(
+              { _id: professionalId, status: "Available", active: true },
+              { $set: { status: "Busy" } },
+              { new: true, session }
+            );
+          }
+
+          if (!professional && service) {
+            professional = await claimAvailableProfessional({ category: service.category }, session);
+          }
+
+          if (!professional) {
+            professional = await claimAvailableProfessional({}, session);
+          }
+        }
+
+        const [createdBooking] = await Booking.create(
+          [
+            {
+              user: userId,
+              service: isCustom ? null : service ? service._id : null,
+              isCustom: !!isCustom,
+              customCategory: customCategory || null,
+              customDescription: customDescription || null,
+              professional: professional ? professional._id : null,
+              date: date ? new Date(date) : new Date(),
+              timeSlot: timeSlot || "09:00 AM - 11:00 AM",
+              address: address || "Default Address",
+              contactNumber: contactNumber || "0000000000",
+              notes: notes || "",
+              selectedProduct: selectedProduct || null,
+              paymentMethod: normalizedPaymentMethod,
+              paymentStatus: isCash ? "Pending (Cash on Delivery)" : "Pending",
+              status: professional ? "Confirmed" : "Assigned",
+              totalPrice: bookingAmount
+            }
+          ],
+          { session }
         );
-      }
+        booking = createdBooking;
 
-      if (!professional && service) {
-        professional = await claimAvailableProfessional({ category: service.category });
-      }
-
-      if (!professional) {
-        professional = await claimAvailableProfessional();
-      }
+        if (isCash) {
+          await Payment.create(
+            [
+              {
+                booking: booking._id,
+                user: userId,
+                amount: bookingAmount,
+                status: "Pending",
+                paymentMethod: "Cash on Delivery",
+                transactionId: `COD-${booking._id}`
+              }
+            ],
+            { session }
+          );
+        }
+      });
+    } finally {
+      await session.endSession();
     }
-
-    claimedProfessional = professional;
 
     const serviceType = isCustom
       ? (customCategory || "Custom")
@@ -97,52 +150,13 @@ const createBooking = async (req, res) => {
       queueIncremented = false;
     }
 
-    const rawPaymentMethod = paymentMethod || "Razorpay";
-    const normalizedRawPaymentMethod = String(rawPaymentMethod).trim();
-
-    const isCash =
-      normalizedRawPaymentMethod === "Cash" ||
-      normalizedRawPaymentMethod === "Cash on Delivery" ||
-      normalizedRawPaymentMethod.toLowerCase().includes("cash");
-
-    const normalizedPaymentMethod = isCash ? "Cash on Delivery" : "Razorpay";
-    const bookingAmount = Number(totalPrice) > 0 ? Number(totalPrice) : DEFAULT_BOOKING_AMOUNT;
-
-    const booking = await Booking.create({
-      user: userId,
-      service: isCustom ? null : service ? service._id : null,
-      isCustom: !!isCustom,
-      customCategory: customCategory || null,
-      customDescription: customDescription || null,
-      professional: professional ? professional._id : null,
-      date: date ? new Date(date) : new Date(),
-      timeSlot: timeSlot || "09:00 AM - 11:00 AM",
-      address: address || "Default Address",
-      contactNumber: contactNumber || "0000000000",
-      notes: notes || "",
-      selectedProduct: selectedProduct || null,
-      paymentMethod: normalizedPaymentMethod,
-      paymentStatus: isCash ? "Pending (Cash on Delivery)" : "Pending",
-      status: professional ? "Confirmed" : "Assigned",
-      totalPrice: bookingAmount
-    });
-
     if (isCash) {
-      await Payment.create({
-        booking: booking._id,
-        user: userId,
-        amount: bookingAmount,
-        status: "Pending",
-        paymentMethod: "Cash on Delivery",
-        transactionId: `COD-${booking._id}`
-      });
-
       if (metrics && metrics.bookingsConfirmed) metrics.bookingsConfirmed.inc();
       if (metrics && metrics.activeBookings) metrics.activeBookings.inc();
     }
 
     processNotificationSimulation(booking, userId).catch((notificationError) => {
-      console.error("Background email notification error:", notificationError.message);
+      logger.error({ err: notificationError.message }, "Background email notification error");
     });
 
     await booking.populate("professional");
@@ -157,15 +171,7 @@ const createBooking = async (req, res) => {
       booking
     });
   } catch (error) {
-    console.error("CREATE BOOKING ERROR:", error);
-
-    if (claimedProfessional && claimedProfessional._id) {
-      try {
-        await Professional.findByIdAndUpdate(claimedProfessional._id, { status: "Available" });
-      } catch (releaseError) {
-        console.error("FAILED TO RELEASE PROFESSIONAL:", releaseError.message);
-      }
-    }
+    logger.error({ err: error.message }, "CREATE BOOKING ERROR");
 
     if (metrics && metrics.queueLength && queueIncremented) {
       metrics.queueLength.dec();
@@ -201,7 +207,7 @@ const getUserBookings = async (req, res) => {
           ]);
           return { ...booking, payments: payments || [], notifications: notifications || [] };
         } catch (error) {
-          console.error("BOOKING HISTORY ENRICHMENT ERROR:", error.message);
+          logger.error({ err: error.message }, "BOOKING HISTORY ENRICHMENT ERROR");
           return { ...booking, payments: [], notifications: [] };
         }
       })
@@ -209,7 +215,7 @@ const getUserBookings = async (req, res) => {
 
     return res.status(200).json({ success: true, bookings: enrichedBookings });
   } catch (error) {
-    console.error("GET USER BOOKINGS ERROR:", error);
+    logger.error({ err: error.message }, "GET USER BOOKINGS ERROR");
     return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -245,7 +251,7 @@ const getProfessionalBookings = async (req, res) => {
           ]);
           return { ...booking, payments: payments || [], notifications: notifications || [] };
         } catch (error) {
-          console.error("PROFESSIONAL BOOKING ENRICHMENT ERROR:", error.message);
+          logger.error({ err: error.message }, "PROFESSIONAL BOOKING ENRICHMENT ERROR");
           return { ...booking, payments: [], notifications: [] };
         }
       })
@@ -253,7 +259,7 @@ const getProfessionalBookings = async (req, res) => {
 
     return res.status(200).json({ success: true, bookings: enrichedBookings });
   } catch (error) {
-    console.error("GET PROFESSIONAL BOOKINGS ERROR:", error);
+    logger.error({ err: error.message }, "GET PROFESSIONAL BOOKINGS ERROR");
     return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -300,7 +306,7 @@ const acceptBooking = async (req, res) => {
 
     return res.status(200).json({ success: true, message: "Booking accepted & confirmed!", booking });
   } catch (error) {
-    console.error("ACCEPT BOOKING ERROR:", error);
+    logger.error({ err: error.message }, "ACCEPT BOOKING ERROR");
     return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -380,7 +386,7 @@ const completeBooking = async (req, res) => {
     }
 
     processCompletionEmailNotification(booking, booking.user).catch((emailError) => {
-      console.error("Background completion email error:", emailError.message);
+      logger.error({ err: emailError.message }, "Background completion email error");
     });
 
     if (metrics && metrics.bookingsCompleted) metrics.bookingsCompleted.inc();
@@ -392,7 +398,7 @@ const completeBooking = async (req, res) => {
       booking
     });
   } catch (error) {
-    console.error("COMPLETE BOOKING ERROR:", error);
+    logger.error({ err: error.message }, "COMPLETE BOOKING ERROR");
     return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -450,7 +456,7 @@ const cancelBooking = async (req, res) => {
 
     return res.status(200).json({ success: true, message: "Booking cancelled successfully", booking });
   } catch (error) {
-    console.error("CANCEL BOOKING ERROR:", error);
+    logger.error({ err: error.message }, "CANCEL BOOKING ERROR");
     return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -534,7 +540,7 @@ const rateBooking = async (req, res) => {
 
     return res.status(200).json({ success: true, message: "Thank you for your rating!", booking });
   } catch (error) {
-    console.error("RATE BOOKING ERROR:", error);
+    logger.error({ err: error.message }, "RATE BOOKING ERROR");
     return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
