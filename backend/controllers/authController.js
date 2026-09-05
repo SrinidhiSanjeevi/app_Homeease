@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const logger = require("../utils/logger");
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -41,7 +42,7 @@ const signup = async (req, res) => {
     // Never log req.body here — it contains the raw password.
     res.status(201).json({ success: true, message: "User registered successfully" });
   } catch (error) {
-    console.error("SIGNUP ERROR:", error);
+    logger.error({ err: error.message }, "SIGNUP ERROR");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };
@@ -86,7 +87,7 @@ const login = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("LOGIN ERROR:", error);
+    logger.error({ err: error.message }, "LOGIN ERROR");
     res.status(500).json({ success: false, message: "Something went wrong, please try again" });
   }
 };

@@ -4,6 +4,7 @@ const Booking = require("../models/Booking");
 const User = require("../models/User");
 const EmergencyRequest = require("../models/EmergencyRequest");
 const metrics = require("../metrics");
+const logger = require("../utils/logger");
 
 const POLL_INTERVAL_MS = 30000;
 const BOOKING_STATUSES = ["Assigned", "Confirmed", "Completed", "Cancelled"];
@@ -48,9 +49,9 @@ async function collectDbMetrics() {
       metrics.bookingsByStatusGauge.labels(status).set(statusCounts[i]);
     });
 
-    console.log("[metricsCollector] DB-truth gauges refreshed");
+    logger.info("[metricsCollector] DB-truth gauges refreshed");
   } catch (error) {
-    console.error("[metricsCollector] Failed to refresh DB metrics:", error.message);
+    logger.error({ err: error.message }, "[metricsCollector] Failed to refresh DB metrics");
   }
 }
 
