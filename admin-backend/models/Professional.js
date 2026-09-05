@@ -24,6 +24,8 @@ const professionalSchema = new mongoose.Schema(
 );
 
 professionalSchema.index({ category: 1, status: 1, active: 1 });
+professionalSchema.index({ name: 1 });
+professionalSchema.index({ createdAt: -1 });
 professionalSchema.index({ rating: -1, ratingCount: -1 });
 
 module.exports =

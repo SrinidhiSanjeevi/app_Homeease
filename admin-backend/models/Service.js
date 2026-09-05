@@ -31,6 +31,8 @@ const serviceSchema = new mongoose.Schema(
 );
 
 serviceSchema.index({ category: 1, active: 1 });
+serviceSchema.index({ category: 1, name: 1 });
+serviceSchema.index({ createdAt: -1 });
 serviceSchema.index({ rating: -1, ratingCount: -1 });
 serviceSchema.index({ bookingCount: -1, rating: -1 });
 

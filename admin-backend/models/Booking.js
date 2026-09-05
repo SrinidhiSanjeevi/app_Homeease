@@ -24,4 +24,10 @@ const bookingSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+bookingSchema.index({ createdAt: -1 });
+bookingSchema.index({ status: 1, createdAt: -1 });
+bookingSchema.index({ paymentStatus: 1 });
+bookingSchema.index({ user: 1, createdAt: -1 });
+bookingSchema.index({ professional: 1 });
+
 module.exports = mongoose.models.Booking || mongoose.model("Booking", bookingSchema);

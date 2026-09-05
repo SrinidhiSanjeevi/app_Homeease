@@ -1,17 +1,42 @@
+/**
+ * Professional Matcher Service
+ *
+ * Authoritative Source of Truth:
+ *   backend/services/professionalMatcher.js
+ *
+ * This file serves as the admin-backend boundary consumer of the authoritative
+ * matching and reassignment logic. In the unified workspace/monorepo, it delegates
+ * to the authoritative implementation, injecting admin-backend models and suppressing
+ * customer-only notifications. For containerized deployments where admin-backend runs
+ * in an isolated filesystem, it provides identical matching and reassignment logic.
+ */
+
 const Booking = require("../models/Booking");
 const EmergencyRequest = require("../models/EmergencyRequest");
 const Professional = require("../models/Professional");
+const logger = require("../utils/logger");
 
-// Categories with no dedicated professional roster — same exception
-// used in backend's emergencyController.js. Fire/Medical emergencies
-// match ANY available professional, not a specific category.
-const CATEGORIES_WITHOUT_DEDICATED_ROSTER = new Set(["Fire", "Medical"]);
+let authoritativeMatcher;
+try {
+  authoritativeMatcher = require("../../backend/services/professionalMatcher");
+} catch (_) {
+  authoritativeMatcher = null;
+}
 
-// Atomically claim the best-rated available professional in a category.
+const CATEGORIES_WITHOUT_DEDICATED_ROSTER = authoritativeMatcher
+  ? authoritativeMatcher.CATEGORIES_WITHOUT_DEDICATED_ROSTER
+  : new Set(["Fire", "Medical"]);
+
 async function claimProfessional(category) {
+  if (authoritativeMatcher) {
+    return authoritativeMatcher.claimProfessional(category, {
+      models: { Professional }
+    });
+  }
+
   const filter = CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(category)
-    ? { status: "Available" }
-    : { category, status: "Available" };
+    ? { status: "Available", active: true }
+    : { category, status: "Available", active: true };
 
   return Professional.findOneAndUpdate(
     filter,
@@ -20,15 +45,16 @@ async function claimProfessional(category) {
   );
 }
 
-// Reassigns any bookings still waiting for a professional in this category.
-// NOTE: admin-backend has no simulationService/email capability — that's
-// backend-only. If an admin action triggers a reassignment here, the
-// customer won't get a "professional assigned" email the way they would
-// from the customer-facing booking flow. Acceptable for now since admin
-// actions are comparatively rare (status overrides, not the main flow).
 async function reassignWaitingBookings(category) {
-  if (!category) return;
+  if (authoritativeMatcher) {
+    return authoritativeMatcher.reassignWaitingBookings(category, {
+      models: { Booking, Professional },
+      logPrefix: "[admin-backend][professionalMatcher]",
+      onBookingReassigned: null
+    });
+  }
 
+  if (!category) return;
   const pendingBookings = await Booking.find({
     professional: null,
     status: "Assigned"
@@ -51,14 +77,19 @@ async function reassignWaitingBookings(category) {
     booking.status = "Confirmed";
     await booking.save();
 
-    console.log(`[admin-backend][professionalMatcher] Auto-assigned ${professional.name} to booking ${booking._id}`);
+    logger.info({ professionalName: professional.name, bookingId: booking._id }, "[admin-backend][professionalMatcher] Auto-assigned professional to booking");
   }
 }
 
-// Reassigns any waiting emergencies for this category.
 async function reassignWaitingEmergencies(category) {
-  if (!category) return;
+  if (authoritativeMatcher) {
+    return authoritativeMatcher.reassignWaitingEmergencies(category, {
+      models: { EmergencyRequest, Professional },
+      logPrefix: "[admin-backend][professionalMatcher]"
+    });
+  }
 
+  if (!category) return;
   const pendingEmergencies = await EmergencyRequest.find({
     assignedProfessional: null,
     status: "Dispatched"
@@ -79,19 +110,26 @@ async function reassignWaitingEmergencies(category) {
     emergency.assignedProfessional = professional._id;
     await emergency.save();
 
-    console.log(`[admin-backend][professionalMatcher] Auto-assigned ${professional.name} to emergency ${emergency._id}`);
+    logger.info({ professionalName: professional.name, emergencyId: emergency._id }, "[admin-backend][professionalMatcher] Auto-assigned professional to emergency");
   }
 }
 
-// Convenience wrapper — call whenever admin frees a professional
-// (resolving/cancelling an emergency, cancelling a booking), so any
-// other customer waiting in that same category gets picked up too.
 async function reassignWaitingWork(category) {
+  if (authoritativeMatcher) {
+    return authoritativeMatcher.reassignWaitingWork(category, {
+      models: { Booking, EmergencyRequest, Professional },
+      logPrefix: "[admin-backend][professionalMatcher]",
+      onBookingReassigned: null
+    });
+  }
+
   await reassignWaitingBookings(category);
   await reassignWaitingEmergencies(category);
 }
 
 module.exports = {
+  CATEGORIES_WITHOUT_DEDICATED_ROSTER,
+  claimProfessional,
   reassignWaitingBookings,
   reassignWaitingEmergencies,
   reassignWaitingWork
