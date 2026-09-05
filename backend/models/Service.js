@@ -1,51 +1,132 @@
 const mongoose = require("mongoose");
 
 const serviceProductSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  brand: { type: String, required: true },
-  extraPrice: { type: Number, default: 0 }
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+
+  brand: {
+    type: String,
+    required: true,
+    trim: true
+  },
+
+  extraPrice: {
+    type: Number,
+    default: 0,
+    min: 0
+  }
 });
 
 const serviceSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true
+      required: true,
+      trim: true,
+      index: true
     },
+
     category: {
       type: String,
       required: true,
-      enum: ["Spa", "Electrician", "Carpentry", "Plumbing", "Security", "Repair"]
+      enum: [
+        "Spa",
+        "Electrician",
+        "Carpentry",
+        "Plumbing",
+        "Security",
+        "Repair"
+      ],
+      index: true
     },
+
     price: {
       type: Number,
-      required: true
+      required: true,
+      min: 0
     },
+
     description: {
       type: String,
-      required: true
+      required: true,
+      trim: true,
+      maxlength: 1000
     },
-    image: {
+
+    imageKey: {
       type: String,
-      required: true
+      required: true,
+      trim: true
     },
+
+    imageAlt: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
     duration: {
       type: String,
-      required: true // e.g., "1 hour", "1.5 hours"
+      required: true,
+      trim: true
     },
+
     rating: {
       type: Number,
-      default: 4.5
+      default: 0,
+      min: 0,
+      max: 5
     },
-    numRatings: {
+
+    ratingCount: {
       type: Number,
-      default: 1
+      default: 0,
+      min: 0
     },
-    products: [serviceProductSchema] // Custom product/brand selections available for this service
+
+    bookingCount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    completedBookingCount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    active: {
+      type: Boolean,
+      default: true,
+      index: true
+    },
+
+    products: [serviceProductSchema]
   },
   {
     timestamps: true
   }
 );
 
-module.exports = mongoose.model("Service", serviceSchema);
+serviceSchema.index({
+  category: 1,
+  active: 1
+});
+
+serviceSchema.index({
+  rating: -1,
+  ratingCount: -1
+});
+
+serviceSchema.index({
+  bookingCount: -1,
+  rating: -1
+});
+
+module.exports =
+  mongoose.models.Service ||
+  mongoose.model("Service", serviceSchema);

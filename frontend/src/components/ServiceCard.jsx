@@ -26,8 +26,8 @@ export default function ServiceCard({ service, onBook }) {
     >
       <div style={{ position: "relative", height: "200px", overflow: "hidden" }}>
         <img
-          src={service.image}
-          alt={service.name}
+          src={service.imageUrl || service.image}
+          alt={service.imageAlt || service.name}
           style={{
             width: "100%",
             height: "100%",

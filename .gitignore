@@ -20,4 +20,10 @@ coverage/
 *.tfstate
 *.tfstate.*
 *.tfplan
+tfplan
+terraform.tfvars
+terraform.tfvars.json
 .terraform/
+
+# SonarQube working directory (created by pipeline scanner)
+.sonarwork/

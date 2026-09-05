@@ -1045,6 +1045,9 @@ export default function Emergency({
                             src={
                               emergency
                                 .assignedProfessional
+                                .imageUrl ||
+                              emergency
+                                .assignedProfessional
                                 .image ||
                               `https://ui-avatars.com/api/?name=${encodeURIComponent(
                                 emergency
@@ -1053,6 +1056,9 @@ export default function Emergency({
                               )}&background=6366f1&color=fff`
                             }
                             alt={
+                              emergency
+                                .assignedProfessional
+                                .imageAlt ||
                               emergency
                                 .assignedProfessional
                                 .name
