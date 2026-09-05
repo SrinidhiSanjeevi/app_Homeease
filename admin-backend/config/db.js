@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const logger = require("../utils/logger");
 
 const connectDB = async () => {
   try {
@@ -10,11 +11,11 @@ const connectDB = async () => {
       heartbeatFrequencyMS: 30000
     });
 
-    console.log("Admin Microservice MongoDB Connected Successfully");
+    logger.info("Admin Microservice MongoDB Connected Successfully");
   } catch (error) {
-    console.error(
-      "Admin Microservice MongoDB Connection Failed:",
-      error.message
+    logger.fatal(
+      { err: error.message },
+      "Admin Microservice MongoDB Connection Failed"
     );
     process.exit(1);
   }
@@ -24,15 +25,15 @@ const connectDB = async () => {
   // unhandled and crashes the whole process (exit code 1) instead of
   // letting mongoose's own reconnection logic handle it.
   mongoose.connection.on("error", (err) => {
-    console.error("Admin Microservice MongoDB runtime error:", err.message);
+    logger.error({ err: err.message }, "Admin Microservice MongoDB runtime error");
   });
 
   mongoose.connection.on("disconnected", () => {
-    console.warn("Admin Microservice MongoDB disconnected — mongoose will attempt to reconnect");
+    logger.warn("Admin Microservice MongoDB disconnected — mongoose will attempt to reconnect");
   });
 
   mongoose.connection.on("reconnected", () => {
-    console.log("Admin Microservice MongoDB reconnected");
+    logger.info("Admin Microservice MongoDB reconnected");
   });
 };
 

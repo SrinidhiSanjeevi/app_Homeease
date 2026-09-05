@@ -19,4 +19,8 @@ const emergencyRequestSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+emergencyRequestSchema.index({ createdAt: -1 });
+emergencyRequestSchema.index({ status: 1, createdAt: -1 });
+emergencyRequestSchema.index({ category: 1, createdAt: -1 });
+
 module.exports = mongoose.models.EmergencyRequest || mongoose.model("EmergencyRequest", emergencyRequestSchema);
