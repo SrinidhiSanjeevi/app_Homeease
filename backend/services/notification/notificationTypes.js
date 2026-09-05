@@ -19,7 +19,10 @@ const NOTIFICATION_CHANNELS = Object.freeze({
 
 const NOTIFICATION_STATUS = Object.freeze({
   PENDING: "Pending",
+  PROCESSING: "Processing",
+  SENT: "Sent",
   SUCCESS: "Success",
+  FAILED: "Failed",
   FAILURE: "Failure"
 });
 

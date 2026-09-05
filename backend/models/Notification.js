@@ -19,8 +19,10 @@ const notificationSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Success", "Failure"],
-      required: true
+      enum: ["Pending", "Processing", "Sent", "Success", "Failed", "Failure"],
+      default: "Pending",
+      required: true,
+      index: true
     },
     recipient: {
       type: String,
@@ -29,11 +31,43 @@ const notificationSchema = new mongoose.Schema(
     message: {
       type: String,
       required: true
+    },
+    notificationType: {
+      type: String,
+      default: ""
+    },
+    idempotencyKey: {
+      type: String,
+      sparse: true
+    },
+    attempts: {
+      type: Number,
+      default: 0
+    },
+    maxAttempts: {
+      type: Number,
+      default: 3
+    },
+    nextRetryAt: {
+      type: Date,
+      default: null
+    },
+    lastError: {
+      type: String,
+      default: ""
+    },
+    processedAt: {
+      type: Date,
+      default: null
     }
   },
   {
     timestamps: true
   }
 );
+
+notificationSchema.index({ status: 1, nextRetryAt: 1 });
+notificationSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+notificationSchema.index({ booking: 1, notificationType: 1 });
 
 module.exports = mongoose.model("Notification", notificationSchema);
