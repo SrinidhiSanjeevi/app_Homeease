@@ -1,0 +1,62 @@
+const mongoose = require("mongoose");
+
+const paymentSchema = new mongoose.Schema(
+  {
+    booking: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Booking",
+      required: true
+    },
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true
+    },
+    amount: {
+      type: Number,
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ["Pending", "Success", "Failure", "Refunded"],
+      required: true
+    },
+    paymentMethod: {
+      type: String,
+      default: "Razorpay"
+    },
+    transactionId: {
+      type: String,
+      required: true
+    },
+    razorpayOrderId: {
+      type: String
+    },
+    razorpaySignature: {
+      type: String
+    },
+    refundId: {
+      type: String
+    },
+    failureReason: {
+      type: String,
+      default: ""
+    },
+    webhookEventId: {
+      type: String
+    },
+    webhookProcessedAt: {
+      type: Date
+    }
+  },
+  {
+    timestamps: true
+  }
+);
+
+paymentSchema.index({ transactionId: 1 });
+paymentSchema.index({ razorpayOrderId: 1 });
+paymentSchema.index({ booking: 1 });
+paymentSchema.index({ webhookEventId: 1 }, { sparse: true });
+
+module.exports = mongoose.models.Payment || mongoose.model("Payment", paymentSchema);
