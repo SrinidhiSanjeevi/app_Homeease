@@ -1,20 +1,25 @@
-# Environment files
-.env
-.env.*
-!.env.example
+# Dependencies
+**/node_modules/
 
-# Node
-node_modules/
+# Test coverage
+**/coverage/
 
 # Frontend build
 frontend/dist/
 dist/
 
-# Test coverage
-coverage/
+# Environment files
+**/.env
+**/.env.*
+!**/.env.example
 
-# Sonar
-.sonar/
+# Logs
+*.log
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
 
 # Terraform
 *.tfstate
@@ -25,5 +30,6 @@ terraform.tfvars
 terraform.tfvars.json
 .terraform/
 
-# SonarQube working directory (created by pipeline scanner)
+# SonarQube
+.sonar/
 .sonarwork/
