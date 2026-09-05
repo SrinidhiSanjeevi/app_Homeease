@@ -4,6 +4,8 @@ const Booking = require("../models/Booking");
 const Payment = require("../models/Payment");
 const Professional = require("../models/Professional");
 const { reassignWaitingWork } = require("../services/professionalMatcher");
+const { canTransition } = require("../services/booking/bookingStateMachine");
+const logger = require("../utils/logger");
 const metrics = require("../metrics");
 
 // ============================================================
@@ -27,6 +29,13 @@ const createOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: "This booking is already paid" });
     }
 
+    if (booking.status === "Cancelled" || booking.status === "Completed") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot create payment order for a ${booking.status} booking`
+      });
+    }
+
     const order = await razorpay.orders.create({
       amount: Math.round(booking.totalPrice * 100),
       currency: "INR",
@@ -37,6 +46,17 @@ const createOrder = async (req, res) => {
       }
     });
 
+    // Record pending payment tracking for this Razorpay order
+    await Payment.create({
+      booking: booking._id,
+      user: req.user._id,
+      amount: booking.totalPrice,
+      status: "Pending",
+      paymentMethod: "Razorpay",
+      transactionId: `ORDER-${order.id}`,
+      razorpayOrderId: order.id
+    });
+
     return res.status(200).json({
       success: true,
       orderId: order.id,
@@ -45,7 +65,7 @@ const createOrder = async (req, res) => {
       keyId: process.env.RAZORPAY_KEY_ID
     });
   } catch (error) {
-    console.error("RAZORPAY CREATE ORDER ERROR:", error);
+    logger.error({ err: error.message }, "Razorpay create order error");
     return res.status(500).json({ success: false, message: "Could not create payment order" });
   }
 };
@@ -57,10 +77,46 @@ const verifyPayment = async (req, res) => {
   try {
     const { bookingId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: "User not authenticated" });
+    }
+
     const booking = await Booking.findById(bookingId);
 
     if (!booking) {
       return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    // Ownership check: users can only verify payments for their own bookings
+    if (booking.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized to verify payment for this booking"
+      });
+    }
+
+    if (booking.paymentStatus === "Paid") {
+      return res.status(400).json({ success: false, message: "This booking is already paid" });
+    }
+
+    if (booking.status === "Cancelled" || booking.status === "Completed") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot verify payment for a booking with status: ${booking.status}`
+      });
+    }
+
+    // Prevent duplicate verification of the same transaction
+    const existingSuccessfulPayment = await Payment.findOne({
+      transactionId: razorpay_payment_id,
+      status: "Success"
+    });
+
+    if (existingSuccessfulPayment) {
+      return res.status(400).json({
+        success: false,
+        message: "This payment has already been verified successfully"
+      });
     }
 
     const expectedSignature = crypto
@@ -83,21 +139,22 @@ const verifyPayment = async (req, res) => {
     });
 
     if (isValid) {
-      booking.status = booking.professional ? "Confirmed" : "Assigned";
+      const targetStatus = booking.professional ? "Confirmed" : "Assigned";
+      if (canTransition(booking.status, targetStatus)) {
+        booking.status = targetStatus;
+      }
       booking.paymentStatus = "Paid";
 
       if (metrics && metrics.paymentSuccess) metrics.paymentSuccess.inc();
       if (metrics && metrics.bookingsConfirmed) metrics.bookingsConfirmed.inc();
       if (metrics && metrics.activeBookings) metrics.activeBookings.inc();
     } else {
-      booking.status = "Cancelled";
+      if (canTransition(booking.status, "Cancelled")) {
+        booking.status = "Cancelled";
+      }
       booking.paymentStatus = "Failed";
 
-      // A professional may have been marked Busy when the booking was
-      // created. Release them, then immediately check whether any other
-      // customer is waiting for that same category — so a failed payment
-      // doesn't leave a professional idle while someone else is stuck at
-      // "no professional available."
+      // Release assigned professional if payment failed, then sweep for waiting work
       if (booking.professional) {
         const freedProfessional = await Professional.findByIdAndUpdate(
           booking.professional,
@@ -105,8 +162,8 @@ const verifyPayment = async (req, res) => {
           { new: true }
         );
         if (freedProfessional) {
-          reassignWaitingBookings(freedProfessional.category).catch((err) =>
-            console.error("Auto-reassignment error:", err.message)
+          reassignWaitingWork(freedProfessional.category).catch((err) =>
+            logger.error({ err: err.message }, "Auto-reassignment error after failed payment")
           );
         }
       }
@@ -119,7 +176,7 @@ const verifyPayment = async (req, res) => {
 
     return res.status(isValid ? 200 : 400).json({ success: isValid, booking, payment });
   } catch (error) {
-    console.error("RAZORPAY VERIFY ERROR:", error);
+    logger.error({ err: error.message }, "Razorpay verify error");
     if (metrics && metrics.paymentFailures) metrics.paymentFailures.inc();
     return res.status(500).json({ success: false, message: "Payment verification failed" });
   }
@@ -148,7 +205,7 @@ const refundPayment = async (bookingId) => {
 
     return refund;
   } catch (error) {
-    console.error("RAZORPAY REFUND ERROR:", error.message);
+    logger.error({ err: error.message }, "Razorpay refund error");
     return null;
   }
 };

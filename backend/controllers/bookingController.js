@@ -11,7 +11,7 @@ const {
 const { refundPayment } = require("./paymentController");
 const metrics = require("../metrics");
 const { canTransition } = require("../services/booking/bookingStateMachine");
-
+const logger = require("../utils/logger");
 
 const DEFAULT_BOOKING_AMOUNT = 500;
 
@@ -20,7 +20,7 @@ const DEFAULT_BOOKING_AMOUNT = 500;
 // ============================================================
 async function claimAvailableProfessional(filter = {}) {
   return Professional.findOneAndUpdate(
-    { ...filter, status: "Available" },
+    { ...filter, status: "Available", active: true },
     { $set: { status: "Busy" } },
     { sort: { rating: -1 }, new: true }
   );
@@ -67,7 +67,7 @@ const createBooking = async (req, res) => {
 
       if (professionalId) {
         professional = await Professional.findOneAndUpdate(
-          { _id: professionalId, status: "Available" },
+          { _id: professionalId, status: "Available", active: true },
           { $set: { status: "Busy" } },
           { new: true }
         );
@@ -373,8 +373,8 @@ const completeBooking = async (req, res) => {
         { new: true }
       );
       if (freedProfessional) {
-        reassignWaitingBookings(freedProfessional.category).catch((err) =>
-          console.error("Auto-reassignment error:", err.message)
+        reassignWaitingWork(freedProfessional.category).catch((err) =>
+          logger.error({ err: err.message }, "Auto-reassignment error after completeBooking")
         );
       }
     }
@@ -439,8 +439,8 @@ const cancelBooking = async (req, res) => {
         { new: true }
       );
       if (freedProfessional) {
-        reassignWaitingBookings(freedProfessional.category).catch((err) =>
-          console.error("Auto-reassignment error:", err.message)
+        reassignWaitingWork(freedProfessional.category).catch((err) =>
+          logger.error({ err: err.message }, "Auto-reassignment error after cancelBooking")
         );
       }
     }
@@ -492,14 +492,43 @@ const rateBooking = async (req, res) => {
     await booking.save();
 
     if (booking.service) {
-      const service = await Service.findById(booking.service);
-      if (service) {
-        const currentTotalRatings = service.rating * service.numRatings;
-        const newNumRatings = service.numRatings + 1;
-        const newAverageRating = (currentTotalRatings + numericRating) / newNumRatings;
-        service.rating = Math.round(newAverageRating * 10) / 10;
-        service.numRatings = newNumRatings;
-        await service.save();
+      try {
+        await Service.findByIdAndUpdate(
+          booking.service,
+          [
+            {
+              $set: {
+                ratingCount: { $add: [{ $ifNull: ["$ratingCount", 0] }, 1] },
+                rating: {
+                  $round: [
+                    {
+                      $divide: [
+                        {
+                          $add: [
+                            {
+                              $multiply: [
+                                { $ifNull: ["$rating", 0] },
+                                { $ifNull: ["$ratingCount", 0] }
+                              ]
+                            },
+                            numericRating
+                          ]
+                        },
+                        { $add: [{ $ifNull: ["$ratingCount", 0] }, 1] }
+                      ]
+                    },
+                    1
+                  ]
+                }
+              }
+            }
+          ]
+        );
+      } catch (serviceUpdateError) {
+        logger.error(
+          { err: serviceUpdateError.message, serviceId: booking.service },
+          "Failed to atomically update service ratingCount"
+        );
       }
     }
 

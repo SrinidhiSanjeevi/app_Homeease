@@ -202,9 +202,9 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
                       src={
                         booking.isCustom
                           ? "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=100&q=80"
-                          : (booking.service?.image || "https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=100&q=80")
+                          : (booking.service?.imageUrl || booking.service?.image || "https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=100&q=80")
                       }
-                      alt={booking.isCustom ? "Custom Request" : booking.service?.name}
+                      alt={booking.isCustom ? "Custom Request" : (booking.service?.imageAlt || booking.service?.name)}
                       style={{ width: "64px", height: "64px", borderRadius: "14px", objectFit: "cover" }}
                     />
                     <div>

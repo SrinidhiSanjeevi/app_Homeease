@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const logger = require("../utils/logger");
 
 const connectDB = async () => {
   try {
@@ -10,27 +11,23 @@ const connectDB = async () => {
       heartbeatFrequencyMS: 30000
     });
 
-    console.log("MongoDB Connected Successfully");
+    logger.info("MongoDB Connected Successfully");
   } catch (error) {
-    console.error("MongoDB Connection Failed:", error.message);
-    console.error("Tip: Make sure your IP is whitelisted in MongoDB Atlas Network Access (0.0.0.0/0 for anywhere).");
+    logger.error({ err: error.message }, "MongoDB Connection Failed");
     process.exit(1);
   }
 
   // Handle errors/disconnects that happen AFTER the initial connect.
-  // Without these listeners, an 'error' event on the connection is
-  // unhandled and crashes the whole process (exit code 1) instead of
-  // letting mongoose's own reconnection logic handle it.
   mongoose.connection.on("error", (err) => {
-    console.error("MongoDB runtime error:", err.message);
+    logger.error({ err: err.message }, "MongoDB runtime error");
   });
 
   mongoose.connection.on("disconnected", () => {
-    console.warn("MongoDB disconnected — mongoose will attempt to reconnect");
+    logger.warn("MongoDB disconnected — mongoose will attempt to reconnect");
   });
 
   mongoose.connection.on("reconnected", () => {
-    console.log("MongoDB reconnected");
+    logger.info("MongoDB reconnected");
   });
 };
 

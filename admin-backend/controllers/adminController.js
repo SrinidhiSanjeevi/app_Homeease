@@ -4,6 +4,7 @@ const Service = require("../models/Service");
 const Professional = require("../models/Professional");
 const EmergencyRequest = require("../models/EmergencyRequest");
 const { reassignWaitingWork } = require("../services/professionalMatcher");
+const { canTransition } = require("../services/booking/bookingStateMachine");
 
 const getStats = async (req, res) => {
   try {
@@ -108,9 +109,17 @@ const updateBookingStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid status value" });
     }
 
-    // Need the pre-update doc to know which professional (if any) is
-    // being released, and its category, before we overwrite the status.
     const existingBooking = await Booking.findById(req.params.id).populate("professional", "category");
+    if (!existingBooking) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    if (!canTransition(existingBooking.status, status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Illegal booking status transition from '${existingBooking.status}' to '${status}'`
+      });
+    }
 
     const booking = await Booking.findByIdAndUpdate(
       req.params.id,
@@ -118,11 +127,6 @@ const updateBookingStatus = async (req, res) => {
       { new: true }
     ).populate("user", "name email").populate("service", "name");
 
-    if (!booking) return res.status(404).json({ success: false, message: "Booking not found" });
-
-    // FIX: admin manually cancelling a booking releases its professional
-    // but previously never checked whether another customer was waiting
-    // for that same category. Same gap that existed in emergency handling.
     if (status === "Cancelled" && existingBooking?.professional) {
       const freedProfessional = await Professional.findByIdAndUpdate(
         existingBooking.professional._id,
@@ -179,6 +183,14 @@ const getAllEmergencies = async (req, res) => {
 const updateEmergencyStatus = async (req, res) => {
   try {
     const { status } = req.body;
+    const validStatuses = ["Dispatched", "Assigned", "En Route", "On Scene", "Resolved", "Cancelled"];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`
+      });
+    }
+
     const emergency = await EmergencyRequest.findById(req.params.id);
     if (!emergency) return res.status(404).json({ success: false, message: "Emergency request not found" });
 
@@ -194,11 +206,6 @@ const updateEmergencyStatus = async (req, res) => {
           { new: true }
         );
 
-        // FIX: this was the actual bug behind the screenshot — resolving
-        // or cancelling an emergency freed the professional but never
-        // checked if another waiting booking/emergency in the same
-        // category could now be matched. Without this, "No specialist
-        // available" stayed stuck indefinitely even after someone freed up.
         if (freedProfessional) {
           reassignWaitingWork(freedProfessional.category).catch((err) =>
             console.error("Auto-reassignment error:", err.message)
@@ -217,11 +224,29 @@ const updateEmergencyStatus = async (req, res) => {
 
 const createService = async (req, res) => {
   try {
-    const { name, category, price, description, image, duration, products } = req.body;
-    if (!name || !category || !price || !description || !image || !duration) {
-      return res.status(400).json({ success: false, message: "All required fields must be provided" });
+    const { name, category, price, description, imageKey, imageAlt, image, duration, products } = req.body;
+    const finalImageKey = imageKey || image;
+    const finalImageAlt = imageAlt || (name ? `${name} service` : "HomeEase service");
+
+    if (!name || !category || !price || !description || !finalImageKey || !duration) {
+      return res.status(400).json({
+        success: false,
+        message: "All required fields must be provided (name, category, price, description, imageKey, duration)"
+      });
     }
-    const service = await Service.create({ name, category, price, description, image, duration, products: products || [] });
+
+    const service = await Service.create({
+      name: name.trim(),
+      category,
+      price: Number(price),
+      description: description.trim(),
+      imageKey: finalImageKey.trim(),
+      imageAlt: finalImageAlt.trim(),
+      duration: duration.trim(),
+      products: products || [],
+      active: true
+    });
+
     res.status(201).json({ success: true, message: "Service created successfully", service });
   } catch (error) {
     console.error("Create Service Error:", error);
@@ -242,6 +267,17 @@ const updateService = async (req, res) => {
 
 const deleteService = async (req, res) => {
   try {
+    const hasBookings = await Booking.exists({ service: req.params.id });
+    if (hasBookings) {
+      const service = await Service.findByIdAndUpdate(req.params.id, { active: false }, { new: true });
+      if (!service) return res.status(404).json({ success: false, message: "Service not found" });
+      return res.status(200).json({
+        success: true,
+        message: "Service deactivated successfully (preserved for existing booking history)",
+        service
+      });
+    }
+
     const service = await Service.findByIdAndDelete(req.params.id);
     if (!service) return res.status(404).json({ success: false, message: "Service not found" });
     res.status(200).json({ success: true, message: "Service deleted successfully" });
@@ -253,11 +289,28 @@ const deleteService = async (req, res) => {
 
 const createProfessional = async (req, res) => {
   try {
-    const { name, category, experience, image, status } = req.body;
-    if (!name || !category || !experience || !image) {
-      return res.status(400).json({ success: false, message: "name, category, experience and image are required" });
+    const { name, category, experience, imageKey, imageAlt, image, description, status } = req.body;
+    const finalImageKey = imageKey || image;
+    const finalImageAlt = imageAlt || (name ? `${name} - ${category} professional` : "HomeEase professional");
+
+    if (!name || !category || experience === undefined || !finalImageKey) {
+      return res.status(400).json({
+        success: false,
+        message: "name, category, experience and imageKey are required"
+      });
     }
-    const professional = await Professional.create({ name, category, experience, image, status: status || "Available" });
+
+    const professional = await Professional.create({
+      name: name.trim(),
+      category: category.trim(),
+      experience: Number(experience),
+      description: description ? description.trim() : "",
+      imageKey: finalImageKey.trim(),
+      imageAlt: finalImageAlt.trim(),
+      status: status || "Available",
+      active: true
+    });
+
     res.status(201).json({ success: true, message: "Professional added successfully", professional });
   } catch (error) {
     console.error("Create Professional Error:", error);
@@ -270,9 +323,6 @@ const updateProfessional = async (req, res) => {
     const professional = await Professional.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!professional) return res.status(404).json({ success: false, message: "Professional not found" });
 
-    // FIX: if admin manually flips a professional's status to
-    // "Available" (e.g. correcting a stuck "Busy" record from testing),
-    // sweep for anyone waiting in that category too.
     if (req.body.status === "Available") {
       reassignWaitingWork(professional.category).catch((err) =>
         console.error("Auto-reassignment error:", err.message)
@@ -288,6 +338,17 @@ const updateProfessional = async (req, res) => {
 
 const deleteProfessional = async (req, res) => {
   try {
+    const hasBookings = await Booking.exists({ professional: req.params.id });
+    if (hasBookings) {
+      const professional = await Professional.findByIdAndUpdate(req.params.id, { active: false }, { new: true });
+      if (!professional) return res.status(404).json({ success: false, message: "Professional not found" });
+      return res.status(200).json({
+        success: true,
+        message: "Professional deactivated successfully (preserved for existing booking history)",
+        professional
+      });
+    }
+
     const professional = await Professional.findByIdAndDelete(req.params.id);
     if (!professional) return res.status(404).json({ success: false, message: "Professional not found" });
     res.status(200).json({ success: true, message: "Professional deleted successfully" });

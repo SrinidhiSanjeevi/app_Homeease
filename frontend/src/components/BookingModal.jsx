@@ -271,7 +271,7 @@ export default function BookingModal({ service, onClose, onSubmit, onBookingSett
                   {localProfessionals.map((prof) => (
                     <label key={prof._id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px", borderRadius: "8px", border: selectedProfessional === prof._id ? "2px solid var(--primary)" : "1px solid var(--border)", background: selectedProfessional === prof._id ? "var(--primary-light)" : "white", cursor: "pointer" }}>
                       <input type="radio" name="professional" value={prof._id} checked={selectedProfessional === prof._id} onChange={() => setSelectedProfessional(prof._id)} style={{ width: "auto", marginTop: 0 }} />
-                      <img src={prof.image} alt={prof.name} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
+                      <img src={prof.imageUrl || prof.image} alt={prof.imageAlt || prof.name} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
                       <div style={{ flex: 1 }}>
                         <span style={{ fontWeight: 700, fontSize: "0.9rem", textTransform: "none", color: "var(--text-main)" }}>{prof.name}</span>
                         <div style={{ display: "flex", gap: "10px", fontSize: "0.75rem", color: "var(--text-muted)" }}>
