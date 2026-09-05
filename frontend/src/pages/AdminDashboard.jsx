@@ -799,9 +799,30 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
+  const handleToggleProfStatus = async (prof) => {
+    const newStatus = prof.status === "Available" ? "Busy" : "Available";
+    try {
+      const r = await fetch(`${BASE}/professionals/${prof._id}`, {
+        method: "PUT",
+        headers: jsonHeaders,
+        body: JSON.stringify({ status: newStatus })
+      });
+      const d = await r.json();
+      if (r.ok && d.success) {
+        showToast(`Marked ${prof.name} as ${newStatus}`);
+        fetchProfessionals();
+      } else {
+        showToast(d.message || "Failed to update status", "error");
+      }
+    } catch (err) {
+      showToast("Server error updating professional status", "error");
+    }
+  };
+
   // ── Helpers ─────────────────────────────────────────────────
   const statusColor = (s) =>
   ({
+    Created: "#6b7280",
     Assigned: "#f59e0b",
     Confirmed: "#3b82f6",
     Completed: "#10b981",
@@ -810,14 +831,15 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   const statusIcon = (s) =>
     ({
+      Created: <Clock size={13} />,
+      Assigned: <Clock size={13} />,
+      Confirmed: <CheckCircle size={13} />,
+      Completed: <Star size={13} />,
+      Cancelled: <XCircle size={13} />,
       pending: <Clock size={13} />,
       confirmed: <CheckCircle size={13} />,
       completed: <Star size={13} />,
-      cancelled: <XCircle size={13} />,
-      Created: <Clock size={13} />,
-      Confirmed: <CheckCircle size={13} />,
-      Completed: <Star size={13} />,
-      Cancelled: <XCircle size={13} />
+      cancelled: <XCircle size={13} />
     }[s] || <Clock size={13} />);
 
   const navItems = [
@@ -1395,23 +1417,28 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
                       {[
                         {
-                          label: "Pending",
-                          v: stats.pendingBookings,
+                          label: "Created",
+                          v: stats.createdBookings || 0,
+                          color: "#6b7280"
+                        },
+                        {
+                          label: "Assigned",
+                          v: stats.assignedBookings !== undefined ? stats.assignedBookings : (stats.pendingBookings || 0),
                           color: "#f59e0b"
                         },
                         {
                           label: "Confirmed",
-                          v: stats.confirmedBookings,
+                          v: stats.confirmedBookings || 0,
                           color: "#3b82f6"
                         },
                         {
                           label: "Completed",
-                          v: stats.completedBookings,
+                          v: stats.completedBookings || 0,
                           color: "#10b981"
                         },
                         {
                           label: "Cancelled",
-                          v: stats.cancelledBookings,
+                          v: stats.cancelledBookings || 0,
                           color: "#ef4444"
                         }
                       ].map(
@@ -2114,6 +2141,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                 fontWeight: 600
                               }}
                             >
+                              <option value="Created">
+                                Created
+                              </option>
                               <option value="Assigned">
                                 Assigned
                               </option>
@@ -2444,17 +2474,19 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       {p.experience} yrs
                     </div>
 
-                    <span
+                    <button
+                      onClick={() => handleToggleProfStatus(p)}
+                      title="Click to toggle Available / Busy"
                       style={{
-                        padding:
-                          "3px 12px",
-                        borderRadius:
-                          "20px",
-                        fontSize:
-                          "0.74rem",
+                        display: "inline-block",
+                        padding: "4px 14px",
+                        borderRadius: "20px",
+                        fontSize: "0.74rem",
                         fontWeight: 700,
-                        marginBottom:
-                          "12px",
+                        marginBottom: "12px",
+                        border: "none",
+                        cursor: "pointer",
+                        transition: "all 0.2s",
                         background:
                           p.status ===
                           "Available"
@@ -2467,8 +2499,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
                             : "#d97706"
                       }}
                     >
-                      {p.status}
-                    </span>
+                      {p.status} ⇄
+                    </button>
 
                     <div
                       style={{
