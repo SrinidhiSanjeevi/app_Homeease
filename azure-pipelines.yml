@@ -6,7 +6,7 @@
 # Git Push
 #     |
 #     v
-# STAGE 1: VALIDATE   (lint/test/build — runs on PR + main)
+# STAGE 1: VALIDATE   (lint/test/coverage/SonarQube — runs on PR + main)
 #     |
 #     v
 # STAGE 2: BUILD & TAG  (docker build, immutable + latest tags — runs on PR + main)
@@ -165,11 +165,56 @@ stages:
         - script: |
             set -e
             echo "========================================"
-            echo "Backend tests"
+            echo "Backend lint"
             echo "========================================"
             cd backend
-            npm test --if-present
-          displayName: 'Run backend tests'
+            npm run lint
+          displayName: 'Lint — backend'
+          continueOnError: false
+
+        - script: |
+            set -e
+            echo "========================================"
+            echo "Backend tests + coverage"
+            echo "========================================"
+            cd backend
+            npm run test:coverage
+          displayName: 'Test + Coverage — backend'
+
+        # ──────────────────────────────────────────────────
+        # SonarQube — backend
+        #
+        # Prerequisites (configure once in Azure DevOps):
+        #   1. Install "SonarQube" extension from the Marketplace.
+        #   2. Create a SonarQube service connection named
+        #      "sonarqube-service-connection" in Project Settings
+        #      → Service Connections.
+        #   3. Add SONAR_TOKEN as a secret pipeline variable
+        #      (the service connection handles auth automatically
+        #       when using the task — the token is set internally).
+        #   4. Set pipeline variable sonarHostUrl to your
+        #      SonarQube server URL (e.g. http://localhost:9000
+        #      for the docker-compose instance, or the hosted URL).
+        # ──────────────────────────────────────────────────
+        - task: SonarQubePrepare@6
+          displayName: 'SonarQube — Prepare analysis (backend)'
+          inputs:
+            SonarQube: 'sonarqube-service-connection'
+            scannerMode: 'CLI'
+            configMode: 'file'
+            # sonar-project.properties lives at backend/sonar-project.properties
+            configFile: 'backend/sonar-project.properties'
+            extraProperties: |
+              sonar.working.directory=$(Agent.TempDirectory)/.sonarwork-backend
+
+        - task: SonarQubeAnalyze@6
+          displayName: 'SonarQube — Run analysis (backend)'
+
+        - task: SonarQubePublishResults@1
+          displayName: 'SonarQube — Publish Quality Gate result (backend)'
+          inputs:
+            pollingTimeoutSec: '300'
+
 
 
     # ========================================================

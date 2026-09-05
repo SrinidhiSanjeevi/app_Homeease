@@ -2176,10 +2176,10 @@ export default function AdminDashboard({ token, user, onLogout }) {
                         "1px solid #f3f4f6"
                     }}
                   >
-                    {s.image && (
+                    {(s.imageUrl || s.image) && (
                       <img
-                        src={s.image}
-                        alt={s.name}
+                        src={s.imageUrl || s.image}
+                        alt={s.imageAlt || s.name}
                         style={{
                           width: "100%",
                           height: "140px",
@@ -2376,12 +2376,14 @@ export default function AdminDashboard({ token, user, onLogout }) {
                   >
                     <img
                       src={
+                        p.imageUrl ||
                         p.image ||
                         `https://ui-avatars.com/api/?name=${encodeURIComponent(
                           p.name
                         )}&background=0f0f0f&color=fff&size=80`
                       }
                       alt={
+                        p.imageAlt ||
                         p.name ||
                         "Professional"
                       }
