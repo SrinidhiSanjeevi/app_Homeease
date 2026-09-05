@@ -83,6 +83,36 @@ const SEVERITY_CONFIG = {
   }
 };
 
+const getEmergencyStepProgress = (status) => {
+  if (status === "Cancelled") return -1;
+  if (status === "Resolved") return 4;
+  if (status === "Arrived") return 3;
+  if (status === "OnTheWay") return 2;
+  return 1; // "Dispatched"
+};
+
+const EMERGENCY_STEPS = [
+  { num: 1, label: "Dispatched" },
+  { num: 2, label: "En Route" },
+  { num: 3, label: "Arrived" },
+  { num: 4, label: "Resolved" }
+];
+
+const getEmergencyStatusBadge = (status) => {
+  switch (status) {
+    case "Cancelled":
+      return { label: "Cancelled", bg: "#fee2e2", color: "#b91c1c" };
+    case "Resolved":
+      return { label: "Resolved ✓", bg: "#dcfce7", color: "#15803d" };
+    case "Arrived":
+      return { label: "Specialist Arrived", bg: "#e0e7ff", color: "#3730a3" };
+    case "OnTheWay":
+      return { label: "En Route", bg: "#fef3c7", color: "#b45309" };
+    default:
+      return { label: "Dispatched", bg: "#dbeafe", color: "#1d4ed8" };
+  }
+};
+
 export default function Emergency({
   activeEmergencies = [],
   onDispatchEmergency,
@@ -137,7 +167,6 @@ export default function Emergency({
       setContactNumber("");
       setAddress("");
     } catch (error) {
-      console.error("Emergency dispatch error:", error);
       showToast(
         error?.message || "Failed to dispatch emergency service",
         "error"
@@ -768,6 +797,13 @@ export default function Emergency({
                   ] ||
                   SEVERITY_CONFIG.Medium;
 
+                const currentStep = getEmergencyStepProgress(emergency.status);
+                const statusMeta = getEmergencyStatusBadge(emergency.status);
+                const isCancelled = emergency.status === "Cancelled";
+                const isResolved = emergency.status === "Resolved";
+                const isArrived = emergency.status === "Arrived";
+                const isOnTheWay = emergency.status === "OnTheWay";
+
                 return (
                   <div
                     key={emergency._id}
@@ -797,7 +833,9 @@ export default function Emergency({
                       <div
                         style={{
                           display: "flex",
-                          gap: "8px"
+                          gap: "8px",
+                          alignItems: "center",
+                          flexWrap: "wrap"
                         }}
                       >
                         <span
@@ -827,6 +865,19 @@ export default function Emergency({
                         >
                           {emergency.category}
                         </span>
+
+                        <span
+                          style={{
+                            background: statusMeta.bg,
+                            color: statusMeta.color,
+                            padding: "4px 12px",
+                            borderRadius: "20px",
+                            fontSize: "0.78rem",
+                            fontWeight: 700
+                          }}
+                        >
+                          {statusMeta.label}
+                        </span>
                       </div>
 
                       <span
@@ -848,14 +899,118 @@ export default function Emergency({
                     </div>
 
                     {/* ==================================================
-                        STATUS
+                        4-STAGE EMERGENCY LIFECYCLE TRACKER
+                    ================================================== */}
+
+                    {!isCancelled && (
+                      <div
+                        style={{
+                          background: "rgba(243,244,246,0.7)",
+                          padding: "12px 18px",
+                          borderRadius: "12px",
+                          marginBottom: "14px"
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: "0.72rem",
+                            fontWeight: 700,
+                            textTransform: "uppercase",
+                            color: "var(--text-muted)",
+                            marginBottom: "10px",
+                            letterSpacing: "0.05em"
+                          }}
+                        >
+                          Emergency Response Lifecycle
+                        </div>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "12px",
+                            alignItems: "center",
+                            justifyContent: "space-between"
+                          }}
+                        >
+                          {EMERGENCY_STEPS.map((step) => {
+                            const isDone = currentStep >= step.num;
+                            const isCurrent = currentStep === step.num;
+
+                            return (
+                              <div
+                                key={step.num}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px"
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: "22px",
+                                    height: "22px",
+                                    borderRadius: "50%",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontWeight: 700,
+                                    fontSize: "0.72rem",
+                                    backgroundColor: isDone
+                                      ? "#16a34a"
+                                      : "#e5e7eb",
+                                    color: isDone
+                                      ? "#ffffff"
+                                      : "#6b7280"
+                                  }}
+                                >
+                                  {isDone ? "✓" : step.num}
+                                </div>
+
+                                <span
+                                  style={{
+                                    fontSize: "0.78rem",
+                                    fontWeight: isCurrent
+                                      ? 800
+                                      : 600,
+                                    color: isDone
+                                      ? "var(--text-main)"
+                                      : "var(--text-muted)"
+                                  }}
+                                >
+                                  {step.label}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ==================================================
+                        STATUS BANNER
                     ================================================== */}
 
                     <div
                       style={{
-                        background: "#f0fdf4",
-                        border:
-                          "1px solid #bbf7d0",
+                        background: isCancelled
+                          ? "#fef2f2"
+                          : isResolved
+                            ? "#f0fdf4"
+                            : isArrived
+                              ? "#eef2ff"
+                              : isOnTheWay
+                                ? "#fffbeb"
+                                : "#f0fdf4",
+                        border: isCancelled
+                          ? "1px solid #fecaca"
+                          : isResolved
+                            ? "1px solid #bbf7d0"
+                            : isArrived
+                              ? "1px solid #c7d2fe"
+                              : isOnTheWay
+                                ? "1px solid #fde68a"
+                                : "1px solid #bbf7d0",
                         borderRadius: "10px",
                         padding: "10px 14px",
                         marginBottom: "14px",
@@ -866,37 +1021,62 @@ export default function Emergency({
                     >
                       <CheckCircle2
                         size={17}
-                        color="#16a34a"
+                        color={
+                          isCancelled
+                            ? "#dc2626"
+                            : isResolved
+                              ? "#16a34a"
+                              : isArrived
+                                ? "#4338ca"
+                                : isOnTheWay
+                                  ? "#d97706"
+                                  : "#16a34a"
+                        }
                       />
 
                       <div>
                         <div
                           style={{
                             fontWeight: 700,
-                            color: "#15803d",
+                            color: isCancelled
+                              ? "#b91c1c"
+                              : isResolved
+                                ? "#15803d"
+                                : isArrived
+                                  ? "#3730a3"
+                                  : isOnTheWay
+                                    ? "#b45309"
+                                    : "#15803d",
                             fontSize: "0.88rem"
                           }}
                         >
-                          {emergency.assignedProfessional
-                            ? "Booking Accepted — Specialist Dispatched"
-                            : "Emergency Request Received"}
+                          {isCancelled
+                            ? "Emergency Request Cancelled"
+                            : isResolved
+                              ? "Emergency Resolved & Completed"
+                              : isArrived
+                                ? "Specialist Arrived On Scene"
+                                : isOnTheWay
+                                  ? "Specialist En Route to Address"
+                                  : emergency.assignedProfessional
+                                    ? "Specialist Assigned & Dispatched"
+                                    : "Emergency Request Received — Dispatching..."}
                         </div>
 
                         {emergency.assignedProfessional ? (
-                          emergency.estimatedArrivalMinutes && (
+                          emergency.estimatedArrivalMinutes && !isResolved && !isCancelled && (
                             <div
                               style={{
                                 fontSize: "0.75rem",
-                                color: "#16a34a",
+                                color: isOnTheWay
+                                  ? "#b45309"
+                                  : "#16a34a",
                                 marginTop: "1px"
                               }}
                             >
-                              Estimated arrival:
-                              {" ~"}
-                              {
-                                emergency.estimatedArrivalMinutes
-                              }
-                              {" minutes"}
+                              {isArrived
+                                ? "Specialist on scene"
+                                : `Estimated arrival: ~${emergency.estimatedArrivalMinutes} minutes`}
                             </div>
                           )
                         ) : (
@@ -907,8 +1087,7 @@ export default function Emergency({
                               marginTop: "3px"
                             }}
                           >
-                            No specialist is currently
-                            assigned to this request.
+                            Waiting for next available specialist to be assigned automatically.
                           </div>
                         )}
                       </div>
