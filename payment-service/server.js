@@ -9,7 +9,11 @@ dotenv.config();
 const logger = require("./utils/logger");
 const connectDB = require("./config/db");
 
-if (process.env.NODE_ENV !== "test" && process.env.MONGO_URI) {
+if (process.env.NODE_ENV !== "test") {
+  if (!process.env.MONGO_URI) {
+    logger.fatal("[Startup] FATAL: Missing required environment variable: MONGO_URI");
+    process.exit(1);
+  }
   connectDB();
 }
 
