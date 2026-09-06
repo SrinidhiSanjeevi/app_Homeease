@@ -181,6 +181,40 @@ describe("Standalone Payment Service", () => {
       expect(Professional.findByIdAndUpdate).toHaveBeenCalledWith("prof-1", { status: "Available" });
       expect(mockBooking.save).toHaveBeenCalled();
     });
+
+    test("timing-safe comparison: handles equal-length invalid signature without error", async () => {
+      const mockBooking = {
+        _id: "book-verify-timing",
+        user: "user-1",
+        totalPrice: 500,
+        paymentStatus: "Pending",
+        status: "Assigned",
+        professional: "prof-1",
+        save: jest.fn().mockResolvedValue()
+      };
+
+      Booking.findById.mockResolvedValue(mockBooking);
+      Payment.findOne.mockResolvedValue(null);
+      Payment.create.mockResolvedValue({
+        _id: "pay-doc-timing",
+        status: "Failure"
+      });
+      Professional.findByIdAndUpdate.mockResolvedValue({});
+
+      // 64-char hex string, matching expected SHA256 length, but incorrect
+      const sameLengthTamperedSignature = "a".repeat(64);
+
+      const result = await verifyPayment({
+        bookingId: "book-verify-timing",
+        userId: "user-1",
+        razorpayOrderId: "order_test",
+        razorpayPaymentId: "pay_test",
+        razorpaySignature: sameLengthTamperedSignature
+      });
+
+      expect(result.isValid).toBe(false);
+      expect(mockBooking.paymentStatus).toBe("Failed");
+    });
   });
 
   describe("Webhook Handling & Idempotency", () => {
