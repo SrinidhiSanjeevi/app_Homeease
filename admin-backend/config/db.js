@@ -1,5 +1,30 @@
 const mongoose = require("mongoose");
 const logger = require("../utils/logger");
+const { mongodbConnectionState } = require("../metrics");
+const metricsPlugin = require("./metricsPlugin");
+
+// Register global Mongoose metrics plugin before any model is compiled
+mongoose.plugin(metricsPlugin);
+
+// Connection lifecycle event listeners
+mongoose.connection.on("connected", () => {
+  mongodbConnectionState.set(1);
+  logger.info("Admin Microservice MongoDB connected");
+});
+
+mongoose.connection.on("error", (err) => {
+  logger.error({ err: err.message }, "Admin Microservice MongoDB runtime error");
+});
+
+mongoose.connection.on("disconnected", () => {
+  mongodbConnectionState.set(0);
+  logger.warn("Admin Microservice MongoDB disconnected — mongoose will attempt to reconnect");
+});
+
+mongoose.connection.on("reconnected", () => {
+  mongodbConnectionState.set(1);
+  logger.info("Admin Microservice MongoDB reconnected");
+});
 
 const connectDB = async () => {
   try {
@@ -11,6 +36,7 @@ const connectDB = async () => {
       heartbeatFrequencyMS: 30000
     });
 
+    mongodbConnectionState.set(1);
     logger.info("Admin Microservice MongoDB Connected Successfully");
   } catch (error) {
     logger.fatal(
@@ -19,22 +45,6 @@ const connectDB = async () => {
     );
     process.exit(1);
   }
-
-  // Handle errors/disconnects that happen AFTER the initial connect.
-  // Without these listeners, an 'error' event on the connection is
-  // unhandled and crashes the whole process (exit code 1) instead of
-  // letting mongoose's own reconnection logic handle it.
-  mongoose.connection.on("error", (err) => {
-    logger.error({ err: err.message }, "Admin Microservice MongoDB runtime error");
-  });
-
-  mongoose.connection.on("disconnected", () => {
-    logger.warn("Admin Microservice MongoDB disconnected — mongoose will attempt to reconnect");
-  });
-
-  mongoose.connection.on("reconnected", () => {
-    logger.info("Admin Microservice MongoDB reconnected");
-  });
 };
 
 module.exports = connectDB;
