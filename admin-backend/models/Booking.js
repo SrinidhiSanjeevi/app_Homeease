@@ -16,7 +16,12 @@ const bookingSchema = new mongoose.Schema(
     selectedProduct: { name: String, brand: String, extraPrice: Number },
     paymentMethod: { type: String, required: true, default: "Cash on Delivery" },
     paymentStatus: { type: String, required: true, default: "Pending" },
-    status: { type: String, required: true, default: "Created" },
+    status: {
+      type: String,
+      required: true,
+      enum: ["Created", "Assigned", "Confirmed", "Completed", "Cancelled"],
+      default: "Created"
+    },
     totalPrice: { type: Number, required: true },
     userRating: { type: Number, min: 1, max: 5 },
     userReview: { type: String, default: "" }
