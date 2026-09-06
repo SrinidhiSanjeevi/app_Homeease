@@ -1,5 +1,6 @@
 const paymentService = require("../services/paymentService");
 const logger = require("../utils/logger");
+const metrics = require("../metrics");
 
 const createOrder = async (req, res) => {
   try {
@@ -9,6 +10,7 @@ const createOrder = async (req, res) => {
     }
 
     const orderData = await paymentService.createOrder({ bookingId, userId });
+    metrics.paymentOrderCreatedTotal.inc();
     return res.status(200).json({ success: true, ...orderData });
   } catch (error) {
     if (error.isOperational) {
@@ -48,6 +50,12 @@ const verifyPayment = async (req, res) => {
       razorpaySignature: finalSignature
     });
 
+    if (result.isValid) {
+      metrics.paymentVerifySuccessTotal.inc();
+    } else {
+      metrics.paymentVerifyFailedTotal.inc();
+    }
+
     return res.status(result.isValid ? 200 : 400).json({
       success: result.isValid,
       booking: result.booking,
@@ -74,6 +82,7 @@ const refundPayment = async (req, res) => {
       return res.status(404).json({ success: false, message: "Refund could not be processed or no eligible payment" });
     }
 
+    metrics.paymentRefundTotal.inc();
     return res.status(200).json({ success: true, refund });
   } catch (error) {
     logger.error({ err: error.message }, "Payment Service refundPayment error");
