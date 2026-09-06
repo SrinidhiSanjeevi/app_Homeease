@@ -13,3 +13,6 @@ Dockerfile
 coverage
 dist
 logs
+__tests__
+*.test.js
+*.md
