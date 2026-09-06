@@ -194,7 +194,7 @@ const updateBookingStatus = async (req, res) => {
     const booking = await Booking.findByIdAndUpdate(
       req.params.id,
       { status },
-      { new: true }
+      { new: true, runValidators: true }
     ).populate("user", "name email").populate("service", "name");
 
     if ((status === "Cancelled" || status === "Completed") && existingBooking?.professional) {
