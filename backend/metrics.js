@@ -118,10 +118,11 @@ const averageBookingLatency = new client.Histogram({
 });
 
 // ─── DB-truth Gauges ───────────────────────────────────────────────────────────
-// NOTE: these are only ever set by metricsCollector.js, which only runs
-// inside the dedicated single-replica metrics-exporter process — never
-// inside the scaled backend/admin-backend API pods. That's what keeps
-// these values single-sourced instead of duplicated across HPA replicas.
+// NOTE: these are only set by metricsCollector.js, which is gated behind
+// METRICS_COLLECTOR_ENABLED="true". This ensures only a single replica/deployment
+// polls MongoDB and populates these gauges, preventing redundant DB load and
+// duplicate metric series across scaled backend API pods until/unless a dedicated
+// exporter process is built later.
 const totalServicesGauge = new client.Gauge({
   name: 'serviceexpress_total_services',
   help: 'Total number of service offerings in the catalog',

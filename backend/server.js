@@ -24,7 +24,13 @@ const errorHandler = require("./middleware/errorHandler");
 const { generalLimiter } = require("./middleware/rateLimiter");
 
 connectDB();
-startMetricsCollector();
+
+if (process.env.METRICS_COLLECTOR_ENABLED === "true") {
+  startMetricsCollector();
+  logger.info("Metrics collector started (METRICS_COLLECTOR_ENABLED=true)");
+} else {
+  logger.info("Metrics collector not started (METRICS_COLLECTOR_ENABLED not set to 'true')");
+}
 
 const app = express();
 app.set("trust proxy", 1);
