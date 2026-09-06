@@ -8,6 +8,7 @@ dotenv.config();
 
 const logger = require("./utils/logger");
 const connectDB = require("./config/db");
+const metrics = require("./metrics");
 
 if (process.env.NODE_ENV !== "test") {
   if (!process.env.MONGO_URI) {
@@ -34,6 +35,20 @@ app.use(
 );
 app.use(express.urlencoded({ extended: false }));
 
+// ─── Prometheus HTTP metrics ──────────────────────────────────────────────────
+app.use((req, res, next) => {
+  if (req.path === "/metrics" || req.path.startsWith("/health")) return next();
+  metrics.httpRequestsInFlight.inc();
+  const end = metrics.httpRequestDurationSeconds.startTimer({ method: req.method });
+  res.on("finish", () => {
+    const routeLabel = req.route ? (req.baseUrl + req.route.path) : req.path;
+    metrics.httpRequestsInFlight.dec();
+    metrics.httpRequestsTotal.inc({ method: req.method, route: routeLabel, code: res.statusCode });
+    end({ route: routeLabel, code: res.statusCode });
+  });
+  next();
+});
+
 // Health probes
 app.get("/health/live", (req, res) => {
   res.status(200).json({ status: "ok", service: "homeease-payment-service" });
@@ -54,6 +69,12 @@ app.get("/api/health", (req, res) => {
     db: dbReady ? "connected" : "disconnected",
     timestamp: new Date().toISOString()
   });
+});
+
+// Prometheus metrics
+app.get("/metrics", async (req, res) => {
+  res.set("Content-Type", metrics.register.contentType);
+  res.end(await metrics.register.metrics());
 });
 
 app.get("/", (req, res) => res.send("HomeEase Payment Service Running"));
