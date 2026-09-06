@@ -35,4 +35,40 @@ describe("Payment Signature Verification", () => {
     const sig2 = generateExpectedSignature(PAYMENT_ID, ORDER_ID, TEST_SECRET);
     expect(sig1).not.toBe(sig2);
   });
+
+  describe("timingSafeEqual comparison pattern", () => {
+    function verifySignatureTimingSafe(expected, actual) {
+      return (
+        typeof actual === "string" &&
+        expected.length === actual.length &&
+        crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(actual))
+      );
+    }
+
+    test("returns true for matching signature", () => {
+      const expected = generateExpectedSignature(ORDER_ID, PAYMENT_ID, TEST_SECRET);
+      const incoming = generateExpectedSignature(ORDER_ID, PAYMENT_ID, TEST_SECRET);
+      expect(verifySignatureTimingSafe(expected, incoming)).toBe(true);
+    });
+
+    test("returns false for different length signature without throwing", () => {
+      const expected = generateExpectedSignature(ORDER_ID, PAYMENT_ID, TEST_SECRET);
+      const shortSig = "short_sig";
+      expect(() => verifySignatureTimingSafe(expected, shortSig)).not.toThrow();
+      expect(verifySignatureTimingSafe(expected, shortSig)).toBe(false);
+    });
+
+    test("returns false for same length tampered signature", () => {
+      const expected = generateExpectedSignature(ORDER_ID, PAYMENT_ID, TEST_SECRET);
+      const sameLengthTampered = "0".repeat(expected.length);
+      expect(verifySignatureTimingSafe(expected, sameLengthTampered)).toBe(false);
+    });
+
+    test("returns false for null/undefined/non-string signature", () => {
+      const expected = generateExpectedSignature(ORDER_ID, PAYMENT_ID, TEST_SECRET);
+      expect(verifySignatureTimingSafe(expected, null)).toBe(false);
+      expect(verifySignatureTimingSafe(expected, undefined)).toBe(false);
+      expect(verifySignatureTimingSafe(expected, 12345)).toBe(false);
+    });
+  });
 });

@@ -96,7 +96,10 @@ const verifyPayment = async ({
     .update(`${razorpayOrderId}|${razorpayPaymentId}`)
     .digest("hex");
 
-  const isValid = expectedSignature === razorpaySignature;
+  const isValid =
+    typeof razorpaySignature === "string" &&
+    expectedSignature.length === razorpaySignature.length &&
+    crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(razorpaySignature));
 
   const payment = await Payment.create({
     booking: booking._id,
