@@ -63,6 +63,10 @@ const login = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid credentials" });
     }
 
+    if (user.active === false) {
+      return res.status(403).json({ success: false, message: "Account has been deactivated" });
+    }
+
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
       return res.status(400).json({ success: false, message: "Invalid credentials" });

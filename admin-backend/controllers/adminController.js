@@ -89,7 +89,7 @@ const getAllUsers = async (req, res) => {
     const [total, users] = await Promise.all([
       User.countDocuments(filter),
       User.find(filter)
-        .select("name email role phone address createdAt updatedAt")
+        .select("name email role phone address active createdAt updatedAt")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -115,7 +115,22 @@ const deleteUser = async (req, res) => {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
     if (user.role === "admin") return res.status(400).json({ success: false, message: "Cannot delete admin user" });
-    await User.findByIdAndDelete(req.params.id);
+
+    const hasBookings = await Booking.exists({ user: req.params.id });
+    const hasEmergencies = await EmergencyRequest.exists({ user: req.params.id });
+
+    if (hasBookings || hasEmergencies) {
+      const updatedUser = await User.findByIdAndUpdate(req.params.id, { active: false }, { new: true });
+      if (!updatedUser) return res.status(404).json({ success: false, message: "User not found" });
+      return res.status(200).json({
+        success: true,
+        message: "User deactivated successfully (preserved for existing booking/emergency history)",
+        user: updatedUser
+      });
+    }
+
+    const deletedUser = await User.findByIdAndDelete(req.params.id);
+    if (!deletedUser) return res.status(404).json({ success: false, message: "User not found" });
     res.status(200).json({ success: true, message: "User deleted successfully" });
   } catch (error) {
     logger.error({ err: error.message }, "Delete User Error");

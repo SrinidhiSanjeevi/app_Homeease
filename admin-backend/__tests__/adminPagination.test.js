@@ -124,7 +124,7 @@ describe("Admin Pagination & Query Limits", () => {
       expect(queryMock.skip).toHaveBeenCalledWith(0);
       expect(queryMock.limit).toHaveBeenCalledWith(DEFAULT_LIMIT);
       expect(queryMock.select).toHaveBeenCalledWith(
-        "name email role phone address createdAt updatedAt"
+        "name email role phone address active createdAt updatedAt"
       );
 
       expect(res.status).toHaveBeenCalledWith(200);
