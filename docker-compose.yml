@@ -52,6 +52,34 @@ services:
       start_period: 15s
       retries: 3
 
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    container_name: homeease-payment-service
+    image: homeease-payment-service:prod
+    restart: unless-stopped
+    env_file:
+      - ./payment-service/.env
+    environment:
+      - NODE_ENV=production
+      - PAYMENT_SERVICE_PORT=5002
+      - PORT=5002
+      - MONGO_URI=${MONGO_URI:-mongodb+srv://srinidhisanjeevi:root123@docauth.ede9v4k.mongodb.net/dockerAuthDB?retryWrites=true&w=majority&appName=DocAuth}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-rzp_test_TTxC1wI7x6klPE}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-asq4HnklzygeF58gOQfoDAWe}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-placeholder_webhook_secret}
+    ports:
+      - "5002:5002"
+    networks:
+      - homeease-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5002/health/live"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
   frontend:
     build:
       context: ./frontend
