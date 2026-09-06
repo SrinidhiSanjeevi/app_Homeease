@@ -17,6 +17,7 @@ services:
       - ./backend/.env
     environment:
       - NODE_ENV=production
+      - METRICS_COLLECTOR_ENABLED=true
     ports:
       - "5000:5000"
     networks:
