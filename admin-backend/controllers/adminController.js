@@ -425,7 +425,22 @@ const createService = async (req, res) => {
 
 const updateService = async (req, res) => {
   try {
-    const service = await Service.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const { name, category, price, description, image, duration, products } = req.body;
+
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (category !== undefined) updateData.category = category;
+    if (price !== undefined) updateData.price = price;
+    if (description !== undefined) updateData.description = description;
+    if (image !== undefined) updateData.image = image;
+    if (duration !== undefined) updateData.duration = duration;
+    if (products !== undefined) updateData.products = products;
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid fields provided for update" });
+    }
+
+    const service = await Service.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
     if (!service) return res.status(404).json({ success: false, message: "Service not found" });
     res.status(200).json({ success: true, message: "Service updated successfully", service });
   } catch (error) {
@@ -489,10 +504,25 @@ const createProfessional = async (req, res) => {
 
 const updateProfessional = async (req, res) => {
   try {
-    const professional = await Professional.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const { name, category, experience, imageKey, imageAlt, description, status } = req.body;
+
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (category !== undefined) updateData.category = category;
+    if (experience !== undefined) updateData.experience = experience;
+    if (imageKey !== undefined) updateData.imageKey = imageKey;
+    if (imageAlt !== undefined) updateData.imageAlt = imageAlt;
+    if (description !== undefined) updateData.description = description;
+    if (status !== undefined) updateData.status = status;
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid fields provided for update" });
+    }
+
+    const professional = await Professional.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
     if (!professional) return res.status(404).json({ success: false, message: "Professional not found" });
 
-    if (req.body.status === "Available") {
+    if (updateData.status === "Available") {
       reassignWaitingWork(professional.category).catch((err) =>
         logger.error({ err: err.message }, "Auto-reassignment error")
       );
