@@ -65,10 +65,10 @@ services:
       - NODE_ENV=production
       - PAYMENT_SERVICE_PORT=5002
       - PORT=5002
-      - MONGO_URI=${MONGO_URI:-mongodb+srv://srinidhisanjeevi:root123@docauth.ede9v4k.mongodb.net/dockerAuthDB?retryWrites=true&w=majority&appName=DocAuth}
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-rzp_test_TTxC1wI7x6klPE}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-asq4HnklzygeF58gOQfoDAWe}
-      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-placeholder_webhook_secret}
+      - MONGO_URI=${MONGO_URI}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET}
     ports:
       - "5002:5002"
     networks:
