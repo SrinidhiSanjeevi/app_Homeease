@@ -80,6 +80,16 @@ describe("Standalone Payment Service", () => {
         "This booking is already paid"
       );
     });
+
+    test("throws 404 when booking not found", async () => {
+      Booking.findOne.mockResolvedValue(null);
+      await expect(createOrder({ bookingId: "book-x", userId: "user-x" })).rejects.toThrow("Booking not found");
+    });
+
+    test("throws 400 when booking is cancelled", async () => {
+      Booking.findOne.mockResolvedValue({ _id: "b", user: "u", status: "Cancelled" });
+      await expect(createOrder({ bookingId: "b", userId: "u" })).rejects.toThrow(/Cannot create payment order/);
+    });
   });
 
   describe("Payment Verification", () => {
@@ -215,6 +225,26 @@ describe("Standalone Payment Service", () => {
       expect(result.isValid).toBe(false);
       expect(mockBooking.paymentStatus).toBe("Failed");
     });
+
+    test("throws 404 when booking not found", async () => {
+      Booking.findById.mockResolvedValue(null);
+      await expect(verifyPayment({ bookingId: "bx", userId: "u" })).rejects.toThrow("Booking not found");
+    });
+
+    test("throws 403 when user mismatch", async () => {
+      Booking.findById.mockResolvedValue({ user: "u1" });
+      await expect(verifyPayment({ bookingId: "bx", userId: "u2" })).rejects.toThrow("Unauthorized to verify payment");
+    });
+
+    test("throws 400 when booking already paid", async () => {
+      Booking.findById.mockResolvedValue({ user: "u", paymentStatus: "Paid" });
+      await expect(verifyPayment({ bookingId: "bx", userId: "u" })).rejects.toThrow("This booking is already paid");
+    });
+
+    test("throws 400 when booking is cancelled", async () => {
+      Booking.findById.mockResolvedValue({ user: "u", status: "Cancelled" });
+      await expect(verifyPayment({ bookingId: "bx", userId: "u" })).rejects.toThrow(/Cannot verify payment/);
+    });
   });
 
   describe("Webhook Handling & Idempotency", () => {
@@ -303,10 +333,62 @@ describe("Standalone Payment Service", () => {
       expect(result.message).toBe("Payment already processed");
       expect(Booking.findById).not.toHaveBeenCalled();
     });
+
+    test("missing signature header returns 400", async () => {
+      const result = await processWebhook({ rawPayload: "{}", signature: null });
+      expect(result.statusCode).toBe(400);
+    });
+
+    test("missing webhook secret returns 500", async () => {
+      const result = await processWebhook({ rawPayload: "{}", signature: "sig", webhookSecret: null });
+      expect(result.statusCode).toBe(500);
+    });
+
+    test("payment.captured without payment entity returns 400", async () => {
+      const payload = { event: "payment.captured", payload: {} };
+      const secret = "whsec_mock_456";
+      const sig = crypto.createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");
+      const result = await processWebhook({ rawPayload: JSON.stringify(payload), signature: sig, webhookSecret: secret });
+      expect(result.statusCode).toBe(400);
+    });
+
+    test("payment.captured booking already paid updates payment record", async () => {
+      const payload = { event: "payment.captured", payload: { payment: { entity: { id: "p1", notes: { bookingId: "b1" } } } } };
+      const secret = "whsec_mock_456";
+      const sig = crypto.createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");
+      Payment.findOne.mockResolvedValueOnce(null);
+      Booking.findById.mockResolvedValueOnce({ _id: "b1", paymentStatus: "Paid" });
+      Payment.findOneAndUpdate.mockResolvedValueOnce({});
+      const result = await processWebhook({ rawPayload: JSON.stringify(payload), signature: sig, webhookSecret: secret });
+      expect(result.statusCode).toBe(200);
+      expect(result.message).toBe("Booking already paid");
+    });
+
+    test("payment.failed processing updates booking to Cancelled", async () => {
+      const payload = { event: "payment.failed", payload: { payment: { entity: { id: "pf", notes: { bookingId: "bf" } } } } };
+      const secret = "whsec_mock_456";
+      const sig = crypto.createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");
+      Payment.findOne.mockResolvedValueOnce(null);
+      Booking.findById.mockResolvedValueOnce({ _id: "bf", save: jest.fn() });
+      Payment.findOneAndUpdate.mockResolvedValueOnce({});
+      const result = await processWebhook({ rawPayload: JSON.stringify(payload), signature: sig, webhookSecret: secret });
+      expect(result.statusCode).toBe(200);
+      expect(result.message).toBe("Payment failure processed");
+    });
+
+    test("unhandled webhook event type returns 200 ignored", async () => {
+      const payload = { event: "unknown.event" };
+      const secret = "whsec_mock_456";
+      const sig = crypto.createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");
+      const result = await processWebhook({ rawPayload: JSON.stringify(payload), signature: sig, webhookSecret: secret });
+      expect(result.statusCode).toBe(200);
+      expect(result.message).toMatch(/not handled/);
+    });
   });
 
   describe("Refund Processing", () => {
     test("refunds payment successfully through Razorpay API", async () => {
+      Payment.findOne.mockReset();
       const mockPayment = {
         _id: "pay-ref-1",
         transactionId: "pay_refund_tgt",
@@ -331,10 +413,24 @@ describe("Standalone Payment Service", () => {
       expect(mockPayment.refundId).toBe("rfnd_mock_123");
       expect(result.id).toBe("rfnd_mock_123");
     });
+
+    test("returns null if payment not found or not Razorpay", async () => {
+      Payment.findOne.mockReturnValue({ sort: jest.fn().mockResolvedValue(null) });
+      const result = await refundPayment("bx");
+      expect(result).toBeNull();
+    });
+
+    test("returns null if Razorpay API fails", async () => {
+      Payment.findOne.mockReturnValue({ sort: jest.fn().mockResolvedValue({ amount: 100, paymentMethod: "Razorpay" }) });
+      razorpay.payments = { refund: jest.fn().mockRejectedValue(new Error("API error")) };
+      const result = await refundPayment("bx");
+      expect(result).toBeNull();
+    });
   });
 
   describe("Payment Status Query", () => {
     test("retrieves payment status by bookingId", async () => {
+      Payment.findOne.mockReset();
       const mockPayment = { _id: "pay-status-1", status: "Success", amount: 450 };
       Payment.findOne.mockReturnValue({
         sort: jest.fn().mockResolvedValue(mockPayment)
@@ -342,6 +438,21 @@ describe("Standalone Payment Service", () => {
 
       const result = await getPaymentStatus({ bookingId: "book-123" });
       expect(result._id).toBe("pay-status-1");
+    });
+
+    test("retrieves payment status by transactionId", async () => {
+      Payment.findOne.mockReturnValue({ sort: jest.fn().mockResolvedValue({ _id: "pt" }) });
+      const result = await getPaymentStatus({ transactionId: "t1" });
+      expect(result._id).toBe("pt");
+    });
+
+    test("throws 400 if neither provided", async () => {
+      await expect(getPaymentStatus({})).rejects.toThrow("Either bookingId or transactionId is required");
+    });
+
+    test("throws 404 if payment not found", async () => {
+      Payment.findOne.mockReturnValue({ sort: jest.fn().mockResolvedValue(null) });
+      await expect(getPaymentStatus({ bookingId: "bx" })).rejects.toThrow("Payment record not found");
     });
   });
 });
