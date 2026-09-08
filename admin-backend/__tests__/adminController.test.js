@@ -193,8 +193,9 @@ describe("adminController", () => {
       });
       canTransition.mockReturnValue(true);
       Booking.findByIdAndUpdate.mockReturnValue({
-        populate: jest.fn().mockReturnThis(),
-        populate: jest.fn().mockResolvedValue({ status: "Cancelled" })
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockResolvedValue({ status: "Cancelled" })
+        })
       });
       Professional.findByIdAndUpdate.mockResolvedValue({ category: "Cleaning" });
       reassignWaitingWork.mockResolvedValue();

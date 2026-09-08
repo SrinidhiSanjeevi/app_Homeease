@@ -7,14 +7,21 @@ const mongoose = require("mongoose");
 dotenv.config();
 
 const logger = require("./utils/logger");
+const { validateEnv } = require("./config/validateEnv");
+
+if (process.env.NODE_ENV !== "test") {
+  const { isValid, missing } = validateEnv();
+  if (!isValid) {
+    const varLabel = missing.length === 1 ? "variable" : "variables";
+    logger.fatal(`[Startup] FATAL: Missing required environment ${varLabel}: ${missing.join(", ")}`);
+    process.exit(1);
+  }
+}
+
 const connectDB = require("./config/db");
 const metrics = require("./metrics");
 
 if (process.env.NODE_ENV !== "test") {
-  if (!process.env.MONGO_URI) {
-    logger.fatal("[Startup] FATAL: Missing required environment variable: MONGO_URI");
-    process.exit(1);
-  }
   connectDB();
 }
 
