@@ -2,11 +2,13 @@
 **/node_modules/
 
 # Test coverage
+coverage/
 **/coverage/
 
 # Frontend build
 frontend/dist/
 dist/
+**/dist/
 
 # Environment files
 **/.env
