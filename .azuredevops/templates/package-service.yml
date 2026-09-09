@@ -1,0 +1,195 @@
+# ============================================================
+# Build → scan → SBOM → push, for one service, in ONE job.
+#
+# The image is never serialised to an artifact. It is built, scanned
+# and pushed from the same Docker daemon, which removes ~300 MB of
+# artifact traffic per service per run and closes the gap where an
+# unscanned image could be pushed by a differently-configured job.
+# ============================================================
+
+parameters:
+  - name: name
+    type: string
+  - name: path
+    type: string
+  - name: acrLoginServer
+    type: string
+  - name: imageNamespace
+    type: string
+  - name: imageTag
+    type: string
+  - name: commitCreated
+    type: string
+  - name: trivyVersion
+    type: string
+  - name: syftVersion
+    type: string
+  - name: pushEnabled
+    type: string
+
+steps:
+
+  - script: |
+      set -euo pipefail
+      echo "IMAGE=${{ parameters.acrLoginServer }}/${{ parameters.imageNamespace }}/${{ parameters.name }}:${{ parameters.imageTag }}"
+      echo "##vso[task.setvariable variable=IMAGE]${{ parameters.acrLoginServer }}/${{ parameters.imageNamespace }}/${{ parameters.name }}:${{ parameters.imageTag }}"
+    displayName: 'Resolve image reference'
+
+  - task: Docker@2
+    displayName: 'Set up Buildx'
+    inputs:
+      command: 'login'
+      containerRegistry: 'acr-homeease'
+    condition: eq('${{ parameters.pushEnabled }}', 'True')
+
+  # ──────────────────────────────────────────────────────────
+  # BUILD
+  #
+  # OCI labels are what make DORA lead-time computable later:
+  # image.created carries the COMMIT time, not the build time, so
+  # lead time = argocd_sync_time - image.created with no extra
+  # correlation store.
+  # ──────────────────────────────────────────────────────────
+
+  - script: |
+      set -euo pipefail
+      docker buildx create --use --name homeease --driver docker-container 2>/dev/null || docker buildx use homeease
+
+      docker buildx build \
+        --file ${{ parameters.path }}/Dockerfile \
+        --tag "$(IMAGE)" \
+        --label "org.opencontainers.image.source=$(Build.Repository.Uri)" \
+        --label "org.opencontainers.image.revision=$(Build.SourceVersion)" \
+        --label "org.opencontainers.image.created=${{ parameters.commitCreated }}" \
+        --label "org.opencontainers.image.version=${{ parameters.imageTag }}" \
+        --label "org.opencontainers.image.title=homeease-${{ parameters.name }}" \
+        --provenance=false \
+        --cache-from "type=local,src=$(Pipeline.Workspace)/.buildx-cache-${{ parameters.name }}" \
+        --cache-to "type=local,dest=$(Pipeline.Workspace)/.buildx-cache-${{ parameters.name }}-new,mode=max" \
+        --load \
+        ${{ parameters.path }}
+
+      rm -rf "$(Pipeline.Workspace)/.buildx-cache-${{ parameters.name }}"
+      mv "$(Pipeline.Workspace)/.buildx-cache-${{ parameters.name }}-new" "$(Pipeline.Workspace)/.buildx-cache-${{ parameters.name }}"
+
+      docker image inspect "$(IMAGE)" --format 'Built {{.RepoTags}} — {{.Size}} bytes'
+    displayName: 'Build ${{ parameters.name }}'
+
+  # ──────────────────────────────────────────────────────────
+  # SCAN — the gate. Nothing below this line runs if it fails.
+  # ──────────────────────────────────────────────────────────
+
+  - task: Cache@2
+    displayName: 'Cache Trivy DB'
+    inputs:
+      key: 'trivy-db | "$(Agent.OS)" | ${{ parameters.trivyVersion }} | "$(Build.BuildId)"'
+      restoreKeys: |
+        trivy-db | "$(Agent.OS)" | ${{ parameters.trivyVersion }}
+        trivy-db | "$(Agent.OS)"
+      path: '$(Pipeline.Workspace)/.trivy-cache'
+
+  - script: |
+      set -euo pipefail
+      if ! command -v trivy >/dev/null 2>&1; then
+        curl -fsSL -o /tmp/trivy.deb \
+          "https://github.com/aquasecurity/trivy/releases/download/v${{ parameters.trivyVersion }}/trivy_${{ parameters.trivyVersion }}_Linux-64bit.deb"
+        sudo dpkg -i /tmp/trivy.deb
+      fi
+
+      mkdir -p "$(Build.ArtifactStagingDirectory)/${{ parameters.name }}"
+
+      # Report first (always produced, even on failure), then gate.
+      trivy image \
+        --cache-dir "$(Pipeline.Workspace)/.trivy-cache" \
+        --format sarif \
+        --output "$(Build.ArtifactStagingDirectory)/${{ parameters.name }}/trivy.sarif" \
+        "$(IMAGE)"
+
+      trivy image \
+        --cache-dir "$(Pipeline.Workspace)/.trivy-cache" \
+        --severity HIGH,CRITICAL \
+        --ignore-unfixed \
+        --exit-code 1 \
+        "$(IMAGE)"
+    displayName: 'Trivy image scan — ${{ parameters.name }}'
+
+  # ──────────────────────────────────────────────────────────
+  # SBOM — the difference between "we scanned it" and "we can
+  # answer, six months from now, whether we shipped that CVE."
+  # ──────────────────────────────────────────────────────────
+
+  - script: |
+      set -euo pipefail
+      curl -fsSL "https://github.com/anchore/syft/releases/download/v${{ parameters.syftVersion }}/syft_${{ parameters.syftVersion }}_linux_amd64.tar.gz" \
+        | tar -xz -C /tmp syft
+      sudo mv /tmp/syft /usr/local/bin/
+
+      syft "$(IMAGE)" \
+        -o cyclonedx-json="$(Build.ArtifactStagingDirectory)/${{ parameters.name }}/sbom.cdx.json"
+
+      echo "SBOM components: $(jq '.components | length' "$(Build.ArtifactStagingDirectory)/${{ parameters.name }}/sbom.cdx.json")"
+    displayName: 'Generate SBOM — ${{ parameters.name }}'
+
+  - publish: '$(Build.ArtifactStagingDirectory)/${{ parameters.name }}'
+    artifact: 'security-reports-${{ parameters.name }}'
+    condition: succeededOrFailed()
+    displayName: 'Publish SBOM + SARIF — ${{ parameters.name }}'
+
+  # ──────────────────────────────────────────────────────────
+  # PUSH — main only, and only after the gate above passed.
+  #
+  # No :latest tag. The digest is captured and printed because that
+  # is what CD should reference; tags are mutable, digests are not.
+  # ──────────────────────────────────────────────────────────
+
+  - script: |
+      set -euo pipefail
+      START=$(date +%s)
+
+      docker push "$(IMAGE)"
+
+      END=$(date +%s)
+      DURATION=$((END - START))
+
+      DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$(IMAGE)")
+      echo "Pushed: ${DIGEST}"
+      echo "##vso[task.setvariable variable=imageDigest;isOutput=true]${DIGEST}"
+
+      cat <<EOF | curl -fsS --max-time 10 --data-binary @- \
+        "$(PUSHGATEWAY_URL)/metrics/job/homeease_ci/service/${{ parameters.name }}/registry/acr" || echo "Pushgateway unreachable — metric dropped"
+      # TYPE ci_image_push_duration_seconds gauge
+      ci_image_push_duration_seconds ${DURATION}
+      # TYPE ci_image_push_timestamp gauge
+      ci_image_push_timestamp $(date +%s)
+      EOF
+    name: push
+    displayName: 'Push to ACR + record duration — ${{ parameters.name }}'
+    condition: and(succeeded(), eq('${{ parameters.pushEnabled }}', 'True'))
+
+  # ──────────────────────────────────────────────────────────
+  # SIGN (optional, main only)
+  #
+  # NOTE: cosign KEYLESS signing needs an OIDC issuer Sigstore's
+  # Fulcio trusts. GitHub Actions is trusted; Azure DevOps is not.
+  # So on ADO, sign with a key in Key Vault (azurekms://) instead.
+  # The AWS pipeline uses keyless. Enable once the key exists.
+  # ──────────────────────────────────────────────────────────
+
+  # - script: |
+  #     set -euo pipefail
+  #     COSIGN_VERSION=3.1.3
+  #     curl -fsSL -o /tmp/cosign \
+  #       "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+  #     chmod +x /tmp/cosign && sudo mv /tmp/cosign /usr/local/bin/cosign
+  #     cosign sign --yes \
+  #       --key "azurekms://kv-homeease-dev-hs01.vault.azure.net/cosign-signing-key" \
+  #       "$(IMAGE)"
+  #   displayName: 'Cosign sign — ${{ parameters.name }}'
+  #   condition: and(succeeded(), eq('${{ parameters.pushEnabled }}', 'True'))
+
+  - task: Docker@2
+    displayName: 'Logout from ACR'
+    inputs:
+      command: 'logout'
+      containerRegistry: 'acr-homeease'
+    condition: always()

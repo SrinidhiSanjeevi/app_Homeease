@@ -1,0 +1,166 @@
+# ============================================================
+# Reusable validation steps for one Node service.
+#
+# Order matters: cheapest and most likely to fail goes first, so a
+# broken lint doesn't wait 4 minutes behind a test suite.
+# ============================================================
+
+parameters:
+  - name: name
+    type: string
+  - name: path
+    type: string
+  - name: hasTests
+    type: boolean
+    default: true
+  - name: hasLint
+    type: boolean
+    default: true
+  - name: sonarProjectKey
+    type: string
+  - name: nodeVersion
+    type: string
+    default: '22.x'
+  - name: trivyVersion
+    type: string
+    default: '0.74.0'
+
+steps:
+
+  - task: UseNode@1
+    displayName: 'Node.js ${{ parameters.nodeVersion }} — ${{ parameters.name }}'
+    inputs:
+      version: '${{ parameters.nodeVersion }}'
+
+  # Cache the npm download cache, not node_modules. Caching node_modules
+  # can restore a tree that doesn't match the lockfile after a dependency
+  # bump; ~/.npm is content-addressed and always safe.
+  - task: Cache@2
+    displayName: 'Cache npm — ${{ parameters.name }}'
+    inputs:
+      key: 'npm | "$(Agent.OS)" | ${{ parameters.path }}/package-lock.json'
+      restoreKeys: |
+        npm | "$(Agent.OS)"
+      path: '$(Pipeline.Workspace)/.npm'
+
+  - script: |
+      set -euo pipefail
+      npm config set cache "$(Pipeline.Workspace)/.npm"
+      cd ${{ parameters.path }}
+      npm ci --no-audit --no-fund
+    displayName: 'npm ci — ${{ parameters.name }}'
+
+  - ${{ if eq(parameters.hasLint, true) }}:
+      - script: |
+          set -euo pipefail
+          cd ${{ parameters.path }}
+          npm run lint
+        displayName: 'Lint — ${{ parameters.name }}'
+
+  # npm audit reads the lockfile and knows about advisories Trivy's
+  # database may lag on. Running both is deliberate — they disagree.
+  - script: |
+      set -euo pipefail
+      cd ${{ parameters.path }}
+      npm audit --audit-level=high --omit=dev
+    displayName: 'npm audit (high+) — ${{ parameters.name }}'
+
+  - ${{ if eq(parameters.hasTests, true) }}:
+      - script: |
+          set -euo pipefail
+          cd ${{ parameters.path }}
+          npm run test:coverage -- --ci --reporters=default --reporters=jest-junit
+        displayName: 'Test + coverage — ${{ parameters.name }}'
+        env:
+          JEST_JUNIT_OUTPUT_DIR: '$(Build.ArtifactStagingDirectory)/${{ parameters.name }}'
+          JEST_JUNIT_OUTPUT_NAME: 'junit.xml'
+
+      - task: PublishTestResults@2
+        displayName: 'Publish test results — ${{ parameters.name }}'
+        condition: succeededOrFailed()
+        inputs:
+          testResultsFormat: 'JUnit'
+          testResultsFiles: '$(Build.ArtifactStagingDirectory)/${{ parameters.name }}/junit.xml'
+          testRunTitle: '${{ parameters.name }}'
+          failTaskOnFailedTests: true
+
+      - task: PublishCodeCoverageResults@2
+        displayName: 'Publish coverage — ${{ parameters.name }}'
+        condition: succeededOrFailed()
+        inputs:
+          summaryFileLocation: '${{ parameters.path }}/coverage/cobertura-coverage.xml'
+          pathToSources: '${{ parameters.path }}'
+
+  # Frontend builds instead of testing. It still has to compile.
+  - ${{ if eq(parameters.hasTests, false) }}:
+      - script: |
+          set -euo pipefail
+          cd ${{ parameters.path }}
+          npm run build
+        displayName: 'Production build — ${{ parameters.name }}'
+
+  # ──────────────────────────────────────────────────────────
+  # SCA on the source tree.
+  #
+  # This is NOT the same as the image scan in the Package stage:
+  # here Trivy sees devDependencies and the lockfile; there it sees
+  # only what shipped. Both matter — a vulnerable build-time dep is
+  # a supply-chain risk even if it never reaches production.
+  # ──────────────────────────────────────────────────────────
+
+  - task: Cache@2
+    displayName: 'Cache Trivy DB'
+    inputs:
+      key: 'trivy-db | "$(Agent.OS)" | ${{ parameters.trivyVersion }} | "$(Build.BuildId)"'
+      restoreKeys: |
+        trivy-db | "$(Agent.OS)" | ${{ parameters.trivyVersion }}
+        trivy-db | "$(Agent.OS)"
+      path: '$(Pipeline.Workspace)/.trivy-cache'
+
+  - script: |
+      set -euo pipefail
+      if ! command -v trivy >/dev/null 2>&1; then
+        curl -fsSL -o /tmp/trivy.deb \
+          "https://github.com/aquasecurity/trivy/releases/download/v${{ parameters.trivyVersion }}/trivy_${{ parameters.trivyVersion }}_Linux-64bit.deb"
+        sudo dpkg -i /tmp/trivy.deb
+      fi
+      trivy --version
+
+      trivy fs \
+        --cache-dir "$(Pipeline.Workspace)/.trivy-cache" \
+        --scanners vuln,secret,misconfig \
+        --severity HIGH,CRITICAL \
+        --ignore-unfixed \
+        --exit-code 1 \
+        --format table \
+        ${{ parameters.path }}
+    displayName: 'Trivy fs — ${{ parameters.name }}'
+
+  # ──────────────────────────────────────────────────────────
+  # SonarQube. Requires, one time:
+  #   1. Marketplace extension "SonarQube" installed in the org
+  #   2. Service connection named sonarqube-service-connection
+  #   3. Variable group `homeease-ci` linked to Key Vault, exposing
+  #      SONAR_TOKEN and SONAR_HOST_URL
+  # ──────────────────────────────────────────────────────────
+
+  - task: SonarQubePrepare@6
+    displayName: 'Sonar prepare — ${{ parameters.name }}'
+    inputs:
+      SonarQube: 'sonarqube-service-connection'
+      scannerMode: 'CLI'
+      configMode: 'file'
+      configFile: '${{ parameters.path }}/sonar-project.properties'
+      extraProperties: |
+        sonar.projectKey=${{ parameters.sonarProjectKey }}
+        sonar.working.directory=$(Agent.TempDirectory)/.sonarwork-${{ parameters.name }}
+
+  - task: SonarQubeAnalyze@6
+    displayName: 'Sonar analyse — ${{ parameters.name }}'
+
+  # Fails the job if the Quality Gate fails. Without this the Sonar
+  # result is decorative.
+  - task: SonarQubePublishResults@1
+    displayName: 'Sonar quality gate — ${{ parameters.name }}'
+    inputs:
+      pollingTimeoutSec: '300'
