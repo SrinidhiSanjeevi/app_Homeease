@@ -1,37 +1,46 @@
 # ============================================================
-# HomeEase CI Pipeline
+# HomeEase — CI Pipeline (Azure DevOps → ACR)
 #
-# PROCESS-BASED CI/CD STRUCTURE
+#   Git push / PR
+#        │
+#        ▼
+#   1. STATIC        secret scan, Dockerfile lint, change detection   (repo-wide, 1 job)
+#        │
+#        ▼
+#   2. VALIDATE      lint · test+coverage · npm audit · trivy fs · Sonar   (per changed service)
+#        │
+#        ▼
+#   3. PACKAGE       build → trivy image → SBOM → push → sign      (per changed service, ONE job)
+#        │
+#        ▼
+#   4. REPORT        push CI duration metrics to Pushgateway
 #
-# Git Push
-#     |
-#     v
-# STAGE 1: VALIDATE   (lint/test/coverage/SonarQube — runs on PR + main)
-#     |
-#     v
-# STAGE 2: BUILD & TAG  (docker build, immutable + latest tags — runs on PR + main)
-#     |
-#     v
-# STAGE 3: TRIVY SECURITY SCAN  (runs on PR + main)
-#     |
-#     v
-# STAGE 4: PUSH TO ACR  (main only)
+# DESIGN NOTES — read before editing
 #
-# Backend / Admin Backend / Frontend run as parallel jobs
-# INSIDE each stage.
+# * Build, scan and push live in ONE job per service. The previous
+#   version crossed stage boundaries with `docker save` + Pipeline
+#   Artifacts, which meant uploading and downloading ~150 MB per
+#   service TWICE per run. On the free tier (1 parallel job,
+#   1,800 min/month) that was the single biggest consumer of minutes.
+#   Nothing is gained: the image is scanned and pushed from the same
+#   Docker daemon that built it.
 #
-# This pipeline is CI ONLY. It does NOT deploy to AKS.
-# No application runtime secrets are required during CI —
-# only the ACR service connection (used in the Push stage).
+# * Image tag is the GIT SHA, not $(Build.BuildId). A build ID cannot
+#   be traced back to source. `:latest` is not pushed at all — it makes
+#   GitOps non-deterministic and blocks rollback.
 #
-# Docker images cross stage boundaries as Pipeline Artifacts,
-# because each stage in Azure Pipelines runs on a fresh agent
-# with its own Docker daemon.
-# ============================================================
-
-
-# ============================================================
-# TRIGGER
+# * There are no dev/staging/prod stages here, by design. CI produces
+#   ONE image digest per commit; environments are a promotion concern
+#   handled by CD. Building per-environment would mean staging and prod
+#   run different binaries.
+#
+# * Trivy is pinned to a release tag and its DB is cached. Pulling
+#   install.sh from a moving branch caused a supply-chain break in this
+#   project before; pulling the DB anonymously from ghcr.io on every run
+#   causes intermittent TOOMANYREQUESTS failures that look like flakes.
+#
+# * Conditions are kept on ONE LINE. Multi-line conditions have broken
+#   YAML parsing in this pipeline before.
 # ============================================================
 
 trigger:
@@ -43,12 +52,9 @@ trigger:
       - backend/**
       - admin-backend/**
       - frontend/**
+      - payment-service/**
       - azure-pipelines.yml
-
-
-# ============================================================
-# PULL REQUEST VALIDATION
-# ============================================================
+      - .azuredevops/**
 
 pr:
   branches:
@@ -59,751 +65,310 @@ pr:
       - backend/**
       - admin-backend/**
       - frontend/**
+      - payment-service/**
       - azure-pipelines.yml
-
-
-# ============================================================
-# AGENT
-# ============================================================
+      - .azuredevops/**
 
 pool:
   vmImage: 'ubuntu-latest'
 
+# ============================================================
+# SERVICE CATALOGUE
+#
+# The single source of truth. Adding a fifth service means adding
+# one entry here — not copying 200 lines of YAML.
+# ============================================================
 
-# ============================================================
-# VARIABLES
-# ============================================================
+parameters:
+  - name: services
+    type: object
+    default:
+      - name: backend
+        path: backend
+        port: 5000
+        hasTests: true
+        hasLint: true
+        sonarProjectKey: homeease-backend
+      - name: admin-backend
+        path: admin-backend
+        port: 5001
+        hasTests: true
+        hasLint: true
+        sonarProjectKey: homeease-admin-backend
+      - name: payment-service
+        path: payment-service
+        port: 5002
+        hasTests: true
+        hasLint: true
+        sonarProjectKey: homeease-payment-service
+      - name: frontend
+        path: frontend
+        port: 8080
+        hasTests: false
+        hasLint: false
+        sonarProjectKey: homeease-frontend
 
 variables:
-  # Azure Container Registry
+  # Secrets (SONAR_TOKEN, SONAR_HOST_URL) come from a variable group
+  # linked to Key Vault. Nothing sensitive is ever written in this file.
+  - group: homeease-ci
+
   - name: acrName
     value: 'acrhomeeasedev'
-
-  # ACR login server
   - name: acrLoginServer
     value: '$(acrName).azurecr.io'
 
-  # Immutable image tag — one build ID for all three services,
-  # so backend/admin-backend/frontend images from the same commit
-  # always carry a matching tag.
-  - name: imageTag
-    value: '$(Build.BuildId)'
+  # Repository namespace inside the registry: acrhomeeasedev.azurecr.io/homeease/backend
+  # One registry serves all environments — promotion is by digest, not by registry.
+  - name: imageNamespace
+    value: 'homeease'
 
-  # Pinned Trivy version.
-  # IMPORTANT: never pull install.sh from Trivy's `main` branch —
-  # that exact pattern caused a supply-chain break in this project's
-  # GitHub Actions pipeline before (trivy-action tag invalidation,
-  # March 2026). Pin a real release tag and bump deliberately.
-  - name: trivyVersion
-    value: '0.74.0'
-
-  # Node version used across all three services
   - name: nodeVersion
     value: '22.x'
 
+  # Pinned. Never install from a moving branch reference.
+  - name: trivyVersion
+    value: '0.74.0'
+  - name: syftVersion
+    value: '1.51.1'
 
-# ============================================================
-# STAGES
-# ============================================================
+  # Only main produces pushed artifacts. PRs build and scan, then discard.
+  - name: isMain
+    value: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
 
 stages:
 
+# ============================================================
+# STAGE 1 — STATIC
+#
+# Repo-wide checks that need no dependencies installed, plus change
+# detection so unmodified services are skipped entirely. On a 1-job
+# agent this is the difference between a 6-minute run and a 20-minute
+# one when you touch a single service.
+# ============================================================
+
+- stage: Static
+  displayName: '1. Static Analysis'
+  jobs:
+
+    - job: Changes
+      displayName: 'Secret scan, Dockerfile lint, change detection'
+      timeoutInMinutes: 10
+      steps:
+
+        # Full history is required: gitleaks must see deleted commits.
+        # A secret removed in a later commit is still a leaked secret.
+        - checkout: self
+          fetchDepth: 0
+
+        - script: |
+            set -euo pipefail
+            echo "Installing gitleaks"
+            GITLEAKS_VERSION=8.30.1
+            curl -fsSL -o /tmp/gitleaks.tar.gz \
+              "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+            tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+            sudo mv /tmp/gitleaks /usr/local/bin/
+            gitleaks version
+
+            echo "Scanning full git history for secrets"
+            gitleaks detect \
+              --source . \
+              --redact \
+              --report-format sarif \
+              --report-path "$(Build.ArtifactStagingDirectory)/gitleaks.sarif" \
+              --exit-code 1
+          displayName: 'Gitleaks — secret scan (full history)'
+
+        - script: |
+            set -euo pipefail
+            docker pull hadolint/hadolint:v2.15.1-alpine
+            FAILED=0
+            for f in backend admin-backend frontend payment-service; do
+              echo "── hadolint ${f}/Dockerfile ──"
+              docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
+                hadolint --no-fail - < "${f}/Dockerfile" || FAILED=1
+            done
+            # Reported, not gated. Promote to `exit $FAILED` once the
+            # existing findings (unpinned apk packages, mutable base tags)
+            # are cleared.
+            exit 0
+          displayName: 'Hadolint — Dockerfile lint (report only)'
+
+        - script: |
+            set -euo pipefail
+
+            if [ "$(Build.Reason)" = "PullRequest" ]; then
+              BASE="origin/$(System.PullRequest.TargetBranch)"
+              git fetch --no-tags origin "$(System.PullRequest.TargetBranch)"
+              RANGE="${BASE}...HEAD"
+            else
+              # On main, diff against the previous commit. If this is the
+              # first commit, fall back to "everything changed".
+              if git rev-parse HEAD~1 >/dev/null 2>&1; then
+                RANGE="HEAD~1..HEAD"
+              else
+                RANGE=""
+              fi
+            fi
+
+            if [ -z "$RANGE" ]; then
+              CHANGED="ALL"
+            else
+              CHANGED=$(git diff --name-only $RANGE)
+            fi
+            echo "Changed files:"; echo "$CHANGED"
+
+            # A change to the pipeline itself rebuilds everything.
+            if echo "$CHANGED" | grep -qE '^(azure-pipelines\.yml|\.azuredevops/)' || [ "$CHANGED" = "ALL" ]; then
+              FORCE_ALL=true
+            else
+              FORCE_ALL=false
+            fi
+
+            for svc in backend admin-backend frontend payment-service; do
+              VAR="changed_$(echo $svc | tr '-' '_')"
+              if [ "$FORCE_ALL" = "true" ] || echo "$CHANGED" | grep -q "^${svc}/"; then
+                echo "  ${svc}: CHANGED"
+                echo "##vso[task.setvariable variable=${VAR};isOutput=true]true"
+              else
+                echo "  ${svc}: unchanged — will be skipped"
+                echo "##vso[task.setvariable variable=${VAR};isOutput=true]false"
+              fi
+            done
+
+            # Same tag for every service built from this commit.
+            SHA=$(git rev-parse --short=12 HEAD)
+            echo "##vso[task.setvariable variable=imageTag;isOutput=true]${SHA}"
+            echo "##vso[task.setvariable variable=commitCreated;isOutput=true]$(git show -s --format=%cI HEAD)"
+            echo "Image tag for this run: ${SHA}"
+          name: detect
+          displayName: 'Detect changed services + compute image tag'
+
+        - publish: '$(Build.ArtifactStagingDirectory)'
+          artifact: 'static-analysis-reports'
+          condition: always()
+          displayName: 'Publish SARIF reports'
 
 # ============================================================
-# STAGE 1 — VALIDATE
+# STAGE 2 — VALIDATE
 #
-# Purpose:
-# - Install dependencies (cached)
-# - Run backend tests
-# - Run admin-backend tests
-# - Build frontend
-#
-# Backend / Admin Backend / Frontend run in parallel.
-# Runs on both PR and main — this is the fast-feedback gate.
+# Per-service fast feedback. Skipped for services this commit
+# did not touch.
 # ============================================================
 
 - stage: Validate
-
-  displayName: '1. Validate Application'
-
-  jobs:
-
-    # ========================================================
-    # BACKEND VALIDATION
-    # ========================================================
-
-    - job: ValidateBackend
-
-      displayName: 'Backend Validation'
-
-      timeoutInMinutes: 15
-
-      steps:
-
-        - task: UseNode@1
-          displayName: 'Install Node.js $(nodeVersion)'
-          inputs:
-            version: '$(nodeVersion)'
-
-        - task: Cache@2
-          displayName: 'Cache node_modules — backend'
-          inputs:
-            key: 'npm | "$(Agent.OS)" | backend/package-lock.json'
-            restoreKeys: |
-              npm | "$(Agent.OS)"
-            path: 'backend/node_modules'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Backend dependency installation"
-            echo "========================================"
-            cd backend
-            npm ci --no-audit --no-fund
-          displayName: 'npm ci — backend'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Backend lint"
-            echo "========================================"
-            cd backend
-            npm run lint
-          displayName: 'Lint — backend'
-          continueOnError: false
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Backend tests + coverage"
-            echo "========================================"
-            cd backend
-            npm run test:coverage
-          displayName: 'Test + Coverage — backend'
-
-        # ──────────────────────────────────────────────────
-        # SonarQube — backend
-        #
-        # Prerequisites (configure once in Azure DevOps):
-        #   1. Install "SonarQube" extension from the Marketplace.
-        #   2. Create a SonarQube service connection named
-        #      "sonarqube-service-connection" in Project Settings
-        #      → Service Connections.
-        #   3. Add SONAR_TOKEN as a secret pipeline variable
-        #      (the service connection handles auth automatically
-        #       when using the task — the token is set internally).
-        #   4. Set pipeline variable sonarHostUrl to your
-        #      SonarQube server URL (e.g. http://localhost:9000
-        #      for the docker-compose instance, or the hosted URL).
-        # ──────────────────────────────────────────────────
-        - task: SonarQubePrepare@6
-          displayName: 'SonarQube — Prepare analysis (backend)'
-          inputs:
-            SonarQube: 'sonarqube-service-connection'
-            scannerMode: 'CLI'
-            configMode: 'file'
-            # sonar-project.properties lives at backend/sonar-project.properties
-            configFile: 'backend/sonar-project.properties'
-            extraProperties: |
-              sonar.working.directory=$(Agent.TempDirectory)/.sonarwork-backend
-
-        - task: SonarQubeAnalyze@6
-          displayName: 'SonarQube — Run analysis (backend)'
-
-        - task: SonarQubePublishResults@1
-          displayName: 'SonarQube — Publish Quality Gate result (backend)'
-          inputs:
-            pollingTimeoutSec: '300'
-
-
-
-    # ========================================================
-    # ADMIN BACKEND VALIDATION
-    # ========================================================
-
-    - job: ValidateAdminBackend
-
-      displayName: 'Admin Backend Validation'
-
-      timeoutInMinutes: 15
-
-      steps:
-
-        - task: UseNode@1
-          displayName: 'Install Node.js $(nodeVersion)'
-          inputs:
-            version: '$(nodeVersion)'
-
-        - task: Cache@2
-          displayName: 'Cache node_modules — admin-backend'
-          inputs:
-            key: 'npm | "$(Agent.OS)" | admin-backend/package-lock.json'
-            restoreKeys: |
-              npm | "$(Agent.OS)"
-            path: 'admin-backend/node_modules'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Admin backend dependency installation"
-            echo "========================================"
-            cd admin-backend
-            npm ci --no-audit --no-fund
-          displayName: 'npm ci — admin-backend'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Admin backend tests"
-            echo "========================================"
-            cd admin-backend
-            npm test --if-present
-          displayName: 'Run admin-backend tests'
-
-
-    # ========================================================
-    # FRONTEND VALIDATION
-    # ========================================================
-
-    - job: ValidateFrontend
-
-      displayName: 'Frontend Validation'
-
-      timeoutInMinutes: 15
-
-      steps:
-
-        - task: UseNode@1
-          displayName: 'Install Node.js $(nodeVersion)'
-          inputs:
-            version: '$(nodeVersion)'
-
-        - task: Cache@2
-          displayName: 'Cache node_modules — frontend'
-          inputs:
-            key: 'npm | "$(Agent.OS)" | frontend/package-lock.json'
-            restoreKeys: |
-              npm | "$(Agent.OS)"
-            path: 'frontend/node_modules'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Frontend dependency installation"
-            echo "========================================"
-            cd frontend
-            npm ci --no-audit --no-fund
-          displayName: 'npm ci — frontend'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Frontend production build"
-            echo "========================================"
-            cd frontend
-            npm run build
-          displayName: 'Build frontend'
-
-
-# ============================================================
-# STAGE 2 — BUILD & TAG
-#
-# Purpose:
-# - Build the Docker image for each service
-# - Apply BOTH tags immediately (immutable build id + latest)
-# - Save the tagged image as a Pipeline Artifact
-#
-# Tagging happens here (not in a separate stage) to avoid an
-# extra save/load round-trip — the image only needs to be
-# rebuilt-from-artifact twice (Scan, Push) instead of three
-# times. No ACR login is required in this stage.
-#
-# Runs on both PR and main, so PRs get build + scan feedback
-# before merge. Only main proceeds to Push (see condition below).
-# ============================================================
-
-- stage: Build
-
-  displayName: '2. Build & Tag Docker Images'
-
-  dependsOn: Validate
-
+  displayName: '2. Validate Services'
+  dependsOn: Static
   condition: succeeded()
-
   jobs:
-
-    # ========================================================
-    # BUILD BACKEND
-    # ========================================================
-
-    - job: BuildBackend
-
-      displayName: 'Build & Tag Backend Image'
-
-      timeoutInMinutes: 20
-
-      steps:
-
-        - task: Docker@2
-          displayName: 'Build backend Docker image'
-          inputs:
-            command: 'build'
-            repository: 'homeease-backend'
-            dockerfile: 'backend/Dockerfile'
-            buildContext: 'backend'
-            tags: |
-              $(imageTag)
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Tagging backend image"
-            echo "========================================"
-            docker tag homeease-backend:$(imageTag) $(acrLoginServer)/homeease-backend:$(imageTag)
-            docker tag homeease-backend:$(imageTag) $(acrLoginServer)/homeease-backend:latest
-
-            echo "========================================"
-            echo "Saving tagged backend image"
-            echo "========================================"
-            docker save \
-              $(acrLoginServer)/homeease-backend:$(imageTag) \
-              $(acrLoginServer)/homeease-backend:latest \
-              | gzip > $(Build.ArtifactStagingDirectory)/backend-image.tar.gz
-
-            ls -lh $(Build.ArtifactStagingDirectory)/backend-image.tar.gz
-          displayName: 'Tag and save backend image'
-
-        - task: PublishPipelineArtifact@1
-          displayName: 'Publish backend image artifact'
-          inputs:
-            targetPath: '$(Build.ArtifactStagingDirectory)/backend-image.tar.gz'
-            artifact: 'backend-image'
-
-
-    # ========================================================
-    # BUILD ADMIN BACKEND
-    # ========================================================
-
-    - job: BuildAdminBackend
-
-      displayName: 'Build & Tag Admin Backend Image'
-
-      timeoutInMinutes: 20
-
-      steps:
-
-        - task: Docker@2
-          displayName: 'Build admin-backend Docker image'
-          inputs:
-            command: 'build'
-            repository: 'homeease-admin-backend'
-            dockerfile: 'admin-backend/Dockerfile'
-            buildContext: 'admin-backend'
-            tags: |
-              $(imageTag)
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Tagging admin-backend image"
-            echo "========================================"
-            docker tag homeease-admin-backend:$(imageTag) $(acrLoginServer)/homeease-admin-backend:$(imageTag)
-            docker tag homeease-admin-backend:$(imageTag) $(acrLoginServer)/homeease-admin-backend:latest
-
-            echo "========================================"
-            echo "Saving tagged admin-backend image"
-            echo "========================================"
-            docker save \
-              $(acrLoginServer)/homeease-admin-backend:$(imageTag) \
-              $(acrLoginServer)/homeease-admin-backend:latest \
-              | gzip > $(Build.ArtifactStagingDirectory)/admin-backend-image.tar.gz
-
-            ls -lh $(Build.ArtifactStagingDirectory)/admin-backend-image.tar.gz
-          displayName: 'Tag and save admin-backend image'
-
-        - task: PublishPipelineArtifact@1
-          displayName: 'Publish admin-backend image artifact'
-          inputs:
-            targetPath: '$(Build.ArtifactStagingDirectory)/admin-backend-image.tar.gz'
-            artifact: 'admin-backend-image'
-
-
-    # ========================================================
-    # BUILD FRONTEND
-    # ========================================================
-
-    - job: BuildFrontend
-
-      displayName: 'Build & Tag Frontend Image'
-
-      timeoutInMinutes: 20
-
-      steps:
-
-        - task: Docker@2
-          displayName: 'Build frontend Docker image'
-          inputs:
-            command: 'build'
-            repository: 'homeease-frontend'
-            dockerfile: 'frontend/Dockerfile'
-            buildContext: 'frontend'
-            tags: |
-              $(imageTag)
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Tagging frontend image"
-            echo "========================================"
-            docker tag homeease-frontend:$(imageTag) $(acrLoginServer)/homeease-frontend:$(imageTag)
-            docker tag homeease-frontend:$(imageTag) $(acrLoginServer)/homeease-frontend:latest
-
-            echo "========================================"
-            echo "Saving tagged frontend image"
-            echo "========================================"
-            docker save \
-              $(acrLoginServer)/homeease-frontend:$(imageTag) \
-              $(acrLoginServer)/homeease-frontend:latest \
-              | gzip > $(Build.ArtifactStagingDirectory)/frontend-image.tar.gz
-
-            ls -lh $(Build.ArtifactStagingDirectory)/frontend-image.tar.gz
-          displayName: 'Tag and save frontend image'
-
-        - task: PublishPipelineArtifact@1
-          displayName: 'Publish frontend image artifact'
-          inputs:
-            targetPath: '$(Build.ArtifactStagingDirectory)/frontend-image.tar.gz'
-            artifact: 'frontend-image'
-
+    - ${{ each service in parameters.services }}:
+        - job: Validate_${{ replace(service.name, '-', '_') }}
+          displayName: 'Validate ${{ service.name }}'
+          timeoutInMinutes: 15
+          condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
+          steps:
+            - template: .azuredevops/templates/validate-service.yml
+              parameters:
+                name: ${{ service.name }}
+                path: ${{ service.path }}
+                hasTests: ${{ service.hasTests }}
+                hasLint: ${{ service.hasLint }}
+                sonarProjectKey: ${{ service.sonarProjectKey }}
+                nodeVersion: $(nodeVersion)
+                trivyVersion: $(trivyVersion)
 
 # ============================================================
-# STAGE 3 — TRIVY SECURITY SCAN
+# STAGE 3 — PACKAGE
 #
-# Purpose:
-# - Download the exact tagged images produced by Build
-# - Load them into Docker
-# - Scan for HIGH/CRITICAL vulnerabilities
-# - Fail the pipeline if any unfixed HIGH/CRITICAL are found
-#
-# Images are NOT rebuilt. Trivy is pinned to $(trivyVersion) —
-# never installed from a moving branch reference.
-#
-# Runs on both PR and main: security gating happens before
-# merge, not only on release.
+# Build → scan → SBOM → push, all in one job so the image never
+# leaves the agent between steps. Push only happens on main; PRs
+# stop after the scan.
 # ============================================================
 
-- stage: SecurityScan
-
-  displayName: '3. Trivy Security Scan'
-
-  dependsOn: Build
-
+- stage: Package
+  displayName: '3. Build, Scan & Push'
+  dependsOn:
+    - Static
+    - Validate
   condition: succeeded()
-
   jobs:
-
-    # ========================================================
-    # SCAN BACKEND
-    # ========================================================
-
-    - job: ScanBackend
-
-      displayName: 'Scan Backend Image'
-
-      timeoutInMinutes: 15
-
-      steps:
-
-        - task: DownloadPipelineArtifact@2
-          displayName: 'Download backend image'
-          inputs:
-            artifact: 'backend-image'
-            path: '$(Pipeline.Workspace)/backend-image'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Loading backend Docker image"
-            echo "========================================"
-            gunzip -c \
-              $(Pipeline.Workspace)/backend-image/backend-image.tar.gz \
-              | docker load
-
-            echo "========================================"
-            echo "Installing Trivy v$(trivyVersion) (pinned, via .deb release asset)"
-            echo "========================================"
-            curl -fsSL -o /tmp/trivy.deb \
-              https://github.com/aquasecurity/trivy/releases/download/v$(trivyVersion)/trivy_$(trivyVersion)_Linux-64bit.deb
-            sudo dpkg -i /tmp/trivy.deb
-            trivy --version
-
-            echo "========================================"
-            echo "Scanning backend image"
-            echo "========================================"
-            trivy image \
-              --severity HIGH,CRITICAL \
-              --exit-code 1 \
-              --ignore-unfixed \
-              $(acrLoginServer)/homeease-backend:$(imageTag)
-          displayName: 'Trivy scan — backend'
-
-
-    # ========================================================
-    # SCAN ADMIN BACKEND
-    # ========================================================
-
-    - job: ScanAdminBackend
-
-      displayName: 'Scan Admin Backend Image'
-
-      timeoutInMinutes: 15
-
-      steps:
-
-        - task: DownloadPipelineArtifact@2
-          displayName: 'Download admin-backend image'
-          inputs:
-            artifact: 'admin-backend-image'
-            path: '$(Pipeline.Workspace)/admin-backend-image'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Loading admin-backend Docker image"
-            echo "========================================"
-            gunzip -c \
-              $(Pipeline.Workspace)/admin-backend-image/admin-backend-image.tar.gz \
-              | docker load
-
-            echo "========================================"
-            echo "Installing Trivy v$(trivyVersion) (pinned, via .deb release asset)"
-            echo "========================================"
-            curl -fsSL -o /tmp/trivy.deb \
-              https://github.com/aquasecurity/trivy/releases/download/v$(trivyVersion)/trivy_$(trivyVersion)_Linux-64bit.deb
-            sudo dpkg -i /tmp/trivy.deb
-            trivy --version
-
-            echo "========================================"
-            echo "Scanning admin-backend image"
-            echo "========================================"
-            trivy image \
-              --severity HIGH,CRITICAL \
-              --exit-code 1 \
-              --ignore-unfixed \
-              $(acrLoginServer)/homeease-admin-backend:$(imageTag)
-          displayName: 'Trivy scan — admin-backend'
-
-
-    # ========================================================
-    # SCAN FRONTEND
-    # ========================================================
-
-    - job: ScanFrontend
-
-      displayName: 'Scan Frontend Image'
-
-      timeoutInMinutes: 15
-
-      steps:
-
-        - task: DownloadPipelineArtifact@2
-          displayName: 'Download frontend image'
-          inputs:
-            artifact: 'frontend-image'
-            path: '$(Pipeline.Workspace)/frontend-image'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Loading frontend Docker image"
-            echo "========================================"
-            gunzip -c \
-              $(Pipeline.Workspace)/frontend-image/frontend-image.tar.gz \
-              | docker load
-
-            echo "========================================"
-            echo "Installing Trivy v$(trivyVersion) (pinned, via .deb release asset)"
-            echo "========================================"
-            curl -fsSL -o /tmp/trivy.deb \
-              https://github.com/aquasecurity/trivy/releases/download/v$(trivyVersion)/trivy_$(trivyVersion)_Linux-64bit.deb
-            sudo dpkg -i /tmp/trivy.deb
-            trivy --version
-
-            echo "========================================"
-            echo "Scanning frontend image"
-            echo "========================================"
-            trivy image \
-              --severity HIGH,CRITICAL \
-              --exit-code 1 \
-              --ignore-unfixed \
-              $(acrLoginServer)/homeease-frontend:$(imageTag)
-          displayName: 'Trivy scan — frontend'
-
+    - ${{ each service in parameters.services }}:
+        - job: Package_${{ replace(service.name, '-', '_') }}
+          displayName: 'Package ${{ service.name }}'
+          timeoutInMinutes: 25
+          condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
+          variables:
+            imageTag: $[ stageDependencies.Static.Changes.outputs['detect.imageTag'] ]
+            commitCreated: $[ stageDependencies.Static.Changes.outputs['detect.commitCreated'] ]
+          steps:
+            - template: .azuredevops/templates/package-service.yml
+              parameters:
+                name: ${{ service.name }}
+                path: ${{ service.path }}
+                acrLoginServer: $(acrLoginServer)
+                imageNamespace: $(imageNamespace)
+                imageTag: $(imageTag)
+                commitCreated: $(commitCreated)
+                trivyVersion: $(trivyVersion)
+                syftVersion: $(syftVersion)
+                pushEnabled: $(isMain)
 
 # ============================================================
-# STAGE 4 — PUSH
+# STAGE 4 — REPORT
 #
-# Purpose:
-# - Authenticate to ACR
-# - Load the exact scanned, already-tagged images
-# - Push the immutable Build.BuildId tag
-# - Push the latest tag
-#
-# Only main can reach this stage — the images pushed here have
-# already passed Validate, Build, and the Trivy security gate.
+# Ship pipeline timing to Prometheus so CI health is graphable
+# alongside app health. Never fails the build: an unreachable
+# Pushgateway is a monitoring problem, not a code problem.
 # ============================================================
 
-- stage: Push
-
-  displayName: '4. Push Images to ACR'
-
-  dependsOn: SecurityScan
-
-  # IMPORTANT: keep this condition on ONE LINE — multi-line
-  # conditions have previously broken YAML parsing in this pipeline.
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-
+- stage: Report
+  displayName: '4. Publish CI Metrics'
+  dependsOn:
+    - Static
+    - Validate
+    - Package
+  condition: always()
   jobs:
-
-    # ========================================================
-    # PUSH BACKEND
-    # ========================================================
-
-    - job: PushBackend
-
-      displayName: 'Push Backend to ACR'
-
-      timeoutInMinutes: 15
-
+    - job: Metrics
+      displayName: 'Push CI metrics to Pushgateway'
+      timeoutInMinutes: 5
       steps:
-
-        - task: DownloadPipelineArtifact@2
-          displayName: 'Download backend image'
-          inputs:
-            artifact: 'backend-image'
-            path: '$(Pipeline.Workspace)/backend-image'
-
-        - task: Docker@2
-          displayName: 'Login to Azure Container Registry'
-          inputs:
-            command: 'login'
-            containerRegistry: 'acr-service-connection'
-
+        - checkout: none
         - script: |
-            set -e
-            echo "========================================"
-            echo "Loading backend image"
-            echo "========================================"
-            gunzip -c \
-              $(Pipeline.Workspace)/backend-image/backend-image.tar.gz \
-              | docker load
+            set -uo pipefail
 
-            echo "========================================"
-            echo "Pushing backend images"
-            echo "========================================"
-            docker push $(acrLoginServer)/homeease-backend:$(imageTag)
-            docker push $(acrLoginServer)/homeease-backend:latest
-          displayName: 'Push backend image'
+            # Pipeline-native timings, free, no instrumentation needed.
+            # Requires "Allow scripts to access the OAuth token" on the job.
+            curl -fsSL -u ":$(System.AccessToken)" \
+              "$(System.CollectionUri)$(System.TeamProject)/_apis/build/builds/$(Build.BuildId)/timeline?api-version=7.1" \
+              -o timeline.json || { echo "timeline fetch failed"; exit 0; }
 
-        - task: Docker@2
-          displayName: 'Logout from Azure Container Registry'
-          inputs:
-            command: 'logout'
-            containerRegistry: 'acr-service-connection'
-          condition: always()
+            STATUS=$(jq -r '[.records[] | select(.type=="Stage") | .result] | if index("failed") then 0 else 1 end' timeline.json)
 
+            {
+              echo "# TYPE ci_pipeline_result gauge"
+              echo "ci_pipeline_result ${STATUS}"
+              echo "# TYPE ci_pipeline_last_run_timestamp gauge"
+              echo "ci_pipeline_last_run_timestamp $(date +%s)"
 
-    # ========================================================
-    # PUSH ADMIN BACKEND
-    # ========================================================
+              jq -r '.records[]
+                | select(.type=="Job" and .startTime != null and .finishTime != null)
+                | "\(.name)|\(((.finishTime|fromdateiso8601) - (.startTime|fromdateiso8601)))"' timeline.json \
+              | while IFS='|' read -r NAME DUR; do
+                  SAFE=$(echo "$NAME" | tr -c 'a-zA-Z0-9_' '_')
+                  echo "# TYPE ci_job_duration_seconds gauge"
+                  echo "ci_job_duration_seconds{job_name=\"${SAFE}\"} ${DUR}"
+                done
+            } > metrics.txt
 
-    - job: PushAdminBackend
+            cat metrics.txt
 
-      displayName: 'Push Admin Backend to ACR'
-
-      timeoutInMinutes: 15
-
-      steps:
-
-        - task: DownloadPipelineArtifact@2
-          displayName: 'Download admin-backend image'
-          inputs:
-            artifact: 'admin-backend-image'
-            path: '$(Pipeline.Workspace)/admin-backend-image'
-
-        - task: Docker@2
-          displayName: 'Login to Azure Container Registry'
-          inputs:
-            command: 'login'
-            containerRegistry: 'acr-service-connection'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Loading admin-backend image"
-            echo "========================================"
-            gunzip -c \
-              $(Pipeline.Workspace)/admin-backend-image/admin-backend-image.tar.gz \
-              | docker load
-
-            echo "========================================"
-            echo "Pushing admin-backend images"
-            echo "========================================"
-            docker push $(acrLoginServer)/homeease-admin-backend:$(imageTag)
-            docker push $(acrLoginServer)/homeease-admin-backend:latest
-          displayName: 'Push admin-backend image'
-
-        - task: Docker@2
-          displayName: 'Logout from Azure Container Registry'
-          inputs:
-            command: 'logout'
-            containerRegistry: 'acr-service-connection'
-          condition: always()
-
-
-    # ========================================================
-    # PUSH FRONTEND
-    # ========================================================
-
-    - job: PushFrontend
-
-      displayName: 'Push Frontend to ACR'
-
-      timeoutInMinutes: 15
-
-      steps:
-
-        - task: DownloadPipelineArtifact@2
-          displayName: 'Download frontend image'
-          inputs:
-            artifact: 'frontend-image'
-            path: '$(Pipeline.Workspace)/frontend-image'
-
-        - task: Docker@2
-          displayName: 'Login to Azure Container Registry'
-          inputs:
-            command: 'login'
-            containerRegistry: 'acr-service-connection'
-
-        - script: |
-            set -e
-            echo "========================================"
-            echo "Loading frontend image"
-            echo "========================================"
-            gunzip -c \
-              $(Pipeline.Workspace)/frontend-image/frontend-image.tar.gz \
-              | docker load
-
-            echo "========================================"
-            echo "Pushing frontend images"
-            echo "========================================"
-            docker push $(acrLoginServer)/homeease-frontend:$(imageTag)
-            docker push $(acrLoginServer)/homeease-frontend:latest
-          displayName: 'Push frontend image'
-
-        - task: Docker@2
-          displayName: 'Logout from Azure Container Registry'
-          inputs:
-            command: 'logout'
-            containerRegistry: 'acr-service-connection'
-          condition: always()
+            curl -fsS --max-time 10 --data-binary @metrics.txt \
+              "$(PUSHGATEWAY_URL)/metrics/job/homeease_ci/pipeline/azure_devops" \
+              || echo "Pushgateway unreachable — metrics dropped, build unaffected"
+            exit 0
+          displayName: 'Emit ci_job_duration_seconds'
+          env:
+            SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+          continueOnError: true

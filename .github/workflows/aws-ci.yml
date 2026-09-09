@@ -1,0 +1,333 @@
+# ============================================================
+# HomeEase — CI Pipeline (GitHub Actions → Amazon ECR)
+#
+# Mirrors azure-pipelines.yml phase for phase, so the two clouds
+# produce equivalent artifacts from the same commit. Differences are
+# platform-native, not architectural:
+#
+#   * change detection uses dorny/paths-filter instead of a git-diff
+#     script, and drives a matrix
+#   * auth is GitHub OIDC → IAM role (no access keys, ever)
+#   * cosign signs KEYLESS here — Sigstore's Fulcio trusts the GitHub
+#     Actions OIDC issuer, so there is no key to manage
+#   * build cache uses type=gha, which is free and much faster than
+#     the local cache dance ADO needs
+#
+# Repository configuration required (Settings → Secrets and variables):
+#   Variables:  AWS_REGION, AWS_ACCOUNT_ID, AWS_CI_ROLE_ARN, PUSHGATEWAY_URL
+#   Secrets:    SONAR_TOKEN, SONAR_HOST_URL
+#
+# AWS_CI_ROLE_ARN is an identifier, not a credential — keep it a
+# variable so it's visible in logs and obvious that nothing secret
+# is being stored.
+# ============================================================
+
+name: aws-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'admin-backend/**'
+      - 'frontend/**'
+      - 'payment-service/**'
+      - '.github/workflows/aws-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'admin-backend/**'
+      - 'frontend/**'
+      - 'payment-service/**'
+      - '.github/workflows/aws-ci.yml'
+  workflow_dispatch:
+
+# Least privilege by default. id-token is granted only to the job
+# that actually assumes the AWS role.
+permissions:
+  contents: read
+
+# A new push to the same branch cancels the in-flight run. On a
+# metered runner budget this matters.
+concurrency:
+  group: aws-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAMESPACE: homeease
+  TRIVY_VERSION: '0.74.0'
+  NODE_VERSION: '22'
+
+jobs:
+
+  # ==========================================================
+  # 1. STATIC — repo-wide, plus the matrix for everything below
+  # ==========================================================
+
+  static:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set-matrix.outputs.services }}
+      any_changed: ${{ steps.set-matrix.outputs.any_changed }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      commit_created: ${{ steps.meta.outputs.commit_created }}
+    steps:
+      # Full history: gitleaks must see commits where a secret was
+      # added and later deleted.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks — secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Hadolint — Dockerfile lint
+        continue-on-error: true
+        run: |
+          docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < backend/Dockerfile
+          docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < admin-backend/Dockerfile
+          docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < frontend/Dockerfile
+          docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < payment-service/Dockerfile
+
+      - name: Detect changed services
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend: ['backend/**']
+            admin-backend: ['admin-backend/**']
+            frontend: ['frontend/**']
+            payment-service: ['payment-service/**']
+            workflow: ['.github/workflows/aws-ci.yml']
+
+      - name: Build service matrix
+        id: set-matrix
+        run: |
+          set -euo pipefail
+          # A workflow change, or a manual dispatch, rebuilds everything.
+          if [[ "${{ steps.filter.outputs.workflow }}" == "true" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            SERVICES='["backend","admin-backend","frontend","payment-service"]'
+          else
+            SERVICES=$(jq -cn --argjson b ${{ steps.filter.outputs.backend == 'true' && 'true' || 'false' }} \
+                              --argjson a ${{ steps.filter.outputs['admin-backend'] == 'true' && 'true' || 'false' }} \
+                              --argjson f ${{ steps.filter.outputs.frontend == 'true' && 'true' || 'false' }} \
+                              --argjson p ${{ steps.filter.outputs['payment-service'] == 'true' && 'true' || 'false' }} \
+              '[ (if $b then "backend" else empty end),
+                 (if $a then "admin-backend" else empty end),
+                 (if $f then "frontend" else empty end),
+                 (if $p then "payment-service" else empty end) ]')
+          fi
+          echo "services=${SERVICES}" >> "$GITHUB_OUTPUT"
+          if [[ "$SERVICES" == "[]" ]]; then
+            echo "any_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "any_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Building: ${SERVICES}"
+
+      - name: Compute image metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          # Same tag for every service built from this commit. On a PR,
+          # github.sha is the merge commit — use the head sha so the tag
+          # matches what will land on main.
+          SHA="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          echo "image_tag=${SHA:0:12}" >> "$GITHUB_OUTPUT"
+          echo "commit_created=$(git show -s --format=%cI "$SHA")" >> "$GITHUB_OUTPUT"
+
+  # ==========================================================
+  # 2. VALIDATE — per changed service
+  # ==========================================================
+
+  validate:
+    name: Validate ${{ matrix.service }}
+    needs: static
+    if: needs.static.outputs.any_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.static.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.service }}/package-lock.json
+
+      - name: npm ci
+        working-directory: ${{ matrix.service }}
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        working-directory: ${{ matrix.service }}
+        if: matrix.service != 'frontend'
+        run: npm run lint
+
+      - name: npm audit (high+)
+        working-directory: ${{ matrix.service }}
+        run: npm audit --audit-level=high --omit=dev
+
+      - name: Test + coverage
+        working-directory: ${{ matrix.service }}
+        if: matrix.service != 'frontend'
+        run: npm run test:coverage -- --ci
+
+      - name: Production build
+        working-directory: ${{ matrix.service }}
+        if: matrix.service == 'frontend'
+        run: npm run build
+
+      # Source-tree SCA. Sees devDependencies, which the image scan
+      # never will — a compromised build-time dependency is still a
+      # supply-chain compromise.
+      - name: Trivy fs
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ matrix.service }}
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+        env:
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
+
+      - name: SonarQube
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          projectBaseDir: ${{ matrix.service }}
+
+  # ==========================================================
+  # 3. PACKAGE — build, scan, SBOM, push, sign
+  # ==========================================================
+
+  package:
+    name: Package ${{ matrix.service }}
+    needs: [static, validate]
+    if: needs.static.outputs.any_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write        # OIDC token for AWS + cosign keyless
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.static.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # No access keys. The role's trust policy pins the subject to
+      # this repo and this ref — see terraform/aws/modules/ci-oidc.
+      - name: Configure AWS credentials (OIDC)
+        if: github.ref == 'refs/heads/main'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: homeease-ci-${{ github.run_id }}
+
+      - name: Log in to ECR
+        if: github.ref == 'refs/heads/main'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image reference
+        id: img
+        run: |
+          REGISTRY="${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+          echo "ref=${REGISTRY}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.service }}:${{ needs.static.outputs.image_tag }}" >> "$GITHUB_OUTPUT"
+
+      # Build to the local daemon so it can be scanned before it is
+      # pushed. Pushing first and scanning after means an unscanned
+      # image was, however briefly, available to pull.
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service }}
+          file: ${{ matrix.service }}/Dockerfile
+          load: true
+          push: false
+          tags: ${{ steps.img.outputs.ref }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          provenance: false
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ needs.static.outputs.commit_created }}
+            org.opencontainers.image.version=${{ needs.static.outputs.image_tag }}
+            org.opencontainers.image.title=homeease-${{ matrix.service }}
+
+      # THE GATE. Nothing below runs if this fails.
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: ${{ steps.img.outputs.ref }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+        env:
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
+
+      - name: Generate SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0.24.2
+        with:
+          image: ${{ steps.img.outputs.ref }}
+          format: cyclonedx-json
+          artifact-name: sbom-${{ matrix.service }}.cdx.json
+          output-file: sbom-${{ matrix.service }}.cdx.json
+
+      - name: Push to ECR + record duration
+        if: github.ref == 'refs/heads/main'
+        id: push
+        run: |
+          set -euo pipefail
+          START=$(date +%s)
+          docker push "${{ steps.img.outputs.ref }}"
+          END=$(date +%s)
+          DURATION=$((END - START))
+
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${{ steps.img.outputs.ref }}")
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${DIGEST} in ${DURATION}s"
+          echo "### Pushed \`${DIGEST}\` in ${DURATION}s" >> "$GITHUB_STEP_SUMMARY"
+
+          # Best-effort. A monitoring outage must never fail a build.
+          if [ -n "${{ vars.PUSHGATEWAY_URL }}" ]; then
+            cat <<EOF | curl -fsS --max-time 10 --data-binary @- \
+              "${{ vars.PUSHGATEWAY_URL }}/metrics/job/homeease_ci/service/${{ matrix.service }}/registry/ecr" || echo "Pushgateway unreachable"
+          # TYPE ci_image_push_duration_seconds gauge
+          ci_image_push_duration_seconds ${DURATION}
+          # TYPE ci_image_push_timestamp gauge
+          ci_image_push_timestamp $(date +%s)
+          EOF
+          fi
+
+      # Keyless: the signature is bound to this repo + workflow + ref
+      # via the OIDC token, and recorded in the public Rekor log.
+      # No private key exists to leak. Kyverno can then require a
+      # matching signature before a pod is admitted.
+      - name: Install cosign
+        if: github.ref == 'refs/heads/main'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        if: github.ref == 'refs/heads/main'
+        run: cosign sign --yes "${{ steps.push.outputs.digest }}"
