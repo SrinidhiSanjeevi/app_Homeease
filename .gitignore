@@ -36,3 +36,4 @@ terraform.tfvars.json
 # Scan artifacts
 trivy-*.json
 .scannerwork/
+.env
