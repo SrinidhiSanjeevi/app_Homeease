@@ -33,3 +33,6 @@ terraform.tfvars.json
 # SonarQube
 .sonar/
 .sonarwork/
+# Scan artifacts
+trivy-*.json
+.scannerwork/
