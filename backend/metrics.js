@@ -190,6 +190,7 @@ module.exports = {
   bookingsCompleted,
   paymentSuccess,
   paymentFailures,
+  paymentRefunded,
   notificationSuccess,
   notificationFailures,
   activeBookings,

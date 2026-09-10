@@ -295,7 +295,7 @@ export default function Dashboard({ services = [], onBookClick }) {
                 marginBottom: "4px",
               }}
             >
-              Can't find your service?
+              Can&apos;t find your service?
             </h3>
 
             <p

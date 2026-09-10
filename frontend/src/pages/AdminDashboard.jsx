@@ -814,7 +814,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       } else {
         showToast(d.message || "Failed to update status", "error");
       }
-    } catch (err) {
+    } catch (_err) {
       showToast("Server error updating professional status", "error");
     }
   };

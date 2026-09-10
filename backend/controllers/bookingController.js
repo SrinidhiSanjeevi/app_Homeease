@@ -431,7 +431,10 @@ const cancelBooking = async (req, res) => {
 
     if (booking.paymentStatus === "Paid") {
       const refund = await refundPayment(booking._id);
-      booking.paymentStatus = refund ? "Refunded" : booking.paymentStatus;
+      if (refund) {
+        booking.paymentStatus = "Refunded";
+        if (metrics && metrics.paymentRefunded) metrics.paymentRefunded.inc();
+      }
     }
 
     await booking.save();

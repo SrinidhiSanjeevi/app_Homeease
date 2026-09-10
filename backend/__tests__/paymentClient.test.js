@@ -1,5 +1,4 @@
 const paymentClient = require("../services/payment/paymentClient");
-const AppError = require("../utils/AppError");
 
 describe("Customer API → Payment Service Client Adapter", () => {
   const originalFetch = global.fetch;

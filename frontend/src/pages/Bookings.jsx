@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Calendar, Clock, MapPin, User, Star, CheckCircle, CreditCard, Mail, ArrowRight, XCircle, Activity, TrendingUp } from "lucide-react";
 
-export default function Bookings({ bookings, onCancelBooking, onRateBooking, onAcceptBooking, onCompleteBooking, isProfessionalMode }) {
+export default function Bookings({ bookings, onCancelBooking, onRateBooking, onAcceptBooking: _onAcceptBooking, onCompleteBooking, isProfessionalMode }) {
   const [ratingId, setRatingId] = useState(null);
   const [ratingVal, setRatingVal] = useState(5);
   const [reviewText, setReviewText] = useState("");
@@ -155,7 +155,6 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
           {filteredBookings.map((booking) => {
             const isCompleted = booking.status === "Completed";
             const isCancelled = booking.status === "Cancelled";
-            const isConfirmed = booking.status === "Confirmed";
             const isCash = booking.paymentMethod === "Cash" || booking.paymentMethod === "Cash on Delivery";
 
             const currentStep = getStepProgress(booking);
