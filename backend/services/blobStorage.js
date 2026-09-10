@@ -70,7 +70,7 @@ function getBlobServiceClient() {
  * In-memory cached retrieval of User Delegation Key for Entra ID.
  * Avoids repeated network round-trips for every image.
  */
-async function getUserDelegationKeyCached(client, accountName) {
+async function getUserDelegationKeyCached(client, _accountName) {
   const now = Date.now();
   // Reuse key if at least 5 minutes remaining
   if (cachedUserDelegationKey && cachedDelegationKeyExpiresAt - now > 5 * 60 * 1000) {

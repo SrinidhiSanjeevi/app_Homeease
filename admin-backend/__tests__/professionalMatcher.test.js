@@ -9,7 +9,6 @@ jest.mock("../utils/logger", () => ({ info: jest.fn(), error: jest.fn() }));
 
 describe("professionalMatcher", () => {
   let professionalMatcher;
-  let originalRequire;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -39,7 +38,7 @@ describe("professionalMatcher", () => {
 
       it("claims any professional for categories without dedicated roster", async () => {
         Professional.findOneAndUpdate.mockResolvedValue({ _id: "p2", name: "P2" });
-        const result = await professionalMatcher.claimProfessional("Medical");
+        await professionalMatcher.claimProfessional("Medical");
         expect(Professional.findOneAndUpdate).toHaveBeenCalledWith(
           { status: "Available", active: true },
           { $set: { status: "Busy" } },

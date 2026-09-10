@@ -3,6 +3,7 @@ const Booking = require("../models/Booking");
 const Service = require("../models/Service");
 const Professional = require("../models/Professional");
 const EmergencyRequest = require("../models/EmergencyRequest");
+const AuditLog = require("../models/AuditLog");
 const { reassignWaitingWork } = require("../services/professionalMatcher");
 const { canTransition } = require("../services/booking/bookingStateMachine");
 const logger = require("../utils/logger");
@@ -572,6 +573,42 @@ const deleteProfessional = async (req, res) => {
   }
 };
 
+const getAuditLogs = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, action } = req.query;
+    const query = {};
+    if (action) query.action = action;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [total, logs] = await Promise.all([
+      AuditLog.countDocuments(query),
+      AuditLog.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate("adminId", "name email")
+        .lean()
+    ]);
+
+    res.status(200).json({
+      success: true,
+      logs,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    });
+  } catch (error) {
+    logger.error({ err: error.message }, "Get Audit Logs Error");
+    res.status(500).json({ success: false, message: "Failed to retrieve audit logs" });
+  }
+};
+
 module.exports = {
   getStats,
   getAllUsers,
@@ -588,4 +625,5 @@ module.exports = {
   deleteProfessional,
   getAllEmergencies,
   updateEmergencyStatus,
+  getAuditLogs
 };

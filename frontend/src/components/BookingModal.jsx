@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Calendar, ShoppingBag, MapPin, CreditCard, ChevronRight, ChevronLeft, Star } from "lucide-react";
+import { X, CreditCard, ChevronRight, ChevronLeft, Star } from "lucide-react";
 
 export default function BookingModal({ service, onClose, onSubmit, onBookingSettled, professionals }) {
   const [step, setStep] = useState(1);

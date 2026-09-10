@@ -31,7 +31,7 @@ describe("createBooking Transaction Protection", () => {
 
     mockSession = {
       withTransaction: jest.fn(async (fn) => {
-        return await fn();
+        return fn();
       }),
       endSession: jest.fn().mockResolvedValue()
     };

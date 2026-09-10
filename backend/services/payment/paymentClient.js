@@ -101,7 +101,7 @@ const getPaymentStatus = async ({ bookingId, transactionId }) => {
   });
 };
 
-const processWebhook = async ({ rawPayload, signature, webhookSecret, eventHeaders = {} }) => {
+const processWebhook = async ({ rawPayload, signature, webhookSecret: _webhookSecret, eventHeaders = {} }) => {
   const url = `${PAYMENT_SERVICE_URL}/api/payments/webhook`;
   const headers = {
     "Content-Type": "application/json",

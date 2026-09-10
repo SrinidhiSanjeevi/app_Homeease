@@ -253,7 +253,7 @@ async function processPendingOutbox({ limit = 10 } = {}) {
 async function dispatchNotification({ type, booking, userId }) {
   const doc = await enqueueNotification({ type, booking, userId });
   if (doc && doc.status === NOTIFICATION_STATUS.PENDING) {
-    return await processNotification(doc._id);
+    return processNotification(doc._id);
   }
   return doc;
 }

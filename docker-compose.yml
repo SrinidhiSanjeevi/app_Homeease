@@ -22,6 +22,9 @@ services:
       - "5000:5000"
     networks:
       - homeease-net
+    depends_on:
+      payment-service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5000/health/ready"]
       interval: 15s
@@ -91,6 +94,8 @@ services:
       backend:
         condition: service_healthy
       admin-backend:
+        condition: service_healthy
+      payment-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/health"]
