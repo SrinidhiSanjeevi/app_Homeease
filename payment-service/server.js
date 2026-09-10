@@ -95,7 +95,7 @@ app.use((req, res) => {
 });
 
 // Centralized error handler
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   logger.error({ err: err.message }, "Unhandled error in Payment Service");
   res.status(err.statusCode || 500).json({
     success: false,

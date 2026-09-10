@@ -3,7 +3,6 @@ const razorpay = require("../config/razorpay");
 const Payment = require("../models/Payment");
 const Booking = require("../models/Booking");
 const Professional = require("../models/Professional");
-const AppError = require("../utils/AppError");
 
 jest.mock("../models/Payment");
 jest.mock("../models/Booking");

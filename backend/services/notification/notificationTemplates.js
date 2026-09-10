@@ -37,7 +37,7 @@ function getBookingConfirmedTemplate({ recipientName, bookingRef, booking, recip
   };
 }
 
-function getBookingCompletedTemplate({ recipientName, bookingRef, booking, recipientEmail }) {
+function getBookingCompletedTemplate({ recipientName, bookingRef, booking, recipientEmail: _recipientEmail }) {
   const serviceDate = booking.date
     ? new Date(booking.date).toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
     : "Completed";

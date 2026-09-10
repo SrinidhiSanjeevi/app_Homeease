@@ -1,6 +1,6 @@
 const logger = require("../utils/logger");
 
-const errorHandler = (err, req, res, next) => {
+const errorHandler = (err, req, res, _next) => {
   let statusCode = err.statusCode || 500;
   let message = err.message || "Internal Server Error";
   let details = err.details || null;
