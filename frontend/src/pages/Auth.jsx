@@ -4,7 +4,10 @@ import {
   Mail,
   User,
   Sparkles,
-  Home
+  Home,
+  ShieldCheck,
+  KeyRound,
+  ArrowLeft
 } from "lucide-react";
 
 export default function Auth({ onLoginSuccess, showToast }) {
@@ -14,6 +17,12 @@ export default function Auth({ onLoginSuccess, showToast }) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
+
+  // ── MFA STATE ──────────────────────────────────────────────
+  const [mfaStep, setMfaStep] = useState(false);
+  const [tempToken, setTempToken] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaEmail, setMfaEmail] = useState("");
 
   // ── FORM VALIDATION ─────────────────────────────────────────
   const validateForm = () => {
@@ -54,7 +63,7 @@ export default function Auth({ onLoginSuccess, showToast }) {
     return Object.keys(newErrors).length === 0;
   };
 
-  // ── SUBMIT ──────────────────────────────────────────────────
+  // ── SUBMIT LOGIN / SIGNUP ────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -103,17 +112,28 @@ export default function Auth({ onLoginSuccess, showToast }) {
 
       if (response.ok && data.success) {
         if (tab === "login") {
-          /*
-           * Kept localStorage because your existing App.jsx
-           * authentication flow expects the token and user here.
-           *
-           * For a production-grade security architecture,
-           * httpOnly cookies would be preferable.
-           */
+          // Check if Two-Factor Authentication is required for Admin
+          if (data.mfaRequired && data.tempToken) {
+            setTempToken(data.tempToken);
+            setMfaEmail(data.email || normalizedEmail);
+            setMfaStep(true);
+            setMfaCode("");
+            setErrors({});
+            showToast("Two-Factor Authentication required", "info");
+            return;
+          }
+
           localStorage.setItem(
             "token",
             data.token
           );
+
+          if (data.refreshToken) {
+            localStorage.setItem(
+              "refreshToken",
+              data.refreshToken
+            );
+          }
 
           localStorage.setItem(
             "user",
@@ -157,6 +177,53 @@ export default function Auth({ onLoginSuccess, showToast }) {
         "Server connection failed",
         "error"
       );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── SUBMIT MFA VERIFICATION ─────────────────────────────────
+  const handleMfaSubmit = async (e) => {
+    e.preventDefault();
+    const cleanCode = mfaCode.trim();
+
+    if (!cleanCode || cleanCode.length !== 6) {
+      setErrors({ mfaCode: "Please enter the 6-digit authenticator code" });
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/auth/mfa/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          tempToken,
+          code: cleanCode
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok && data.success) {
+        localStorage.setItem("token", data.token);
+        if (data.refreshToken) {
+          localStorage.setItem("refreshToken", data.refreshToken);
+        }
+        localStorage.setItem("user", JSON.stringify(data.user));
+
+        showToast("Two-Factor Authentication verified!", "success");
+        onLoginSuccess(data.user, data.token);
+      } else {
+        showToast(data.message || "Invalid 6-digit code", "error");
+        setErrors({ mfaCode: data.message || "Invalid code" });
+      }
+    } catch (error) {
+      console.error("MFA verification error:", error);
+      showToast("Server connection failed during MFA verification", "error");
     } finally {
       setLoading(false);
     }
@@ -385,412 +452,589 @@ export default function Auth({ onLoginSuccess, showToast }) {
             maxWidth: "400px"
           }}
         >
-          {/* Heading */}
-          <div
-            style={{
-              marginBottom: "28px"
-            }}
-          >
-            <h2
-              style={{
-                fontSize: "1.9rem",
-                fontWeight: 800,
-                color: "#0f172a",
-                marginBottom: "6px",
-                letterSpacing: "-0.5px"
-              }}
-            >
-              {tab === "login"
-                ? "Welcome back 👋"
-                : "Create account"}
-            </h2>
+          {mfaStep ? (
+            /* =========================================================
+               2FA VERIFICATION STEP
+            ========================================================= */
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMfaStep(false);
+                  setMfaCode("");
+                  setErrors({});
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  background: "transparent",
+                  border: "none",
+                  color: "#6366f1",
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                  cursor: "pointer",
+                  marginBottom: "20px",
+                  padding: 0
+                }}
+              >
+                <ArrowLeft size={16} /> Back to Sign In
+              </button>
 
-            <p
-              style={{
-                color: "#64748b",
-                fontSize: "0.95rem"
-              }}
-            >
-              {tab === "login"
-                ? "Enter your credentials to access your account."
-                : "Sign up to start booking premium home services."}
-            </p>
-          </div>
+              <div style={{ marginBottom: "28px" }}>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    background: "rgba(99,102,241,0.1)",
+                    color: "#6366f1",
+                    padding: "6px 12px",
+                    borderRadius: "100px",
+                    fontSize: "0.82rem",
+                    fontWeight: 700,
+                    marginBottom: "14px"
+                  }}
+                >
+                  <ShieldCheck size={16} /> TWO-STEP VERIFICATION
+                </div>
 
-          {/* Tab Toggle */}
-          <div
-            style={{
-              display: "flex",
-              background: "#e2e8f0",
-              padding: "4px",
-              borderRadius: "14px",
-              marginBottom: "28px"
-            }}
-          >
-            {["login", "signup"].map(
-              (currentTab) => (
+                <h2
+                  style={{
+                    fontSize: "1.8rem",
+                    fontWeight: 800,
+                    color: "#0f172a",
+                    marginBottom: "8px",
+                    letterSpacing: "-0.5px"
+                  }}
+                >
+                  Enter Authenticator Code
+                </h2>
+
+                <p
+                  style={{
+                    color: "#64748b",
+                    fontSize: "0.92rem",
+                    lineHeight: 1.5
+                  }}
+                >
+                  An admin account was detected for <strong>{mfaEmail}</strong>. Enter the 6-digit code from Google Authenticator or your authenticator app.
+                </p>
+              </div>
+
+              <form
+                onSubmit={handleMfaSubmit}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "18px"
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontWeight: 600,
+                      marginBottom: "8px",
+                      color: "#334155",
+                      fontSize: "0.88rem"
+                    }}
+                  >
+                    6-DIGIT SECURITY CODE
+                  </label>
+
+                  <div style={{ position: "relative" }}>
+                    <KeyRound
+                      size={18}
+                      style={{
+                        position: "absolute",
+                        left: "14px",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        color: "#94a3b8"
+                      }}
+                    />
+
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      autoFocus
+                      placeholder="e.g., 123456"
+                      value={mfaCode}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, "");
+                        setMfaCode(val);
+                        if (errors.mfaCode) clearError("mfaCode");
+                      }}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "14px 14px 14px 44px",
+                        letterSpacing: "4px",
+                        fontSize: "1.3rem",
+                        fontWeight: 700,
+                        textAlign: "left",
+                        border: `1.5px solid ${errors.mfaCode ? "#ef4444" : "#e2e8f0"}`,
+                        borderRadius: "12px",
+                        outline: "none",
+                        background: "white"
+                      }}
+                    />
+                  </div>
+
+                  {errors.mfaCode && (
+                    <span
+                      style={{
+                        color: "#ef4444",
+                        fontSize: "0.82rem",
+                        marginTop: "6px",
+                        display: "block"
+                      }}
+                    >
+                      {errors.mfaCode}
+                    </span>
+                  )}
+                </div>
+
                 <button
-                  key={currentTab}
-                  type="button"
+                  type="submit"
+                  disabled={loading || mfaCode.length !== 6}
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    background:
+                      loading || mfaCode.length !== 6
+                        ? "#a5b4fc"
+                        : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "12px",
+                    fontSize: "1rem",
+                    fontWeight: 700,
+                    cursor: loading || mfaCode.length !== 6 ? "not-allowed" : "pointer",
+                    boxShadow: "0 4px 16px rgba(99,102,241,0.45)",
+                    transition: "all 0.2s ease",
+                    marginTop: "8px"
+                  }}
+                >
+                  {loading ? "Verifying..." : "Verify & Enter Admin Console →"}
+                </button>
+              </form>
+            </div>
+          ) : (
+            /* =========================================================
+               STANDARD LOGIN / SIGNUP VIEW
+            ========================================================= */
+            <div>
+              {/* Heading */}
+              <div
+                style={{
+                  marginBottom: "28px"
+                }}
+              >
+                <h2
+                  style={{
+                    fontSize: "1.9rem",
+                    fontWeight: 800,
+                    color: "#0f172a",
+                    marginBottom: "6px",
+                    letterSpacing: "-0.5px"
+                  }}
+                >
+                  {tab === "login"
+                    ? "Welcome back 👋"
+                    : "Create account"}
+                </h2>
+
+                <p
+                  style={{
+                    color: "#64748b",
+                    fontSize: "0.95rem"
+                  }}
+                >
+                  {tab === "login"
+                    ? "Enter your credentials to access your account."
+                    : "Sign up to start booking premium home services."}
+                </p>
+              </div>
+
+              {/* Tab Toggle */}
+              <div
+                style={{
+                  display: "flex",
+                  background: "#e2e8f0",
+                  padding: "4px",
+                  borderRadius: "14px",
+                  marginBottom: "28px"
+                }}
+              >
+                {["login", "signup"].map(
+                  (currentTab) => (
+                    <button
+                      key={currentTab}
+                      type="button"
+                      onClick={() => {
+                        setTab(currentTab);
+                        setErrors({});
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: "11px",
+                        borderRadius: "10px",
+                        border: "none",
+                        cursor: "pointer",
+                        background:
+                          tab === currentTab
+                            ? "white"
+                            : "transparent",
+                        color:
+                          tab === currentTab
+                            ? "#6366f1"
+                            : "#94a3b8",
+                        boxShadow:
+                          tab === currentTab
+                            ? "0 1px 4px rgba(0,0,0,0.12)"
+                            : "none",
+                        fontSize: "0.92rem",
+                        fontWeight: 700,
+                        transition:
+                          "all 0.2s ease"
+                      }}
+                    >
+                      {currentTab === "login"
+                        ? "Sign In"
+                        : "Sign Up"}
+                    </button>
+                  )
+                )}
+              </div>
+
+              {/* Form */}
+              <form
+                onSubmit={handleSubmit}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "18px"
+                }}
+              >
+                {/* Name */}
+                {tab === "signup" && (
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontWeight: 600,
+                        marginBottom: "7px",
+                        color: "#334155",
+                        fontSize: "0.88rem"
+                      }}
+                    >
+                      FULL NAME
+                    </label>
+
+                    <div
+                      style={{
+                        position: "relative"
+                      }}
+                    >
+                      <User
+                        size={17}
+                        style={{
+                          position:
+                            "absolute",
+                          left: "14px",
+                          top: "50%",
+                          transform:
+                            "translateY(-50%)",
+                          color: "#94a3b8"
+                        }}
+                      />
+
+                      <input
+                        type="text"
+                        placeholder="e.g., John Doe"
+                        value={name}
+                        autoComplete="name"
+                        onChange={(e) => {
+                          setName(
+                            e.target.value
+                          );
+
+                          if (errors.name) {
+                            clearError("name");
+                          }
+                        }}
+                        style={{
+                          width: "100%",
+                          boxSizing:
+                            "border-box",
+                          padding:
+                            "13px 14px 13px 42px",
+                          border: `1.5px solid ${
+                            errors.name
+                              ? "#ef4444"
+                              : "#e2e8f0"
+                          }`,
+                          borderRadius:
+                            "12px",
+                          fontSize: "0.95rem",
+                          outline: "none",
+                          background: "white",
+                          transition:
+                            "border-color 0.2s"
+                        }}
+                      />
+                    </div>
+
+                    {errors.name && (
+                      <span
+                        style={{
+                          color: "#ef4444",
+                          fontSize: "0.8rem",
+                          marginTop: "4px",
+                          display: "block"
+                        }}
+                      >
+                        {errors.name}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Email */}
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontWeight: 600,
+                      marginBottom: "7px",
+                      color: "#334155",
+                      fontSize: "0.88rem"
+                    }}
+                  >
+                    EMAIL ADDRESS
+                  </label>
+
+                  <div
+                    style={{
+                      position: "relative"
+                    }}
+                  >
+                    <Mail
+                      size={17}
+                      style={{
+                        position: "absolute",
+                        left: "14px",
+                        top: "50%",
+                        transform:
+                          "translateY(-50%)",
+                        color: "#94a3b8"
+                      }}
+                    />
+
+                    <input
+                      type="email"
+                      placeholder="name@example.com"
+                      value={email}
+                      autoComplete="email"
+                      onChange={(e) => {
+                        setEmail(
+                          e.target.value
+                        );
+
+                        if (errors.email) {
+                          clearError("email");
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        boxSizing:
+                          "border-box",
+                        padding:
+                          "13px 14px 13px 42px",
+                        border: `1.5px solid ${
+                          errors.email
+                            ? "#ef4444"
+                            : "#e2e8f0"
+                        }`,
+                        borderRadius: "12px",
+                        fontSize: "0.95rem",
+                        outline: "none",
+                        background: "white",
+                        transition:
+                          "border-color 0.2s"
+                      }}
+                    />
+                  </div>
+
+                  {errors.email && (
+                    <span
+                      style={{
+                        color: "#ef4444",
+                        fontSize: "0.8rem",
+                        marginTop: "4px",
+                        display: "block"
+                      }}
+                    >
+                      {errors.email}
+                    </span>
+                  )}
+                </div>
+
+                {/* Password */}
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontWeight: 600,
+                      marginBottom: "7px",
+                      color: "#334155",
+                      fontSize: "0.88rem"
+                    }}
+                  >
+                    PASSWORD
+                  </label>
+
+                  <div
+                    style={{
+                      position: "relative"
+                    }}
+                  >
+                    <Lock
+                      size={17}
+                      style={{
+                        position: "absolute",
+                        left: "14px",
+                        top: "50%",
+                        transform:
+                          "translateY(-50%)",
+                        color: "#94a3b8"
+                      }}
+                    />
+
+                    <input
+                      type="password"
+                      placeholder="Min. 8 characters"
+                      value={password}
+                      autoComplete={
+                        tab === "login"
+                          ? "current-password"
+                          : "new-password"
+                      }
+                      onChange={(e) => {
+                        setPassword(
+                          e.target.value
+                        );
+
+                        if (errors.password) {
+                          clearError("password");
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        boxSizing:
+                          "border-box",
+                        padding:
+                          "13px 14px 13px 42px",
+                        border: `1.5px solid ${
+                          errors.password
+                            ? "#ef4444"
+                            : "#e2e8f0"
+                        }`,
+                        borderRadius: "12px",
+                        fontSize: "0.95rem",
+                        outline: "none",
+                        background: "white",
+                        transition:
+                          "border-color 0.2s"
+                      }}
+                    />
+                  </div>
+
+                  {errors.password && (
+                    <span
+                      style={{
+                        color: "#ef4444",
+                        fontSize: "0.8rem",
+                        marginTop: "4px",
+                        display: "block"
+                      }}
+                    >
+                      {errors.password}
+                    </span>
+                  )}
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    background: loading
+                      ? "#a5b4fc"
+                      : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "12px",
+                    fontSize: "1rem",
+                    fontWeight: 700,
+                    cursor: loading
+                      ? "not-allowed"
+                      : "pointer",
+                    boxShadow:
+                      "0 4px 16px rgba(99,102,241,0.45)",
+                    transition:
+                      "all 0.2s ease",
+                    marginTop: "4px"
+                  }}
+                >
+                  {loading
+                    ? "Please wait..."
+                    : tab === "login"
+                      ? "Sign In →"
+                      : "Create Account →"}
+                </button>
+              </form>
+
+              {/* Footer note */}
+              <p
+                style={{
+                  textAlign: "center",
+                  marginTop: "20px",
+                  fontSize: "0.82rem",
+                  color: "#94a3b8"
+                }}
+              >
+                {tab === "login"
+                  ? "Don't have an account? "
+                  : "Already have an account? "}
+
+                <span
                   onClick={() => {
-                    setTab(currentTab);
+                    setTab(
+                      tab === "login"
+                        ? "signup"
+                        : "login"
+                    );
                     setErrors({});
                   }}
                   style={{
-                    flex: 1,
-                    padding: "11px",
-                    borderRadius: "10px",
-                    border: "none",
-                    cursor: "pointer",
-                    background:
-                      tab === currentTab
-                        ? "white"
-                        : "transparent",
-                    color:
-                      tab === currentTab
-                        ? "#6366f1"
-                        : "#94a3b8",
-                    boxShadow:
-                      tab === currentTab
-                        ? "0 1px 4px rgba(0,0,0,0.12)"
-                        : "none",
-                    fontSize: "0.92rem",
-                    fontWeight: 700,
-                    transition:
-                      "all 0.2s ease"
-                  }}
-                >
-                  {currentTab === "login"
-                    ? "Sign In"
-                    : "Sign Up"}
-                </button>
-              )
-            )}
-          </div>
-
-          {/* Form */}
-          <form
-            onSubmit={handleSubmit}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "18px"
-            }}
-          >
-            {/* Name */}
-            {tab === "signup" && (
-              <div>
-                <label
-                  style={{
-                    display: "block",
+                    color: "#6366f1",
                     fontWeight: 600,
-                    marginBottom: "7px",
-                    color: "#334155",
-                    fontSize: "0.88rem"
+                    cursor: "pointer"
                   }}
                 >
-                  FULL NAME
-                </label>
-
-                <div
-                  style={{
-                    position: "relative"
-                  }}
-                >
-                  <User
-                    size={17}
-                    style={{
-                      position:
-                        "absolute",
-                      left: "14px",
-                      top: "50%",
-                      transform:
-                        "translateY(-50%)",
-                      color: "#94a3b8"
-                    }}
-                  />
-
-                  <input
-                    type="text"
-                    placeholder="e.g., John Doe"
-                    value={name}
-                    autoComplete="name"
-                    onChange={(e) => {
-                      setName(
-                        e.target.value
-                      );
-
-                      if (errors.name) {
-                        clearError("name");
-                      }
-                    }}
-                    style={{
-                      width: "100%",
-                      boxSizing:
-                        "border-box",
-                      padding:
-                        "13px 14px 13px 42px",
-                      border: `1.5px solid ${
-                        errors.name
-                          ? "#ef4444"
-                          : "#e2e8f0"
-                      }`,
-                      borderRadius:
-                        "12px",
-                      fontSize: "0.95rem",
-                      outline: "none",
-                      background: "white",
-                      transition:
-                        "border-color 0.2s"
-                    }}
-                  />
-                </div>
-
-                {errors.name && (
-                  <span
-                    style={{
-                      color: "#ef4444",
-                      fontSize: "0.8rem",
-                      marginTop: "4px",
-                      display: "block"
-                    }}
-                  >
-                    {errors.name}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Email */}
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  fontWeight: 600,
-                  marginBottom: "7px",
-                  color: "#334155",
-                  fontSize: "0.88rem"
-                }}
-              >
-                EMAIL ADDRESS
-              </label>
-
-              <div
-                style={{
-                  position: "relative"
-                }}
-              >
-                <Mail
-                  size={17}
-                  style={{
-                    position: "absolute",
-                    left: "14px",
-                    top: "50%",
-                    transform:
-                      "translateY(-50%)",
-                    color: "#94a3b8"
-                  }}
-                />
-
-                <input
-                  type="email"
-                  placeholder="name@example.com"
-                  value={email}
-                  autoComplete="email"
-                  onChange={(e) => {
-                    setEmail(
-                      e.target.value
-                    );
-
-                    if (errors.email) {
-                      clearError("email");
-                    }
-                  }}
-                  style={{
-                    width: "100%",
-                    boxSizing:
-                      "border-box",
-                    padding:
-                      "13px 14px 13px 42px",
-                    border: `1.5px solid ${
-                      errors.email
-                        ? "#ef4444"
-                        : "#e2e8f0"
-                    }`,
-                    borderRadius: "12px",
-                    fontSize: "0.95rem",
-                    outline: "none",
-                    background: "white",
-                    transition:
-                      "border-color 0.2s"
-                  }}
-                />
-              </div>
-
-              {errors.email && (
-                <span
-                  style={{
-                    color: "#ef4444",
-                    fontSize: "0.8rem",
-                    marginTop: "4px",
-                    display: "block"
-                  }}
-                >
-                  {errors.email}
+                  {tab === "login"
+                    ? "Sign Up"
+                    : "Sign In"}
                 </span>
-              )}
+              </p>
             </div>
-
-            {/* Password */}
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  fontWeight: 600,
-                  marginBottom: "7px",
-                  color: "#334155",
-                  fontSize: "0.88rem"
-                }}
-              >
-                PASSWORD
-              </label>
-
-              <div
-                style={{
-                  position: "relative"
-                }}
-              >
-                <Lock
-                  size={17}
-                  style={{
-                    position: "absolute",
-                    left: "14px",
-                    top: "50%",
-                    transform:
-                      "translateY(-50%)",
-                    color: "#94a3b8"
-                  }}
-                />
-
-                <input
-                  type="password"
-                  placeholder="Min. 6 characters"
-                  value={password}
-                  autoComplete={
-                    tab === "login"
-                      ? "current-password"
-                      : "new-password"
-                  }
-                  onChange={(e) => {
-                    setPassword(
-                      e.target.value
-                    );
-
-                    if (errors.password) {
-                      clearError("password");
-                    }
-                  }}
-                  style={{
-                    width: "100%",
-                    boxSizing:
-                      "border-box",
-                    padding:
-                      "13px 14px 13px 42px",
-                    border: `1.5px solid ${
-                      errors.password
-                        ? "#ef4444"
-                        : "#e2e8f0"
-                    }`,
-                    borderRadius: "12px",
-                    fontSize: "0.95rem",
-                    outline: "none",
-                    background: "white",
-                    transition:
-                      "border-color 0.2s"
-                  }}
-                />
-              </div>
-
-              {errors.password && (
-                <span
-                  style={{
-                    color: "#ef4444",
-                    fontSize: "0.8rem",
-                    marginTop: "4px",
-                    display: "block"
-                  }}
-                >
-                  {errors.password}
-                </span>
-              )}
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={loading}
-              style={{
-                width: "100%",
-                padding: "14px",
-                background: loading
-                  ? "#a5b4fc"
-                  : "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                color: "white",
-                border: "none",
-                borderRadius: "12px",
-                fontSize: "1rem",
-                fontWeight: 700,
-                cursor: loading
-                  ? "not-allowed"
-                  : "pointer",
-                boxShadow:
-                  "0 4px 16px rgba(99,102,241,0.45)",
-                transition:
-                  "all 0.2s ease",
-                marginTop: "4px"
-              }}
-            >
-              {loading
-                ? "Please wait..."
-                : tab === "login"
-                  ? "Sign In →"
-                  : "Create Account →"}
-            </button>
-          </form>
-
-          {/* Footer note */}
-          <p
-            style={{
-              textAlign: "center",
-              marginTop: "20px",
-              fontSize: "0.82rem",
-              color: "#94a3b8"
-            }}
-          >
-            {tab === "login"
-              ? "Don't have an account? "
-              : "Already have an account? "}
-
-            <span
-              onClick={() => {
-                setTab(
-                  tab === "login"
-                    ? "signup"
-                    : "login"
-                );
-                setErrors({});
-              }}
-              style={{
-                color: "#6366f1",
-                fontWeight: 600,
-                cursor: "pointer"
-              }}
-            >
-              {tab === "login"
-                ? "Sign Up"
-                : "Sign In"}
-            </span>
-          </p>
+          )}
         </div>
       </div>
     </div>

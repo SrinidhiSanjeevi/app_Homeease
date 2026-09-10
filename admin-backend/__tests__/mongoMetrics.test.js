@@ -1,9 +1,7 @@
 const mongoose = require("mongoose");
 const {
   register,
-  mongodbConnectionState,
-  mongodbQueryDurationSeconds,
-  mongodbQueryErrorsTotal
+  mongodbConnectionState
 } = require("../metrics");
 const metricsPlugin = require("../config/metricsPlugin");
 const connectDB = require("../config/db");

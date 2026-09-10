@@ -1368,7 +1368,7 @@ export default function Emergency({
                           fontStyle: "italic"
                         }}
                       >
-                        "{emergency.description}"
+                        &quot;{emergency.description}&quot;
                       </div>
                     </div>
 
