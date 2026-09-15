@@ -39,7 +39,7 @@ steps:
     displayName: 'Set up Buildx'
     inputs:
       command: 'login'
-      containerRegistry: 'acr-homeease'
+      containerRegistry: 'acr-service-connection'
     condition: eq('${{ parameters.pushEnabled }}', 'True')
 
   # ──────────────────────────────────────────────────────────
