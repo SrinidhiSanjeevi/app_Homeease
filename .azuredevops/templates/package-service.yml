@@ -191,5 +191,5 @@ steps:
     displayName: 'Logout from ACR'
     inputs:
       command: 'logout'
-      containerRegistry: 'acr-homeease'
+      containerRegistry: 'acr-service-connection'
     condition: always()
