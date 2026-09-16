@@ -3,9 +3,9 @@ const { REQUIRED_ENV, validateEnv } = require("../config/validateEnv");
 describe("Environment Validation (validateEnv)", () => {
   const completeEnv = {
     MONGO_URI: "mongodb://localhost:27017/test",
-    RAZORPAY_KEY_ID: "rzp_test_12345",
-    RAZORPAY_KEY_SECRET: "secret_67890",
-    RAZORPAY_WEBHOOK_SECRET: "whsec_abcde"
+    RAZORPAY_KEY_ID: "test-key-id",
+    RAZORPAY_KEY_SECRET: "test-key-secret",
+    RAZORPAY_WEBHOOK_SECRET: "test-webhook-secret"
   };
 
   it("should declare the expected required environment variables", () => {
@@ -63,8 +63,8 @@ describe("Environment Validation (validateEnv)", () => {
     const env = {
       MONGO_URI: "   ",
       RAZORPAY_KEY_ID: "",
-      RAZORPAY_KEY_SECRET: "secret_67890",
-      RAZORPAY_WEBHOOK_SECRET: "whsec_abcde"
+      RAZORPAY_KEY_SECRET: "test-key-secret",
+      RAZORPAY_WEBHOOK_SECRET: "test-webhook-secret"
     };
 
     const result = validateEnv(env);

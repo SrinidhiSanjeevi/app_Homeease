@@ -14,7 +14,6 @@ dist/
 **/.env
 **/.env.*
 !**/.env.example
-
 # Logs
 *.log
 
@@ -38,4 +37,3 @@ terraform.tfvars.json
 # Scan artifacts
 trivy-*.json
 .scannerwork/
-.env
