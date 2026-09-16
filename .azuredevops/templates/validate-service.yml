@@ -158,6 +158,7 @@ steps:
       extraProperties: |
         sonar.projectKey=${{ parameters.sonarProjectKey }}
         sonar.working.directory=$(Agent.TempDirectory)/.sonarwork-${{ parameters.name }}
+        sonar.host.url=https://20.219.221.134.nip.io
 
   - task: SonarQubeAnalyze@8
     displayName: 'Sonar analyse — ${{ parameters.name }}'
