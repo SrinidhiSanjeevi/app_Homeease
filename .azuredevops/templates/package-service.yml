@@ -82,9 +82,9 @@ steps:
   - task: Cache@2
     displayName: 'Cache Trivy DB'
     inputs:
-      key: 'trivy-db | "$(Agent.OS)" | ${{ parameters.trivyVersion }} | "$(Build.BuildId)"'
+      key: 'trivy-db | "$(Agent.OS)" | "${{ parameters.trivyVersion }}" | "$(Build.BuildId)"'
       restoreKeys: |
-        trivy-db | "$(Agent.OS)" | ${{ parameters.trivyVersion }}
+        trivy-db | "$(Agent.OS)" | "${{ parameters.trivyVersion }}"
         trivy-db | "$(Agent.OS)"
       path: '$(Pipeline.Workspace)/.trivy-cache'
 
