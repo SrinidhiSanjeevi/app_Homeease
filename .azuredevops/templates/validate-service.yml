@@ -165,13 +165,24 @@ steps:
   # for every run, but our server is SonarQube Community Build, which
   # rejects any analysis carrying that property ("Developer Edition or
   # above is required"). Strip just that key — JSON-aware via jq, not a
-  # fragile regex — and re-mark the variable secret since it may also
-  # carry the analysis token.
+  # fragile regex — and re-mark the variable secret since it also
+  # carries the analysis token.
+  #
+  # SONARQUBE_SCANNER_PARAMS is set as a SECRET variable by Prepare (it
+  # contains the token), and ADO does NOT auto-inject secret variables
+  # into a script step's environment — it must be mapped explicitly via
+  # env: below, or this reads empty and silently wipes the real value.
   - script: |
       set -euo pipefail
+      if [ -z "${SONARQUBE_SCANNER_PARAMS:-}" ]; then
+        echo "##vso[task.logissue type=error]SONARQUBE_SCANNER_PARAMS is empty — refusing to overwrite it. Check the env: mapping below and that Sonar prepare ran first."
+        exit 1
+      fi
       FILTERED=$(echo "$SONARQUBE_SCANNER_PARAMS" | jq -c 'del(."sonar.branch.name")')
       echo "##vso[task.setvariable variable=SONARQUBE_SCANNER_PARAMS;issecret=true]$FILTERED"
     displayName: 'Strip sonar.branch.name (unsupported on Community Build) — ${{ parameters.name }}'
+    env:
+      SONARQUBE_SCANNER_PARAMS: $(SONARQUBE_SCANNER_PARAMS)
 
   - task: SonarQubeAnalyze@8
     displayName: 'Sonar analyse — ${{ parameters.name }}'
