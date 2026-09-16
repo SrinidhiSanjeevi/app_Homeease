@@ -126,6 +126,12 @@ variables:
   - name: nodeVersion
     value: '22.x'
 
+  # Not a credential — the hostname is already public (it's the server's
+  # own DNS name). Safe as a plain pipeline variable; only SONAR_TOKEN
+  # (in the homeease-ci group above) needs to stay a secret.
+  - name: sonarHostUrl
+    value: 'https://20.219.221.134.nip.io'
+
   # Pinned. Never install from a moving branch reference.
   - name: trivyVersion
     value: '0.74.0'
@@ -275,6 +281,7 @@ stages:
                 hasTests: ${{ service.hasTests }}
                 hasLint: ${{ service.hasLint }}
                 sonarProjectKey: ${{ service.sonarProjectKey }}
+                sonarHostUrl: $(sonarHostUrl)
                 nodeVersion: $(nodeVersion)
                 trivyVersion: $(trivyVersion)
 

@@ -18,6 +18,8 @@ parameters:
     default: true
   - name: sonarProjectKey
     type: string
+  - name: sonarHostUrl
+    type: string
   - name: nodeVersion
     type: string
     default: '22.x'
@@ -137,68 +139,52 @@ steps:
     displayName: 'Trivy fs — ${{ parameters.name }}'
 
   # ──────────────────────────────────────────────────────────
-  # SonarQube. Requires, one time:
-  #   1. Marketplace extension "SonarQube" installed in the org
-  #   2. Service connection named sonarqube-homeease (SonarQube
-  #      Server type, token-based — the token lives only inside
-  #      the service connection, never in this file or in Git)
-  #   3. Variable group `homeease-ci` linked to Key Vault, exposing
-  #      SONAR_TOKEN and SONAR_HOST_URL (used elsewhere; not read
-  #      directly by these tasks, which authenticate via the
-  #      service connection above)
+  # SonarQube — explicit SonarScanner CLI, invoked directly instead
+  # of through SonarQubePrepare@8 / SonarQubeAnalyze@8.
+  #
+  # Those tasks hand the scanner its config through an opaque
+  # SONARQUBE_SCANNER_PARAMS env var. Whenever that handoff isn't
+  # exactly right, the bundled scanner's newer "Scanner Engine"
+  # bootstrap silently defaults to SonarQube CLOUD instead of our
+  # self-hosted server — which is what kept happening here, however
+  # the env var was massaged. Running the scanner ourselves with
+  # explicit -D flags removes that failure class entirely: every
+  # property it needs is passed on the command line, nothing is
+  # inferred or handed off through an intermediate variable.
+  #
+  # Deliberately pinned to scanner-cli 5.0.1.3006 — the last stable
+  # line before that CI-vendor-autodetecting "Scanner Engine" was
+  # introduced. It talks plain HTTP to the SonarQube Web API (fine
+  # for our 9.9.8 Community Build) and has no branch/PR autodetection
+  # to fight, so sonar.branch.name is simply never generated — the
+  # "Developer Edition required" error can't happen either.
+  #
+  # sonar.projectKey comes from each service's own sonar-project.properties
+  # via -Dproject.settings, not duplicated here.
+  #
+  # SONAR_TOKEN is a secret in the homeease-ci variable group — ADO
+  # does not auto-inject secret variables into a script's environment,
+  # so it must be mapped explicitly via env: below. SONAR_HOST_URL is
+  # not a credential (see azure-pipelines.yml), passed in as a
+  # parameter instead.
   # ──────────────────────────────────────────────────────────
 
-  - task: SonarQubePrepare@8
-    displayName: 'Sonar prepare — ${{ parameters.name }}'
-    inputs:
-      SonarQube: 'sonarqube-homeease'
-      scannerMode: 'CLI'
-      configMode: 'file'
-      configFile: '${{ parameters.path }}/sonar-project.properties'
-      extraProperties: |
-        sonar.projectKey=${{ parameters.sonarProjectKey }}
-        sonar.projectBaseDir=$(Build.SourcesDirectory)/${{ parameters.path }}
-        sonar.working.directory=$(Agent.TempDirectory)/.sonarwork-${{ parameters.name }}
-        sonar.host.url=https://20.219.221.134.nip.io
-
-  # SonarQubePrepare embeds sonar.branch.name into SONARQUBE_SCANNER_PARAMS
-  # for every run, but our server is SonarQube Community Build, which
-  # rejects any analysis carrying that property ("Developer Edition or
-  # above is required"). Strip just that key — JSON-aware via jq, not a
-  # fragile regex — and re-mark the variable secret since it also
-  # carries the analysis token.
-  #
-  # SONARQUBE_SCANNER_PARAMS is set as a SECRET variable by Prepare (it
-  # contains the token), and ADO does NOT auto-inject secret variables
-  # into a script step's environment — it must be mapped explicitly via
-  # env: below, or this reads empty and silently wipes the real value.
   - script: |
       set -euo pipefail
-      if [ -z "${SONARQUBE_SCANNER_PARAMS:-}" ]; then
-        echo "##vso[task.logissue type=error]SONARQUBE_SCANNER_PARAMS is empty — refusing to overwrite it. Check the env: mapping below and that Sonar prepare ran first."
-        exit 1
+      if ! command -v sonar-scanner >/dev/null 2>&1; then
+        curl -fsSL -o /tmp/sonar-scanner.zip \
+          "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip"
+        unzip -q /tmp/sonar-scanner.zip -d /tmp
+        sudo mv /tmp/sonar-scanner-5.0.1.3006-linux /opt/sonar-scanner
+        sudo ln -sf /opt/sonar-scanner/bin/sonar-scanner /usr/local/bin/sonar-scanner
       fi
-      # TEMPORARY DIAGNOSTIC — key NAMES only, never values, so nothing
-      # secret-shaped is ever printed. Remove once the real cause of the
-      # SonarCloud fallback is confirmed.
-      echo "sonar.branch.name present before filtering: $(echo "$SONARQUBE_SCANNER_PARAMS" | jq 'has("sonar.branch.name")')"
-      echo "Top-level keys before filtering: $(echo "$SONARQUBE_SCANNER_PARAMS" | jq -c 'keys')"
+      sonar-scanner --version
 
-      FILTERED=$(echo "$SONARQUBE_SCANNER_PARAMS" | jq -c 'del(."sonar.branch.name")')
-
-      echo "Top-level keys after filtering: $(echo "$FILTERED" | jq -c 'keys')"
-
-      echo "##vso[task.setvariable variable=SONARQUBE_SCANNER_PARAMS;issecret=true]$FILTERED"
-    displayName: 'Strip sonar.branch.name (unsupported on Community Build) — ${{ parameters.name }}'
+      sonar-scanner \
+        -Dproject.settings="${{ parameters.path }}/sonar-project.properties" \
+        -Dsonar.projectBaseDir="$(Build.SourcesDirectory)/${{ parameters.path }}" \
+        -Dsonar.host.url="${{ parameters.sonarHostUrl }}" \
+        -Dsonar.token="$SONAR_TOKEN"
+    displayName: 'Sonar scan — ${{ parameters.name }}'
     env:
-      SONARQUBE_SCANNER_PARAMS: $(SONARQUBE_SCANNER_PARAMS)
-
-  - task: SonarQubeAnalyze@8
-    displayName: 'Sonar analyse — ${{ parameters.name }}'
-
-  # Fails the job if the Quality Gate fails. Without this the Sonar
-  # result is decorative.
-  - task: SonarQubePublish@8
-    displayName: 'Sonar quality gate — ${{ parameters.name }}'
-    inputs:
-      pollingTimeoutSec: '300'
+      SONAR_TOKEN: $(SONAR_TOKEN)
