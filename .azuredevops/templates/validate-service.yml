@@ -157,6 +157,7 @@ steps:
       configFile: '${{ parameters.path }}/sonar-project.properties'
       extraProperties: |
         sonar.projectKey=${{ parameters.sonarProjectKey }}
+        sonar.projectBaseDir=$(Build.SourcesDirectory)/${{ parameters.path }}
         sonar.working.directory=$(Agent.TempDirectory)/.sonarwork-${{ parameters.name }}
         sonar.host.url=https://20.219.221.134.nip.io
 
