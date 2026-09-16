@@ -161,6 +161,18 @@ steps:
         sonar.working.directory=$(Agent.TempDirectory)/.sonarwork-${{ parameters.name }}
         sonar.host.url=https://20.219.221.134.nip.io
 
+  # SonarQubePrepare embeds sonar.branch.name into SONARQUBE_SCANNER_PARAMS
+  # for every run, but our server is SonarQube Community Build, which
+  # rejects any analysis carrying that property ("Developer Edition or
+  # above is required"). Strip just that key — JSON-aware via jq, not a
+  # fragile regex — and re-mark the variable secret since it may also
+  # carry the analysis token.
+  - script: |
+      set -euo pipefail
+      FILTERED=$(echo "$SONARQUBE_SCANNER_PARAMS" | jq -c 'del(."sonar.branch.name")')
+      echo "##vso[task.setvariable variable=SONARQUBE_SCANNER_PARAMS;issecret=true]$FILTERED"
+    displayName: 'Strip sonar.branch.name (unsupported on Community Build) — ${{ parameters.name }}'
+
   - task: SonarQubeAnalyze@8
     displayName: 'Sonar analyse — ${{ parameters.name }}'
 
