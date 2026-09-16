@@ -178,7 +178,16 @@ steps:
         echo "##vso[task.logissue type=error]SONARQUBE_SCANNER_PARAMS is empty — refusing to overwrite it. Check the env: mapping below and that Sonar prepare ran first."
         exit 1
       fi
+      # TEMPORARY DIAGNOSTIC — key NAMES only, never values, so nothing
+      # secret-shaped is ever printed. Remove once the real cause of the
+      # SonarCloud fallback is confirmed.
+      echo "sonar.branch.name present before filtering: $(echo "$SONARQUBE_SCANNER_PARAMS" | jq 'has("sonar.branch.name")')"
+      echo "Top-level keys before filtering: $(echo "$SONARQUBE_SCANNER_PARAMS" | jq -c 'keys')"
+
       FILTERED=$(echo "$SONARQUBE_SCANNER_PARAMS" | jq -c 'del(."sonar.branch.name")')
+
+      echo "Top-level keys after filtering: $(echo "$FILTERED" | jq -c 'keys')"
+
       echo "##vso[task.setvariable variable=SONARQUBE_SCANNER_PARAMS;issecret=true]$FILTERED"
     displayName: 'Strip sonar.branch.name (unsupported on Community Build) — ${{ parameters.name }}'
     env:
