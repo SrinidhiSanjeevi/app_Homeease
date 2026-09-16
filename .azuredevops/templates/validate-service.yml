@@ -159,8 +159,12 @@ steps:
   # to fight, so sonar.branch.name is simply never generated — the
   # "Developer Edition required" error can't happen either.
   #
-  # sonar.projectKey comes from each service's own sonar-project.properties
-  # via -Dproject.settings, not duplicated here.
+  # sonar.projectKey comes from each service's own sonar-project.properties.
+  # project.settings and sonar.projectBaseDir are NOT combined (SonarQube
+  # 9.9 docs: they're incompatible) — instead we cd into the service
+  # directory and let the scanner use its own default: current working
+  # directory as project base dir, reading ./sonar-project.properties
+  # from there directly, no explicit -D flags needed for either.
   #
   # SONAR_TOKEN is a secret in the homeease-ci variable group — ADO
   # does not auto-inject secret variables into a script's environment,
@@ -180,11 +184,15 @@ steps:
       fi
       sonar-scanner --version
 
+      echo "SONAR_TOKEN present: $([ -n "${SONAR_TOKEN:-}" ] && echo YES || echo NO)"
+      echo "SONAR_HOST_URL: ${SONAR_HOST_URL:-<not-set>}"
+
+      cd "$(Build.SourcesDirectory)/${{ parameters.path }}"
+
       sonar-scanner \
-        -Dproject.settings="${{ parameters.path }}/sonar-project.properties" \
-        -Dsonar.projectBaseDir="$(Build.SourcesDirectory)/${{ parameters.path }}" \
         -Dsonar.host.url="${{ parameters.sonarHostUrl }}" \
         -Dsonar.token="$SONAR_TOKEN"
     displayName: 'Sonar scan — ${{ parameters.name }}'
     env:
       SONAR_TOKEN: $(SONAR_TOKEN)
+      SONAR_HOST_URL: ${{ parameters.sonarHostUrl }}
