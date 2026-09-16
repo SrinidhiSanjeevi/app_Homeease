@@ -148,7 +148,7 @@ steps:
   #      service connection above)
   # ──────────────────────────────────────────────────────────
 
-  - task: SonarQubePrepare@6
+  - task: SonarQubePrepare@8
     displayName: 'Sonar prepare — ${{ parameters.name }}'
     inputs:
       SonarQube: 'sonarqube-homeease'
@@ -159,12 +159,12 @@ steps:
         sonar.projectKey=${{ parameters.sonarProjectKey }}
         sonar.working.directory=$(Agent.TempDirectory)/.sonarwork-${{ parameters.name }}
 
-  - task: SonarQubeAnalyze@6
+  - task: SonarQubeAnalyze@8
     displayName: 'Sonar analyse — ${{ parameters.name }}'
 
   # Fails the job if the Quality Gate fails. Without this the Sonar
   # result is decorative.
-  - task: SonarQubePublish@1
+  - task: SonarQubePublish@8
     displayName: 'Sonar quality gate — ${{ parameters.name }}'
     inputs:
       pollingTimeoutSec: '300'
