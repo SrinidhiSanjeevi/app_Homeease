@@ -139,15 +139,19 @@ steps:
   # ──────────────────────────────────────────────────────────
   # SonarQube. Requires, one time:
   #   1. Marketplace extension "SonarQube" installed in the org
-  #   2. Service connection named sonarqube-service-connection
+  #   2. Service connection named sonarqube-homeease (SonarQube
+  #      Server type, token-based — the token lives only inside
+  #      the service connection, never in this file or in Git)
   #   3. Variable group `homeease-ci` linked to Key Vault, exposing
-  #      SONAR_TOKEN and SONAR_HOST_URL
+  #      SONAR_TOKEN and SONAR_HOST_URL (used elsewhere; not read
+  #      directly by these tasks, which authenticate via the
+  #      service connection above)
   # ──────────────────────────────────────────────────────────
 
   - task: SonarQubePrepare@6
     displayName: 'Sonar prepare — ${{ parameters.name }}'
     inputs:
-      SonarQube: 'sonarqube-service-connection'
+      SonarQube: 'sonarqube-homeease'
       scannerMode: 'CLI'
       configMode: 'file'
       configFile: '${{ parameters.path }}/sonar-project.properties'
@@ -160,7 +164,7 @@ steps:
 
   # Fails the job if the Quality Gate fails. Without this the Sonar
   # result is decorative.
-  - task: SonarQubePublishResults@1
+  - task: SonarQubePublish@1
     displayName: 'Sonar quality gate — ${{ parameters.name }}'
     inputs:
       pollingTimeoutSec: '300'
