@@ -94,19 +94,19 @@ parameters:
         port: 5001
         hasTests: true
         hasLint: true
-        sonarProjectKey: homeease-admin-backend
+        sonarProjectKey: sonarqube-admin-backend
       - name: payment-service
         path: payment-service
         port: 5002
         hasTests: true
         hasLint: true
-        sonarProjectKey: homeease-payment-service
+        sonarProjectKey: sonarqube-payment-service
       - name: frontend
         path: frontend
         port: 8080
         hasTests: false
         hasLint: false
-        sonarProjectKey: homeease-frontend
+        sonarProjectKey: sonarqube-frontend
 
 variables:
   # Secrets (SONAR_TOKEN, SONAR_HOST_URL) come from a variable group
