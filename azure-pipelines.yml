@@ -94,23 +94,24 @@ parameters:
         port: 5001
         hasTests: true
         hasLint: true
-        sonarProjectKey: sonarqube-admin-backend
+        sonarProjectKey: homeease-admin-backend
       - name: payment-service
         path: payment-service
         port: 5002
         hasTests: true
         hasLint: true
-        sonarProjectKey: sonarqube-payment-service
+        sonarProjectKey: homeease-payment-service
       - name: frontend
         path: frontend
         port: 8080
         hasTests: false
         hasLint: false
-        sonarProjectKey: sonarqube-frontend
+        sonarProjectKey: homeease-frontend
 
 variables:
-  # Secrets (SONAR_TOKEN, SONAR_HOST_URL) come from a variable group
-  # linked to Key Vault. Nothing sensitive is ever written in this file.
+  # PUSHGATEWAY_URL (used by Package/Report stages below) comes from
+  # this group. SonarCloud auth is handled entirely by the
+  # sonarcloud-homeease service connection, not by any variable here.
   - group: homeease-ci
 
   - name: acrName
@@ -125,12 +126,6 @@ variables:
 
   - name: nodeVersion
     value: '22.x'
-
-  # Not a credential — the hostname is already public (it's the server's
-  # own DNS name). Safe as a plain pipeline variable; only SONAR_TOKEN
-  # (in the homeease-ci group above) needs to stay a secret.
-  - name: sonarHostUrl
-    value: 'https://20.219.221.134.nip.io'
 
   # Pinned. Never install from a moving branch reference.
   - name: trivyVersion
@@ -280,8 +275,6 @@ stages:
                 path: ${{ service.path }}
                 hasTests: ${{ service.hasTests }}
                 hasLint: ${{ service.hasLint }}
-                sonarProjectKey: ${{ service.sonarProjectKey }}
-                sonarHostUrl: $(sonarHostUrl)
                 nodeVersion: $(nodeVersion)
                 trivyVersion: $(trivyVersion)
 
