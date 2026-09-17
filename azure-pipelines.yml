@@ -319,7 +319,6 @@ stages:
                 commitCreated: $(commitCreated)
                 trivyVersion: $(trivyVersion)
                 syftVersion: $(syftVersion)
-                pushEnabled: $(isMain)
 
 # ============================================================
 # STAGE 4 — REPORT

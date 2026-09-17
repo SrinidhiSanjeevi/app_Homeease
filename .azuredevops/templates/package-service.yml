@@ -24,8 +24,6 @@ parameters:
     type: string
   - name: syftVersion
     type: string
-  - name: pushEnabled
-    type: string
 
 steps:
 
@@ -40,7 +38,13 @@ steps:
     inputs:
       command: 'login'
       containerRegistry: 'acr-homeease-wif'
-    condition: eq('${{ parameters.pushEnabled }}', 'True')
+    # NOTE: uses variables['isMain'] directly, not ${{ parameters.pushEnabled }}.
+    # That parameter is passed in as the macro $(isMain), which template
+    # expansion bakes in as the literal string "$(isMain)" — macro syntax is
+    # never expanded inside `condition:`, so it always compared false
+    # regardless of branch. variables['isMain'] is resolved properly here
+    # because isMain is a pipeline-scoped variable visible in every job.
+    condition: eq(variables['isMain'], 'True')
 
   # ──────────────────────────────────────────────────────────
   # BUILD
@@ -164,7 +168,7 @@ steps:
       EOF
     name: push
     displayName: 'Push to ACR + record duration — ${{ parameters.name }}'
-    condition: and(succeeded(), eq('${{ parameters.pushEnabled }}', 'True'))
+    condition: and(succeeded(), eq(variables['isMain'], 'True'))
 
   # ──────────────────────────────────────────────────────────
   # SIGN (optional, main only)
@@ -185,7 +189,7 @@ steps:
   #       --key "azurekms://kv-homeease-dev-hs01.vault.azure.net/cosign-signing-key" \
   #       "$(IMAGE)"
   #   displayName: 'Cosign sign — ${{ parameters.name }}'
-  #   condition: and(succeeded(), eq('${{ parameters.pushEnabled }}', 'True'))
+  #   condition: and(succeeded(), eq(variables['isMain'], 'True'))
 
   - task: Docker@2
     displayName: 'Logout from ACR'
