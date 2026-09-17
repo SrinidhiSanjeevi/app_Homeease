@@ -267,7 +267,11 @@ stages:
         - job: Validate_${{ replace(service.name, '-', '_') }}
           displayName: 'Validate ${{ service.name }}'
           timeoutInMinutes: 15
-          condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
+          # TEMPORARY — full-CI test run: change-detection skip disabled
+          # so every service validates regardless of what changed.
+          # ACR is empty and this proves the ACR/SonarCloud fixes work
+          # end-to-end. Restore the line below once confirmed:
+          # condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
           steps:
             - template: .azuredevops/templates/validate-service.yml
               parameters:
@@ -297,7 +301,10 @@ stages:
         - job: Package_${{ replace(service.name, '-', '_') }}
           displayName: 'Package ${{ service.name }}'
           timeoutInMinutes: 25
-          condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
+          # TEMPORARY — full-CI test run: change-detection skip disabled
+          # so every service packages regardless of what changed.
+          # Restore the line below once confirmed:
+          # condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
           variables:
             imageTag: $[ stageDependencies.Static.Changes.outputs['detect.imageTag'] ]
             commitCreated: $[ stageDependencies.Static.Changes.outputs['detect.commitCreated'] ]
