@@ -228,7 +228,7 @@ steps:
       echo "Polling Compute Engine task $CE_TASK_ID ..."
       CE_STATUS="PENDING"
       for i in $(seq 1 60); do
-        CE_STATUS=$(curl -fsS -u "$SONAR_TOKEN:" "$SERVER_URL/api/ce/task?id=$CE_TASK_ID" | jq -r '.task.status')
+        CE_STATUS=$(curl -fsS -H "Authorization: Basic $(printf "%s:" "$SONAR_TOKEN" | base64 -w0)" "$SERVER_URL/api/ce/task?id=$CE_TASK_ID" | jq -r '.task.status')
         echo "  [$i/60] CE task status: $CE_STATUS"
         case "$CE_STATUS" in
           SUCCESS) break ;;
@@ -245,8 +245,8 @@ steps:
         exit 1
       fi
 
-      ANALYSIS_ID=$(curl -fsS -u "$SONAR_TOKEN:" "$SERVER_URL/api/ce/task?id=$CE_TASK_ID" | jq -r '.task.analysisId')
-      GATE_STATUS=$(curl -fsS -u "$SONAR_TOKEN:" "$SERVER_URL/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" | jq -r '.projectStatus.status')
+      ANALYSIS_ID=$(curl -fsS -H "Authorization: Basic $(printf "%s:" "$SONAR_TOKEN" | base64 -w0)" "$SERVER_URL/api/ce/task?id=$CE_TASK_ID" | jq -r '.task.analysisId')
+      GATE_STATUS=$(curl -fsS -H "Authorization: Basic $(printf "%s:" "$SONAR_TOKEN" | base64 -w0)" "$SERVER_URL/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" | jq -r '.projectStatus.status')
 
       echo "Quality Gate status: $GATE_STATUS"
 
