@@ -198,6 +198,13 @@ steps:
       fi
       sonar-scanner --version
 
+      # SonarQubePrepare still embeds sonar.branch.name inside
+      # SONARQUBE_SCANNER_PARAMS. Community Build rejects branch
+      # analysis ("Developer Edition or above is required"), so make
+      # sure this scanner invocation can't see that variable at all —
+      # only the resolved host/token below are used.
+      unset SONARQUBE_SCANNER_PARAMS
+
       cd "$(Build.SourcesDirectory)/${{ parameters.path }}"
 
       sonar-scanner \
