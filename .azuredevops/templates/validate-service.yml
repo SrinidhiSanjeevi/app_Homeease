@@ -196,3 +196,68 @@ steps:
     env:
       SONAR_TOKEN: $(SONAR_TOKEN)
       SONAR_HOST_URL: ${{ parameters.sonarHostUrl }}
+
+  # ──────────────────────────────────────────────────────────
+  # Quality Gate — polls SonarQube's own REST API directly, since
+  # SonarQubePublish@8 (the ADO extension's gate task) is paired to
+  # SonarQubePrepare/Analyze, which this pipeline deliberately does
+  # not use (see the Sonar scan step above — those tasks are what
+  # caused analysis to silently fall back to SonarQube Cloud).
+  # Reuses the same SONAR_TOKEN/SONAR_HOST_URL already mapped above;
+  # no new secrets or variables.
+  #
+  # main branch: a failing gate fails the job — same effective
+  # behavior as SonarQubePublish@8's default. Any other branch: warn
+  # only, don't fail the build — the check always runs either way,
+  # only the failure severity differs, so PR feedback isn't lost.
+  # ──────────────────────────────────────────────────────────
+
+  - script: |
+      set -euo pipefail
+      cd "$(Build.SourcesDirectory)/${{ parameters.path }}"
+
+      REPORT_FILE=".scannerwork/report-task.txt"
+      if [ ! -f "$REPORT_FILE" ]; then
+        echo "##vso[task.logissue type=error]No $REPORT_FILE found — did the Sonar scan step run?"
+        exit 1
+      fi
+
+      SERVER_URL=$(grep -oP '(?<=^serverUrl=).*' "$REPORT_FILE")
+      CE_TASK_ID=$(grep -oP '(?<=^ceTaskId=).*' "$REPORT_FILE")
+
+      echo "Polling Compute Engine task $CE_TASK_ID ..."
+      CE_STATUS="PENDING"
+      for i in $(seq 1 60); do
+        CE_STATUS=$(curl -fsS -u "$SONAR_TOKEN:" "$SERVER_URL/api/ce/task?id=$CE_TASK_ID" | jq -r '.task.status')
+        echo "  [$i/60] CE task status: $CE_STATUS"
+        case "$CE_STATUS" in
+          SUCCESS) break ;;
+          FAILED|CANCELED)
+            echo "##vso[task.logissue type=error]Compute Engine task ended with status $CE_STATUS"
+            exit 1
+            ;;
+        esac
+        sleep 5
+      done
+
+      if [ "$CE_STATUS" != "SUCCESS" ]; then
+        echo "##vso[task.logissue type=error]Compute Engine task did not finish within the 300s timeout (last status: $CE_STATUS)"
+        exit 1
+      fi
+
+      ANALYSIS_ID=$(curl -fsS -u "$SONAR_TOKEN:" "$SERVER_URL/api/ce/task?id=$CE_TASK_ID" | jq -r '.task.analysisId')
+      GATE_STATUS=$(curl -fsS -u "$SONAR_TOKEN:" "$SERVER_URL/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" | jq -r '.projectStatus.status')
+
+      echo "Quality Gate status: $GATE_STATUS"
+
+      if [ "$GATE_STATUS" != "OK" ]; then
+        if [ "$(Build.SourceBranch)" = "refs/heads/main" ]; then
+          echo "##vso[task.logissue type=error]Quality Gate failed on main — failing the build."
+          exit 1
+        else
+          echo "##vso[task.logissue type=warning]Quality Gate failed on a non-main branch — warning only, build not failed."
+        fi
+      fi
+    displayName: 'Sonar quality gate — ${{ parameters.name }}'
+    env:
+      SONAR_TOKEN: $(SONAR_TOKEN)
