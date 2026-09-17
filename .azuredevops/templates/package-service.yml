@@ -39,7 +39,7 @@ steps:
     displayName: 'Set up Buildx'
     inputs:
       command: 'login'
-      containerRegistry: 'acr-service-connection'
+      containerRegistry: 'acr-homeease-wif'
     condition: eq('${{ parameters.pushEnabled }}', 'True')
 
   # ──────────────────────────────────────────────────────────
@@ -191,5 +191,5 @@ steps:
     displayName: 'Logout from ACR'
     inputs:
       command: 'logout'
-      containerRegistry: 'acr-service-connection'
+      containerRegistry: 'acr-homeease-wif'
     condition: always()
