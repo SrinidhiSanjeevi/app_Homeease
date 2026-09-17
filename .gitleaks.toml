@@ -1,0 +1,35 @@
+# ============================================================
+# gitleaks config — HomeEase
+#
+# Extends gitleaks' default ruleset (don't lose real detectors) and
+# adds two narrow, pattern-based allowlist entries for confirmed
+# false positives that would otherwise re-trigger on every future
+# commit that touches these files. One-off historical findings
+# (already-fixed leaks tied to a specific past commit) belong in
+# .gitleaksignore instead — this file is only for recurring,
+# structural non-secrets.
+# ============================================================
+
+title = "HomeEase gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+  description = "Confirmed non-secret patterns, not one-off historical fixes"
+
+  # payment-service/__tests__/validateEnv.test.js exists specifically
+  # to test env-var validation logic — every value in it is a
+  # deliberate mock (e.g. "test-key-id"), never a real credential.
+  paths = [
+    '''payment-service/__tests__/validateEnv\.test\.js''',
+  ]
+
+  # Azure AD Application (client) IDs are public identifiers by
+  # design (OAuth/OIDC) — a GUID next to clientId/client-id/clientID
+  # in the Helm chart is this, not a secret. Scoped to the GUID shape
+  # specifically so it can't accidentally exempt an actual secret
+  # that happens to sit near an unrelated "clientId"-like key.
+  regexes = [
+    '''(?i)client-?id["'':=\s]+["']?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}''',
+  ]
