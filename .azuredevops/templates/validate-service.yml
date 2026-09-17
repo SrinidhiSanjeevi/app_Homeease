@@ -155,7 +155,7 @@ steps:
     displayName: 'SonarCloud prepare — ${{ parameters.name }}'
     inputs:
       SonarCloud: 'sonarcloud-homeease'
-      organization: 'SrinidhiSanjeevi'
+      organization: 'srinidhisanjeevi'
       scannerMode: 'cli'
       configMode: 'file'
       configFile: '${{ parameters.path }}/sonar-project.properties'
