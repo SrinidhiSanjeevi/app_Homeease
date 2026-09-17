@@ -139,39 +139,53 @@ steps:
     displayName: 'Trivy fs — ${{ parameters.name }}'
 
   # ──────────────────────────────────────────────────────────
-  # SonarQube — explicit SonarScanner CLI, invoked directly instead
-  # of through SonarQubePrepare@8 / SonarQubeAnalyze@8.
+  # SonarQube — SonarQubePrepare@8 resolves the sonarqube-homeease
+  # service connection ONLY (host URL + token); SonarQubeAnalyze@8 is
+  # never invoked. That task's bundled scanner is what silently
+  # defaulted to SonarQube CLOUD in earlier attempts (its newer
+  # "Scanner Engine" bootstrap auto-detects Azure DevOps as a CI
+  # vendor and injects sonar.branch.name, which then breaks on
+  # Community Build — "Developer Edition required"). Extracting just
+  # the two values we need from what Prepare resolves, then handing
+  # them to our own pinned scanner-cli 5.0.1.3006 invocation, gets
+  # service-connection-based auth without going anywhere near the
+  # component that caused the fallback.
   #
-  # Those tasks hand the scanner its config through an opaque
-  # SONARQUBE_SCANNER_PARAMS env var. Whenever that handoff isn't
-  # exactly right, the bundled scanner's newer "Scanner Engine"
-  # bootstrap silently defaults to SonarQube CLOUD instead of our
-  # self-hosted server — which is what kept happening here, however
-  # the env var was massaged. Running the scanner ourselves with
-  # explicit -D flags removes that failure class entirely: every
-  # property it needs is passed on the command line, nothing is
-  # inferred or handed off through an intermediate variable.
-  #
-  # Deliberately pinned to scanner-cli 5.0.1.3006 — the last stable
-  # line before that CI-vendor-autodetecting "Scanner Engine" was
-  # introduced. It talks plain HTTP to the SonarQube Web API (fine
-  # for our 9.9.8 Community Build) and has no branch/PR autodetection
-  # to fight, so sonar.branch.name is simply never generated — the
-  # "Developer Edition required" error can't happen either.
-  #
-  # sonar.projectKey comes from each service's own sonar-project.properties.
-  # project.settings and sonar.projectBaseDir are NOT combined (SonarQube
-  # 9.9 docs: they're incompatible) — instead we cd into the service
-  # directory and let the scanner use its own default: current working
-  # directory as project base dir, reading ./sonar-project.properties
-  # from there directly, no explicit -D flags needed for either.
-  #
-  # SONAR_TOKEN is a secret in the homeease-ci variable group — ADO
-  # does not auto-inject secret variables into a script's environment,
-  # so it must be mapped explicitly via env: below. SONAR_HOST_URL is
-  # not a credential (see azure-pipelines.yml), passed in as a
-  # parameter instead.
+  # No homeease-ci SONAR_TOKEN dependency: the token comes from the
+  # service connection via Prepare, never from the variable group.
   # ──────────────────────────────────────────────────────────
+
+  - task: SonarQubePrepare@8
+    displayName: 'Sonar prepare (resolve connection only) — ${{ parameters.name }}'
+    inputs:
+      SonarQube: 'sonarqube-homeease'
+      scannerMode: 'CLI'
+      configMode: 'file'
+      configFile: '${{ parameters.path }}/sonar-project.properties'
+
+  - script: |
+      set -euo pipefail
+      if [ -z "${SONARQUBE_SCANNER_PARAMS:-}" ]; then
+        echo "##vso[task.logissue type=error]SONARQUBE_SCANNER_PARAMS is empty — Sonar prepare did not resolve sonarqube-homeease."
+        exit 1
+      fi
+
+      HOST_URL=$(echo "$SONARQUBE_SCANNER_PARAMS" | jq -r '."sonar.host.url" // empty')
+      TOKEN=$(echo "$SONARQUBE_SCANNER_PARAMS" | jq -r '."sonar.token" // ."sonar.login" // empty')
+
+      if [ -z "$HOST_URL" ] || [ -z "$TOKEN" ]; then
+        echo "##vso[task.logissue type=error]Service connection resolved, but sonar.host.url/token were missing from the result."
+        exit 1
+      fi
+
+      echo "Resolved sonar.host.url from service connection: $HOST_URL"
+      echo "Resolved token from service connection: present"
+
+      echo "##vso[task.setvariable variable=RESOLVED_SONAR_HOST_URL]$HOST_URL"
+      echo "##vso[task.setvariable variable=RESOLVED_SONAR_TOKEN;issecret=true]$TOKEN"
+    displayName: 'Extract host/token from service connection — ${{ parameters.name }}'
+    env:
+      SONARQUBE_SCANNER_PARAMS: $(SONARQUBE_SCANNER_PARAMS)
 
   - script: |
       set -euo pipefail
@@ -184,27 +198,21 @@ steps:
       fi
       sonar-scanner --version
 
-      echo "SONAR_TOKEN present: $([ -n "${SONAR_TOKEN:-}" ] && echo YES || echo NO)"
-      echo "SONAR_HOST_URL: ${SONAR_HOST_URL:-<not-set>}"
-
       cd "$(Build.SourcesDirectory)/${{ parameters.path }}"
 
       sonar-scanner \
-        -Dsonar.host.url="${{ parameters.sonarHostUrl }}" \
-        -Dsonar.token="$SONAR_TOKEN"
+        -Dsonar.host.url="$RESOLVED_SONAR_HOST_URL" \
+        -Dsonar.token="$RESOLVED_SONAR_TOKEN"
     displayName: 'Sonar scan — ${{ parameters.name }}'
     env:
-      SONAR_TOKEN: $(SONAR_TOKEN)
-      SONAR_HOST_URL: ${{ parameters.sonarHostUrl }}
+      RESOLVED_SONAR_TOKEN: $(RESOLVED_SONAR_TOKEN)
+      RESOLVED_SONAR_HOST_URL: $(RESOLVED_SONAR_HOST_URL)
 
   # ──────────────────────────────────────────────────────────
-  # Quality Gate — polls SonarQube's own REST API directly, since
-  # SonarQubePublish@8 (the ADO extension's gate task) is paired to
-  # SonarQubePrepare/Analyze, which this pipeline deliberately does
-  # not use (see the Sonar scan step above — those tasks are what
-  # caused analysis to silently fall back to SonarQube Cloud).
-  # Reuses the same SONAR_TOKEN/SONAR_HOST_URL already mapped above;
-  # no new secrets or variables.
+  # Quality Gate — polls SonarQube's own REST API directly, using the
+  # SAME token resolved from the sonarqube-homeease service connection
+  # above (RESOLVED_SONAR_TOKEN) — no homeease-ci SONAR_TOKEN involved
+  # anywhere in this file anymore.
   #
   # main branch: a failing gate fails the job — same effective
   # behavior as SonarQubePublish@8's default. Any other branch: warn
@@ -224,11 +232,12 @@ steps:
 
       SERVER_URL=$(grep -oP '(?<=^serverUrl=).*' "$REPORT_FILE")
       CE_TASK_ID=$(grep -oP '(?<=^ceTaskId=).*' "$REPORT_FILE")
+      AUTH_HEADER="Authorization: Basic $(printf '%s:' "$RESOLVED_SONAR_TOKEN" | base64 -w0)"
 
       echo "Polling Compute Engine task $CE_TASK_ID ..."
       CE_STATUS="PENDING"
       for i in $(seq 1 60); do
-        CE_STATUS=$(curl -fsS -H "Authorization: Basic $(printf "%s:" "$SONAR_TOKEN" | base64 -w0)" "$SERVER_URL/api/ce/task?id=$CE_TASK_ID" | jq -r '.task.status')
+        CE_STATUS=$(curl -fsS -H "$AUTH_HEADER" "$SERVER_URL/api/ce/task?id=$CE_TASK_ID" | jq -r '.task.status')
         echo "  [$i/60] CE task status: $CE_STATUS"
         case "$CE_STATUS" in
           SUCCESS) break ;;
@@ -245,8 +254,8 @@ steps:
         exit 1
       fi
 
-      ANALYSIS_ID=$(curl -fsS -H "Authorization: Basic $(printf "%s:" "$SONAR_TOKEN" | base64 -w0)" "$SERVER_URL/api/ce/task?id=$CE_TASK_ID" | jq -r '.task.analysisId')
-      GATE_STATUS=$(curl -fsS -H "Authorization: Basic $(printf "%s:" "$SONAR_TOKEN" | base64 -w0)" "$SERVER_URL/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" | jq -r '.projectStatus.status')
+      ANALYSIS_ID=$(curl -fsS -H "$AUTH_HEADER" "$SERVER_URL/api/ce/task?id=$CE_TASK_ID" | jq -r '.task.analysisId')
+      GATE_STATUS=$(curl -fsS -H "$AUTH_HEADER" "$SERVER_URL/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" | jq -r '.projectStatus.status')
 
       echo "Quality Gate status: $GATE_STATUS"
 
@@ -260,4 +269,4 @@ steps:
       fi
     displayName: 'Sonar quality gate — ${{ parameters.name }}'
     env:
-      SONAR_TOKEN: $(SONAR_TOKEN)
+      RESOLVED_SONAR_TOKEN: $(RESOLVED_SONAR_TOKEN)
