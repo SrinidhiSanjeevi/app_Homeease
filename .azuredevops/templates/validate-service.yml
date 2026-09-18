@@ -55,40 +55,39 @@ steps:
           npm run lint
         displayName: 'Lint — ${{ parameters.name }}'
 
-  # TEMPORARY — EMERGENCY FAST DEPLOY: npm audit disabled. Restore below.
-  # - script: |
-  #     set -euo pipefail
-  #     cd ${{ parameters.path }}
-  #     npm audit --audit-level=high --omit=dev
-  #   displayName: 'npm audit (high+) — ${{ parameters.name }}'
+  # npm audit reads the lockfile and knows about advisories Trivy's
+  # database may lag on. Running both is deliberate — they disagree.
+  - script: |
+      set -euo pipefail
+      cd ${{ parameters.path }}
+      npm audit --audit-level=high --omit=dev
+    displayName: 'npm audit (high+) — ${{ parameters.name }}'
 
-  # TEMPORARY — EMERGENCY FAST DEPLOY: test + coverage disabled (the
-  # single most expensive step in this template). Restore below.
-  # - ${{ if eq(parameters.hasTests, true) }}:
-  #     - script: |
-  #         set -euo pipefail
-  #         cd ${{ parameters.path }}
-  #         npm run test:coverage -- --ci --reporters=default --reporters=jest-junit
-  #       displayName: 'Test + coverage — ${{ parameters.name }}'
-  #       env:
-  #         JEST_JUNIT_OUTPUT_DIR: '$(Build.ArtifactStagingDirectory)/${{ parameters.name }}'
-  #         JEST_JUNIT_OUTPUT_NAME: 'junit.xml'
-  #
-  #     - task: PublishTestResults@2
-  #       displayName: 'Publish test results — ${{ parameters.name }}'
-  #       condition: succeededOrFailed()
-  #       inputs:
-  #         testResultsFormat: 'JUnit'
-  #         testResultsFiles: '$(Build.ArtifactStagingDirectory)/${{ parameters.name }}/junit.xml'
-  #         testRunTitle: '${{ parameters.name }}'
-  #         failTaskOnFailedTests: true
-  #
-  #     - task: PublishCodeCoverageResults@2
-  #       displayName: 'Publish coverage — ${{ parameters.name }}'
-  #       condition: succeededOrFailed()
-  #       inputs:
-  #         summaryFileLocation: '${{ parameters.path }}/coverage/cobertura-coverage.xml'
-  #         pathToSources: '${{ parameters.path }}'
+  - ${{ if eq(parameters.hasTests, true) }}:
+      - script: |
+          set -euo pipefail
+          cd ${{ parameters.path }}
+          npm run test:coverage -- --ci --reporters=default --reporters=jest-junit
+        displayName: 'Test + coverage — ${{ parameters.name }}'
+        env:
+          JEST_JUNIT_OUTPUT_DIR: '$(Build.ArtifactStagingDirectory)/${{ parameters.name }}'
+          JEST_JUNIT_OUTPUT_NAME: 'junit.xml'
+
+      - task: PublishTestResults@2
+        displayName: 'Publish test results — ${{ parameters.name }}'
+        condition: succeededOrFailed()
+        inputs:
+          testResultsFormat: 'JUnit'
+          testResultsFiles: '$(Build.ArtifactStagingDirectory)/${{ parameters.name }}/junit.xml'
+          testRunTitle: '${{ parameters.name }}'
+          failTaskOnFailedTests: true
+
+      - task: PublishCodeCoverageResults@2
+        displayName: 'Publish coverage — ${{ parameters.name }}'
+        condition: succeededOrFailed()
+        inputs:
+          summaryFileLocation: '${{ parameters.path }}/coverage/cobertura-coverage.xml'
+          pathToSources: '${{ parameters.path }}'
 
   # Frontend builds instead of testing. It still has to compile.
   - ${{ if eq(parameters.hasTests, false) }}:
@@ -107,35 +106,33 @@ steps:
   # a supply-chain risk even if it never reaches production.
   # ──────────────────────────────────────────────────────────
 
-  # TEMPORARY — EMERGENCY FAST DEPLOY: Trivy filesystem scan disabled
-  # (--exit-code 1 gates the rest of the job). Restore below.
-  # - task: Cache@2
-  #   displayName: 'Cache Trivy DB'
-  #   inputs:
-  #     key: 'trivy-db | "$(Agent.OS)" | "${{ parameters.trivyVersion }}" | "$(Build.BuildId)"'
-  #     restoreKeys: |
-  #       trivy-db | "$(Agent.OS)" | "${{ parameters.trivyVersion }}"
-  #       trivy-db | "$(Agent.OS)"
-  #     path: '$(Pipeline.Workspace)/.trivy-cache'
-  #
-  # - script: |
-  #     set -euo pipefail
-  #     if ! command -v trivy >/dev/null 2>&1; then
-  #       curl -fsSL -o /tmp/trivy.deb \
-  #         "https://github.com/aquasecurity/trivy/releases/download/v${{ parameters.trivyVersion }}/trivy_${{ parameters.trivyVersion }}_Linux-64bit.deb"
-  #       sudo dpkg -i /tmp/trivy.deb
-  #     fi
-  #     trivy --version
-  #
-  #     trivy fs \
-  #       --cache-dir "$(Pipeline.Workspace)/.trivy-cache" \
-  #       --scanners vuln,secret,misconfig \
-  #       --severity HIGH,CRITICAL \
-  #       --ignore-unfixed \
-  #       --exit-code 1 \
-  #       --format table \
-  #       ${{ parameters.path }}
-  #   displayName: 'Trivy fs — ${{ parameters.name }}'
+  - task: Cache@2
+    displayName: 'Cache Trivy DB'
+    inputs:
+      key: 'trivy-db | "$(Agent.OS)" | "${{ parameters.trivyVersion }}" | "$(Build.BuildId)"'
+      restoreKeys: |
+        trivy-db | "$(Agent.OS)" | "${{ parameters.trivyVersion }}"
+        trivy-db | "$(Agent.OS)"
+      path: '$(Pipeline.Workspace)/.trivy-cache'
+
+  - script: |
+      set -euo pipefail
+      if ! command -v trivy >/dev/null 2>&1; then
+        curl -fsSL -o /tmp/trivy.deb \
+          "https://github.com/aquasecurity/trivy/releases/download/v${{ parameters.trivyVersion }}/trivy_${{ parameters.trivyVersion }}_Linux-64bit.deb"
+        sudo dpkg -i /tmp/trivy.deb
+      fi
+      trivy --version
+
+      trivy fs \
+        --cache-dir "$(Pipeline.Workspace)/.trivy-cache" \
+        --scanners vuln,secret,misconfig \
+        --severity HIGH,CRITICAL \
+        --ignore-unfixed \
+        --exit-code 1 \
+        --format table \
+        ${{ parameters.path }}
+    displayName: 'Trivy fs — ${{ parameters.name }}'
 
   # ──────────────────────────────────────────────────────────
   # SonarQube Cloud — this service has its OWN project, so its own
@@ -154,20 +151,17 @@ steps:
   # branch/PR context automatically.
   # ──────────────────────────────────────────────────────────
 
-  # TEMPORARY — EMERGENCY FAST DEPLOY: full SonarCloud analysis disabled
-  # (Prepare + Analyze together are one of the slower steps in this
-  # template). Restore below.
-  # - task: SonarCloudPrepare@3
-  #   displayName: 'SonarCloud prepare — ${{ parameters.name }}'
-  #   inputs:
-  #     SonarCloud: 'sonarcloud-homeease'
-  #     organization: 'srinidhisanjeevi'
-  #     scannerMode: 'cli'
-  #     configMode: 'file'
-  #     configFile: '${{ parameters.path }}/sonar-project.properties'
-  #
-  # - task: SonarCloudAnalyze@3
-  #   displayName: 'SonarCloud analyze — ${{ parameters.name }}'
+  - task: SonarCloudPrepare@3
+    displayName: 'SonarCloud prepare — ${{ parameters.name }}'
+    inputs:
+      SonarCloud: 'sonarcloud-homeease'
+      organization: 'srinidhisanjeevi'
+      scannerMode: 'cli'
+      configMode: 'file'
+      configFile: '${{ parameters.path }}/sonar-project.properties'
+
+  - task: SonarCloudAnalyze@3
+    displayName: 'SonarCloud analyze — ${{ parameters.name }}'
 
   # TEMPORARY — Quality Gate publish disabled for tomorrow's presentation.
   # Analysis itself works (Prepare + Analyze succeed and submit real
