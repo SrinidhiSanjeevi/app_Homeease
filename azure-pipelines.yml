@@ -162,47 +162,39 @@ stages:
         - checkout: self
           fetchDepth: 0
 
-        # TEMPORARY — EMERGENCY FAST DEPLOY: Gitleaks disabled.
-        # Full-history secret scan is the single slowest + most likely to
-        # fail (--exit-code 1 gates everything downstream) step in this
-        # job. Restore by uncommenting once the emergency push is done —
-        # do not leave this disabled longer than necessary.
-        # - script: |
-        #     set -euo pipefail
-        #     echo "Installing gitleaks"
-        #     GITLEAKS_VERSION=8.30.1
-        #     curl -fsSL -o /tmp/gitleaks.tar.gz \
-        #       "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-        #     tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
-        #     sudo mv /tmp/gitleaks /usr/local/bin/
-        #     gitleaks version
-        #
-        #     echo "Scanning full git history for secrets"
-        #     gitleaks detect \
-        #       --source . \
-        #       --redact \
-        #       --report-format sarif \
-        #       --report-path "$(Build.ArtifactStagingDirectory)/gitleaks.sarif" \
-        #       --exit-code 1
-        #   displayName: 'Gitleaks — secret scan (full history)'
+        - script: |
+            set -euo pipefail
+            echo "Installing gitleaks"
+            GITLEAKS_VERSION=8.30.1
+            curl -fsSL -o /tmp/gitleaks.tar.gz \
+              "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+            tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+            sudo mv /tmp/gitleaks /usr/local/bin/
+            gitleaks version
 
-        # TEMPORARY — EMERGENCY FAST DEPLOY: Hadolint disabled (report-only
-        # already, but still pulls an image and runs 4x — real wall-clock
-        # cost for zero gating value in a fast-path run). Restore below.
-        # - script: |
-        #     set -euo pipefail
-        #     docker pull hadolint/hadolint:v2.15.1-alpine
-        #     FAILED=0
-        #     for f in backend admin-backend frontend payment-service; do
-        #       echo "── hadolint ${f}/Dockerfile ──"
-        #       docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
-        #         hadolint --no-fail - < "${f}/Dockerfile" || FAILED=1
-        #     done
-        #     # Reported, not gated. Promote to `exit $FAILED` once the
-        #     # existing findings (unpinned apk packages, mutable base tags)
-        #     # are cleared.
-        #     exit 0
-        #   displayName: 'Hadolint — Dockerfile lint (report only)'
+            echo "Scanning full git history for secrets"
+            gitleaks detect \
+              --source . \
+              --redact \
+              --report-format sarif \
+              --report-path "$(Build.ArtifactStagingDirectory)/gitleaks.sarif" \
+              --exit-code 1
+          displayName: 'Gitleaks — secret scan (full history)'
+
+        - script: |
+            set -euo pipefail
+            docker pull hadolint/hadolint:v2.15.1-alpine
+            FAILED=0
+            for f in backend admin-backend frontend payment-service; do
+              echo "── hadolint ${f}/Dockerfile ──"
+              docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
+                hadolint --no-fail - < "${f}/Dockerfile" || FAILED=1
+            done
+            # Reported, not gated. Promote to `exit $FAILED` once the
+            # existing findings (unpinned apk packages, mutable base tags)
+            # are cleared.
+            exit 0
+          displayName: 'Hadolint — Dockerfile lint (report only)'
 
         - script: |
             set -euo pipefail
@@ -302,11 +294,7 @@ stages:
   displayName: '3. Build, Scan & Push'
   dependsOn:
     - Static
-    # TEMPORARY — EMERGENCY FAST DEPLOY: Package no longer waits on
-    # Validate at all — it now runs in parallel with it instead of
-    # after it, so a slow or failing Validate stage can't block images
-    # from reaching ACR. Restore this line once full CI is re-enabled:
-    # - Validate
+    - Validate
   condition: succeeded()
   jobs:
     - ${{ each service in parameters.services }}:
