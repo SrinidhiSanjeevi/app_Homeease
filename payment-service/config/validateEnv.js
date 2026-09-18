@@ -1,8 +1,12 @@
+// RAZORPAY_WEBHOOK_SECRET is deliberately NOT required here. Order
+// creation/verification/refund only need RAZORPAY_KEY_ID/SECRET; webhook
+// receipt is a separate, optional capability guarded at the point of use
+// (see processWebhook in services/paymentService.js) so the service can
+// run in TEST mode without a configured Razorpay webhook.
 const REQUIRED_ENV = [
   "MONGO_URI",
   "RAZORPAY_KEY_ID",
-  "RAZORPAY_KEY_SECRET",
-  "RAZORPAY_WEBHOOK_SECRET"
+  "RAZORPAY_KEY_SECRET"
 ];
 
 /**

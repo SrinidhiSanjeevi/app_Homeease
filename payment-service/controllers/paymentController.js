@@ -107,7 +107,14 @@ const getStatus = async (req, res) => {
 const handleWebhook = async (req, res) => {
   try {
     const signature = req.headers["x-razorpay-signature"];
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
+    // No fallback to RAZORPAY_KEY_SECRET here on purpose: that fallback
+    // used to make webhookSecret always truthy, which silently defeated
+    // processWebhook's own "webhook secret not configured" guard below.
+    // Leaving this undefined when RAZORPAY_WEBHOOK_SECRET isn't set lets
+    // that guard actually fire, cleanly disabling webhook processing
+    // instead of attempting (and always failing) signature verification
+    // with the wrong secret.
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const rawPayload = req.rawBody
       ? req.rawBody.toString("utf8")
       : (typeof req.body === "string" ? req.body : JSON.stringify(req.body));
