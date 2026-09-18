@@ -4,16 +4,14 @@ describe("Environment Validation (validateEnv)", () => {
   const completeEnv = {
     MONGO_URI: "mongodb://localhost:27017/test",
     RAZORPAY_KEY_ID: "test-key-id",
-    RAZORPAY_KEY_SECRET: "test-key-secret",
-    RAZORPAY_WEBHOOK_SECRET: "test-webhook-secret"
+    RAZORPAY_KEY_SECRET: "test-key-secret"
   };
 
   it("should declare the expected required environment variables", () => {
     expect(REQUIRED_ENV).toEqual([
       "MONGO_URI",
       "RAZORPAY_KEY_ID",
-      "RAZORPAY_KEY_SECRET",
-      "RAZORPAY_WEBHOOK_SECRET"
+      "RAZORPAY_KEY_SECRET"
     ]);
   });
 
@@ -50,21 +48,17 @@ describe("Environment Validation (validateEnv)", () => {
     expect(result.missing).toEqual(["RAZORPAY_KEY_SECRET"]);
   });
 
-  it("should fail validation if RAZORPAY_WEBHOOK_SECRET is missing", () => {
-    const env = { ...completeEnv };
-    delete env.RAZORPAY_WEBHOOK_SECRET;
-
-    const result = validateEnv(env);
-    expect(result.isValid).toBe(false);
-    expect(result.missing).toEqual(["RAZORPAY_WEBHOOK_SECRET"]);
+  it("should pass validation even when RAZORPAY_WEBHOOK_SECRET is absent (webhooks are optional)", () => {
+    const result = validateEnv(completeEnv);
+    expect(result.isValid).toBe(true);
+    expect(result.missing).toEqual([]);
   });
 
   it("should treat empty strings and whitespace-only strings as missing", () => {
     const env = {
       MONGO_URI: "   ",
       RAZORPAY_KEY_ID: "",
-      RAZORPAY_KEY_SECRET: "test-key-secret",
-      RAZORPAY_WEBHOOK_SECRET: "test-webhook-secret"
+      RAZORPAY_KEY_SECRET: "test-key-secret"
     };
 
     const result = validateEnv(env);
