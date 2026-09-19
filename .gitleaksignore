@@ -1,22 +1,3 @@
-# ============================================================
-# gitleaks — known, already-remediated historical findings.
-#
-# backend/.env and admin-backend/.env were committed with real
-# Razorpay TEST-mode keys in commit fd244156 (2026-08-24). Both
-# files are untracked and gitignored now (**/.env in .gitignore) —
-# this is a closed historical event, not a live path. All secrets
-# for this project (Mongo URI, JWT secret, email password, Razorpay
-# keys) are sourced from Key Vault at deploy time, not from these
-# files, so nothing here is read by any running service.
-#
-# One fingerprint per line: commit:file:rule:startLine
-# ============================================================
-
-fd24415678cace018fae29a4df26158e74976215:backend/.env:generic-api-key:13
-fd24415678cace018fae29a4df26158e74976215:backend/.env:generic-api-key:14
-fd24415678cace018fae29a4df26158e74976215:admin-backend/.env:generic-api-key:13
-fd24415678cace018fae29a4df26158e74976215:admin-backend/.env:generic-api-key:14
-
 # Historical CI curl-auth-user findings from commit 151172c5.
 # Current pipeline no longer uses curl -u "$SONAR_TOKEN:".
 151172c52985bb4097a259557df86b540496773d:.azuredevops/templates/validate-service.yml:curl-auth-user:231
