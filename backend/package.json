@@ -51,6 +51,7 @@
       "**/__tests__/**/*.test.js"
     ],
     "coverageDirectory": "coverage",
+    "coverageReporters": ["lcov", "cobertura", "text"],
     "collectCoverageFrom": [
       "controllers/**/*.js",
       "services/**/*.js",
