@@ -188,12 +188,8 @@ steps:
   - task: SonarCloudAnalyze@4
     displayName: 'SonarCloud analyze — ${{ parameters.name }}'
 
-  # Quality Gate — disabled: the sonarcloud-homeease service connection uses
-  # a Project Analysis Token (submit-only). SonarCloudPublish@4 reads the
-  # gate status back and requires a User Token. Re-enable once the token
-  # type is changed to User Token in SonarCloud → My Account → Security.
-  #
-  # - task: SonarCloudPublish@4
-  #   displayName: 'SonarCloud quality gate — ${{ parameters.name }}'
-  #   inputs:
-  #     pollingTimeoutSec: '300'
+  - task: SonarCloudPublish@4
+    displayName: 'SonarCloud Quality Gate — ${{ parameters.name }}'
+    inputs:
+      pollingTimeoutSec: '300'
+    continueOnError: true
