@@ -25,6 +25,14 @@ parameters:
 
 steps:
 
+  # Full git history is required for SonarCloud blame / SCM analysis.
+  # Without it the scanner emits "Shallow clone detected, no blame information
+  # will be provided" and all file annotations are missing.
+  - checkout: self
+    fetchDepth: 0
+    displayName: 'Checkout (full depth for SCM blame)'
+
+
   - task: UseNode@1
     displayName: 'Node.js ${{ parameters.nodeVersion }} — ${{ parameters.name }}'
     inputs:
@@ -86,6 +94,9 @@ steps:
         displayName: 'Publish coverage — ${{ parameters.name }}'
         condition: succeededOrFailed()
         inputs:
+          # Jest generates cobertura-coverage.xml when "cobertura" is in
+          # coverageReporters (set in each service's package.json jest config).
+          # The path is relative to the repo root, matching the coverageDirectory.
           summaryFileLocation: '${{ parameters.path }}/coverage/cobertura-coverage.xml'
           pathToSources: '${{ parameters.path }}'
 
@@ -151,27 +162,38 @@ steps:
   # branch/PR context automatically.
   # ──────────────────────────────────────────────────────────
 
-  - task: SonarCloudPrepare@3
+  # ──────────────────────────────────────────────────────────
+  # SonarQube Cloud tasks upgraded from @3 → @4.
+  #
+  # The installed SonarQube Cloud ADO extension is v4.2.6; @3 tasks are
+  # deprecated (they were shipped with extension v3.x). @4 tasks are the
+  # currently supported version and correspond to the installed extension.
+  #
+  # Authentication: sonarcloud-homeease service connection supplies the
+  # token — no token or URL appears in this file or in sonar-project.properties.
+  #
+  # configMode:'file' reads each service's sonar-project.properties directly.
+  # Branch detection is automatic from the Azure DevOps build context.
+  # ──────────────────────────────────────────────────────────
+
+  - task: SonarCloudPrepare@4
     displayName: 'SonarCloud prepare — ${{ parameters.name }}'
     inputs:
       SonarCloud: 'sonarcloud-homeease'
       organization: 'srinidhisanjeevi'
-      scannerMode: 'cli'
+      scannerMode: 'CLI'
       configMode: 'file'
       configFile: '${{ parameters.path }}/sonar-project.properties'
 
-  - task: SonarCloudAnalyze@3
+  - task: SonarCloudAnalyze@4
     displayName: 'SonarCloud analyze — ${{ parameters.name }}'
 
-  # TEMPORARY — Quality Gate publish disabled for tomorrow's presentation.
-  # Analysis itself works (Prepare + Analyze succeed and submit real
-  # results, visible on the SonarCloud dashboard); only this step's
-  # read-back call fails with 403, because the current sonarcloud-homeease
-  # token is a Project Analysis Token (can submit, can't read Quality
-  # Gate status back — a SonarCloud-side token-type issue, not a YAML
-  # bug). Re-enable once the token is regenerated as a User Token:
+  # Quality Gate — disabled: the sonarcloud-homeease service connection uses
+  # a Project Analysis Token (submit-only). SonarCloudPublish@4 reads the
+  # gate status back and requires a User Token. Re-enable once the token
+  # type is changed to User Token in SonarCloud → My Account → Security.
   #
-  # - task: SonarCloudPublish@3
+  # - task: SonarCloudPublish@4
   #   displayName: 'SonarCloud quality gate — ${{ parameters.name }}'
   #   inputs:
   #     pollingTimeoutSec: '300'

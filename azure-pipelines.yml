@@ -220,15 +220,12 @@ stages:
             fi
             echo "Changed files:"; echo "$CHANGED"
 
-            # Run full CI pipeline (uncommented):
-            FORCE_ALL=true
-
-            # Specific changes detected pipeline run (commented out):
-            # if echo "$CHANGED" | grep -qE '^(azure-pipelines\.yml|\.azuredevops/)' || [ "$CHANGED" = "ALL" ]; then
-            #   FORCE_ALL=true
-            # else
-            #   FORCE_ALL=false
-            # fi
+            # A change to the pipeline itself or .azuredevops/ rebuilds all services.
+            if echo "$CHANGED" | grep -qE '^(azure-pipelines\.yml|\.azuredevops/)' || [ "$CHANGED" = "ALL" ]; then
+              FORCE_ALL=true
+            else
+              FORCE_ALL=false
+            fi
 
             for svc in backend admin-backend frontend payment-service; do
               VAR="changed_$(echo $svc | tr '-' '_')"
@@ -270,11 +267,9 @@ stages:
         - job: Validate_${{ replace(service.name, '-', '_') }}
           displayName: 'Validate ${{ service.name }}'
           timeoutInMinutes: 15
-          # Run full CI pipeline (uncommented):
-          # Runs for all services to verify entire pipeline health
-          #
-          # Specific changes detected pipeline run (commented out):
-          # condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
+          # Run only if this service changed. DetectChanges (Static stage) sets
+          # the changed_<service> output variable; unchanged services are skipped.
+          condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
           steps:
             - template: .azuredevops/templates/validate-service.yml
               parameters:
@@ -304,11 +299,8 @@ stages:
         - job: Package_${{ replace(service.name, '-', '_') }}
           displayName: 'Package ${{ service.name }}'
           timeoutInMinutes: 25
-          # Run full CI pipeline (uncommented):
-          # Packages all services to verify end-to-end build, scan, SBOM, and push
-          #
-          # Specific changes detected pipeline run (commented out):
-          # condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
+          # Run only if this service changed (same guard as Validate stage).
+          condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
           variables:
             imageTag: $[ stageDependencies.Static.Changes.outputs['detect.imageTag'] ]
             commitCreated: $[ stageDependencies.Static.Changes.outputs['detect.commitCreated'] ]

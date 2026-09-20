@@ -39,6 +39,20 @@
     "testMatch": [
       "**/__tests__/**/*.test.js"
     ],
-    "coverageDirectory": "coverage"
+    "coverageDirectory": "coverage",
+    "coverageReporters": ["lcov", "cobertura", "text"],
+    "collectCoverageFrom": [
+      "controllers/**/*.js",
+      "services/**/*.js",
+      "routes/**/*.js",
+      "models/**/*.js",
+      "config/**/*.js",
+      "utils/**/*.js",
+      "metrics.js",
+      "server.js",
+      "!node_modules/**",
+      "!__tests__/**",
+      "!coverage/**"
+    ]
   }
 }
