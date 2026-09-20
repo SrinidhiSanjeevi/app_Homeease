@@ -26,3 +26,8 @@ fd24415678cace018fae29a4df26158e74976215:admin-backend/.env:generic-api-key:14
 # Historical CI curl-auth-user finding from commit 331cfce3.
 # Current pipeline no longer uses the historical curl -u form.
 331cfce320fbadc5b468622e7a861842bba2cd88:azure-pipelines.yml:curl-auth-user:343
+
+# Historical CI curl-auth-user findings from commit 96c2bbe4.
+96c2bbe4af458476ebc45e97a5575b66fb122b75:.azuredevops/templates/validate-service.yml:curl-auth-user:231
+96c2bbe4af458476ebc45e97a5575b66fb122b75:.azuredevops/templates/validate-service.yml:curl-auth-user:248
+96c2bbe4af458476ebc45e97a5575b66fb122b75:.azuredevops/templates/validate-service.yml:curl-auth-user:249
