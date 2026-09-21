@@ -4,7 +4,6 @@ import Dashboard from "./pages/Dashboard";
 import Bookings from "./pages/Bookings";
 import Emergency from "./pages/Emergency";
 import Profile from "./pages/Profile";
-import AdminDashboard from "./pages/AdminDashboard";
 import Navbar from "./components/Navbar";
 import BookingModal from "./components/BookingModal";
 import Toast from "./components/Toast";
@@ -700,28 +699,51 @@ export default function App() {
   }
 
   // ============================================================
-  // ADMIN ROUTER
+  // ADMIN ACCOUNTS DON'T BELONG IN THIS APP
+  //
+  // Admin management now lives in its own app (admin-frontend), its
+  // own deployment, its own microservice boundary. An admin token
+  // landing here (e.g. a stale session) is shown a plain notice and
+  // logged out — it is never routed into the customer experience.
   // ============================================================
 
   if (user.role === "admin") {
     return (
-      <>
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "16px",
+          padding: "24px",
+          textAlign: "center"
+        }}
+      >
         {toast && (
           <Toast
             message={toast.message}
             type={toast.type}
-            onClose={() =>
-              setToast(null)
-            }
+            onClose={() => setToast(null)}
           />
         )}
 
-        <AdminDashboard
-          token={token}
-          user={user}
-          onLogout={handleLogout}
-        />
-      </>
+        <h2 style={{ fontSize: "1.2rem", fontWeight: 800 }}>
+          This is the customer app
+        </h2>
+
+        <p style={{ color: "var(--text-muted)", maxWidth: "360px" }}>
+          Administrator accounts sign in through the Admin Console, not here.
+        </p>
+
+        <button
+          onClick={handleLogout}
+          className="btn btn-secondary"
+        >
+          Log Out
+        </button>
+      </div>
     );
   }
 
