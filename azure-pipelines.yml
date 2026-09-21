@@ -90,25 +90,25 @@ parameters:
       - name: backend
         path: backend
         port: 5000
-        hasTests: true
+        hasBuild: false
         hasLint: true
         sonarProjectKey: homeease-backend
       - name: admin-backend
         path: admin-backend
         port: 5001
-        hasTests: true
+        hasBuild: false
         hasLint: true
         sonarProjectKey: homeease-admin-backend
       - name: payment-service
         path: payment-service
         port: 5002
-        hasTests: true
+        hasBuild: false
         hasLint: true
         sonarProjectKey: homeease-payment-service
       - name: frontend
         path: frontend
         port: 8080
-        hasTests: false
+        hasBuild: true
         hasLint: false
         sonarProjectKey: homeease-frontend
 
@@ -283,7 +283,7 @@ stages:
               parameters:
                 name: ${{ service.name }}
                 path: ${{ service.path }}
-                hasTests: ${{ service.hasTests }}
+                hasBuild: ${{ service.hasBuild }}
                 hasLint: ${{ service.hasLint }}
                 nodeVersion: $(nodeVersion)
                 trivyVersion: $(trivyVersion)
