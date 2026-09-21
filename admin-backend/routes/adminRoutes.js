@@ -22,9 +22,13 @@ const {
   updateEmergencyStatus,
   getAuditLogs,
 } = require("../controllers/adminController");
+const { uploadImage } = require("../controllers/uploadController");
 
 // All routes are protected by JWT auth + admin role check
 const guard = [protect, adminOnly];
+
+// Image upload → Azure Blob Storage
+router.post("/upload",                  ...guard, uploadImage);
 
 // Stats
 router.get("/stats",                    ...guard, getStats);
