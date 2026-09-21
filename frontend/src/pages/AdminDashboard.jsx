@@ -138,6 +138,163 @@ const sel = {
   cursor: "pointer"
 };
 
+// ── IMAGE UPLOADER ───────────────────────────────────────────
+/**
+ * Drag-and-drop / click-to-upload component that POSTs the file
+ * to POST /api/admin/upload?folder=<folder> and calls onUploaded
+ * with { imageKey, imageUrl } on success.
+ */
+function ImageUploader({ currentUrl, folder = "services", onUploaded }) {
+  const [dragging, setDragging] = React.useState(false);
+  const [uploading, setUploading] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const inputRef = React.useRef(null);
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Please select an image file (jpeg / png / webp / gif / avif)");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image must be smaller than 5 MB");
+      return;
+    }
+    setError("");
+    setUploading(true);
+    try {
+      const token = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
+      const fd = new FormData();
+      fd.append("image", file);
+      const res = await fetch(`/api/admin/upload?folder=${folder}`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Upload failed (${res.status})`);
+      }
+      const data = await res.json();
+      onUploaded(data); // { imageKey, imageUrl }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    handleFile(file);
+  };
+
+  const zoneStyle = {
+    border: `2px dashed ${dragging ? "#6366f1" : "#d1d5db"}`,
+    borderRadius: "12px",
+    padding: "20px",
+    textAlign: "center",
+    cursor: uploading ? "not-allowed" : "pointer",
+    background: dragging ? "#f0f0ff" : "#fafafa",
+    transition: "all 0.2s",
+    position: "relative",
+    overflow: "hidden"
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      {/* Current / uploaded image preview */}
+      {currentUrl && (
+        <div style={{ position: "relative", borderRadius: "10px", overflow: "hidden" }}>
+          <img
+            src={currentUrl}
+            alt="Preview"
+            style={{
+              width: "100%",
+              height: "140px",
+              objectFit: "cover",
+              display: "block",
+              borderRadius: "10px"
+            }}
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+          {uploading && (
+            <div style={{
+              position: "absolute", inset: 0,
+              background: "rgba(255,255,255,0.7)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              borderRadius: "10px"
+            }}>
+              <div style={{
+                width: "32px", height: "32px",
+                border: "3px solid #6366f1",
+                borderTop: "3px solid transparent",
+                borderRadius: "50%",
+                animation: "spin 0.8s linear infinite"
+              }} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Drop zone */}
+      <div
+        id="image-upload-zone"
+        style={zoneStyle}
+        onClick={() => !uploading && inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+      >
+        {uploading ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", justifyContent: "center" }}>
+            <div style={{
+              width: "20px", height: "20px",
+              border: "2px solid #6366f1",
+              borderTop: "2px solid transparent",
+              borderRadius: "50%",
+              animation: "spin 0.8s linear infinite"
+            }} />
+            <span style={{ fontSize: "0.85rem", color: "#6366f1", fontWeight: 600 }}>Uploading to Azure…</span>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: "1.6rem", marginBottom: "4px" }}>☁️</div>
+            <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#374151" }}>
+              {currentUrl ? "Replace image" : "Upload image"}
+            </div>
+            <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: "2px" }}>
+              Drag & drop or click • JPEG / PNG / WebP / GIF / AVIF • max 5 MB
+            </div>
+          </>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+          style={{ display: "none" }}
+          onChange={(e) => handleFile(e.target.files?.[0])}
+        />
+      </div>
+
+      {error && (
+        <div style={{
+          fontSize: "0.8rem", color: "#ef4444",
+          background: "#fef2f2", border: "1px solid #fecaca",
+          borderRadius: "8px", padding: "8px 12px"
+        }}>
+          ⚠️ {error}
+        </div>
+      )}
+
+      {/* CSS keyframe for spinner */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
 // ── SERVICE FORM ──────────────────────────────────────────────
 function ServiceForm({ initial, onSave, onClose, loading }) {
   const blank = {
@@ -149,7 +306,18 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
     duration: ""
   };
 
-  const [form, setForm] = useState(initial || blank);
+  // Normalize: the DB record stores `imageKey`; the API response adds `imageUrl`.
+  // Pre-fill the form's `image` field from whichever is available so the
+  // preview renders and the correct value is sent back on save.
+  const normalizeInitial = (src) => {
+    if (!src) return blank;
+    return {
+      ...src,
+      image: src.image || src.imageUrl || src.imageKey || ""
+    };
+  };
+
+  const [form, setForm] = useState(normalizeInitial(initial));
 
   const set = (k, v) =>
     setForm((f) => ({
@@ -222,30 +390,14 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
         />
       </Field>
 
-      <Field label="Image URL *">
-        <input
-          style={inp}
-          value={form.image}
-          placeholder="https://images.unsplash.com/..."
-          onChange={(e) => set("image", e.target.value)}
+      <Field label="Image">
+        <ImageUploader
+          currentUrl={form.imageUrl || form.image}
+          folder="services"
+          onUploaded={({ imageKey, imageUrl }) => {
+            setForm((f) => ({ ...f, imageKey, image: imageUrl, imageUrl }));
+          }}
         />
-
-        {form.image && (
-          <img
-            src={form.image}
-            alt="Service preview"
-            style={{
-              width: "100%",
-              height: "120px",
-              objectFit: "cover",
-              borderRadius: "8px",
-              marginTop: "8px"
-            }}
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-          />
-        )}
       </Field>
 
       <div
@@ -309,7 +461,18 @@ function ProfessionalForm({ initial, onSave, onClose, loading }) {
     status: "Available"
   };
 
-  const [form, setForm] = useState(initial || blank);
+  // Normalize: the DB record stores `imageKey`; the API response adds `imageUrl`.
+  // Pre-fill the form's `image` field from whichever is available so the
+  // preview renders and the correct value is sent back on save.
+  const normalizeInitial = (src) => {
+    if (!src) return blank;
+    return {
+      ...src,
+      image: src.image || src.imageUrl || src.imageKey || ""
+    };
+  };
+
+  const [form, setForm] = useState(normalizeInitial(initial));
 
   const set = (k, v) =>
     setForm((f) => ({
@@ -371,30 +534,14 @@ function ProfessionalForm({ initial, onSave, onClose, loading }) {
         </Field>
       </div>
 
-      <Field label="Profile Image URL *">
-        <input
-          style={inp}
-          value={form.image}
-          placeholder="https://images.unsplash.com/..."
-          onChange={(e) => set("image", e.target.value)}
+      <Field label="Profile Image">
+        <ImageUploader
+          currentUrl={form.imageUrl || form.image}
+          folder="professionals"
+          onUploaded={({ imageKey, imageUrl }) => {
+            setForm((f) => ({ ...f, imageKey, image: imageUrl, imageUrl }));
+          }}
         />
-
-        {form.image && (
-          <img
-            src={form.image}
-            alt="Professional preview"
-            style={{
-              width: "80px",
-              height: "80px",
-              borderRadius: "50%",
-              objectFit: "cover",
-              marginTop: "8px"
-            }}
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-          />
-        )}
       </Field>
 
       <div
@@ -2214,6 +2361,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                           width: "100%",
                           height: "140px",
                           objectFit: "cover"
+                        }}
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
                         }}
                       />
                     )}

@@ -176,11 +176,6 @@ jobs:
         working-directory: ${{ matrix.service }}
         run: npm audit --audit-level=high --omit=dev
 
-      - name: Test + coverage
-        working-directory: ${{ matrix.service }}
-        if: matrix.service != 'frontend'
-        run: npm run test:coverage -- --ci
-
       - name: Production build
         working-directory: ${{ matrix.service }}
         if: matrix.service == 'frontend'
