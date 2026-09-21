@@ -31,6 +31,7 @@ on:
       - 'backend/**'
       - 'admin-backend/**'
       - 'frontend/**'
+      - 'admin-frontend/**'
       - 'payment-service/**'
       - '.github/workflows/aws-ci.yml'
   pull_request:
@@ -39,6 +40,7 @@ on:
       - 'backend/**'
       - 'admin-backend/**'
       - 'frontend/**'
+      - 'admin-frontend/**'
       - 'payment-service/**'
       - '.github/workflows/aws-ci.yml'
   workflow_dispatch:
@@ -91,6 +93,7 @@ jobs:
           docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < backend/Dockerfile
           docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < admin-backend/Dockerfile
           docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < frontend/Dockerfile
+          docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < admin-frontend/Dockerfile
           docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < payment-service/Dockerfile
 
       - name: Detect changed services
@@ -101,6 +104,7 @@ jobs:
             backend: ['backend/**']
             admin-backend: ['admin-backend/**']
             frontend: ['frontend/**']
+            admin-frontend: ['admin-frontend/**']
             payment-service: ['payment-service/**']
             workflow: ['.github/workflows/aws-ci.yml']
 
@@ -110,15 +114,17 @@ jobs:
           set -euo pipefail
           # A workflow change, or a manual dispatch, rebuilds everything.
           if [[ "${{ steps.filter.outputs.workflow }}" == "true" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            SERVICES='["backend","admin-backend","frontend","payment-service"]'
+            SERVICES='["backend","admin-backend","frontend","admin-frontend","payment-service"]'
           else
             SERVICES=$(jq -cn --argjson b ${{ steps.filter.outputs.backend == 'true' && 'true' || 'false' }} \
                               --argjson a ${{ steps.filter.outputs['admin-backend'] == 'true' && 'true' || 'false' }} \
                               --argjson f ${{ steps.filter.outputs.frontend == 'true' && 'true' || 'false' }} \
+                              --argjson af ${{ steps.filter.outputs['admin-frontend'] == 'true' && 'true' || 'false' }} \
                               --argjson p ${{ steps.filter.outputs['payment-service'] == 'true' && 'true' || 'false' }} \
               '[ (if $b then "backend" else empty end),
                  (if $a then "admin-backend" else empty end),
                  (if $f then "frontend" else empty end),
+                 (if $af then "admin-frontend" else empty end),
                  (if $p then "payment-service" else empty end) ]')
           fi
           echo "services=${SERVICES}" >> "$GITHUB_OUTPUT"
@@ -169,7 +175,7 @@ jobs:
 
       - name: Lint
         working-directory: ${{ matrix.service }}
-        if: matrix.service != 'frontend'
+        if: matrix.service != 'frontend' && matrix.service != 'admin-frontend'
         run: npm run lint
 
       - name: npm audit (high+)
@@ -178,7 +184,7 @@ jobs:
 
       - name: Production build
         working-directory: ${{ matrix.service }}
-        if: matrix.service == 'frontend'
+        if: matrix.service == 'frontend' || matrix.service == 'admin-frontend'
         run: npm run build
 
       # Source-tree SCA. Sees devDependencies, which the image scan
