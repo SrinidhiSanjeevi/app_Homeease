@@ -8,6 +8,7 @@ const { reassignWaitingWork } = require("../services/professionalMatcher");
 const { canTransition } = require("../services/booking/bookingStateMachine");
 const logger = require("../utils/logger");
 const { parsePagination, formatPaginationResult } = require("../utils/pagination");
+const { attachImageUrls } = require("../services/blobStorage");
 
 const getStats = async (req, res) => {
   try {
@@ -260,12 +261,13 @@ const getAllServices = async (req, res) => {
     ]);
 
     const pagination = formatPaginationResult({ page, limit, total });
+    const enrichedServices = await attachImageUrls(services);
 
     res.status(200).json({
       success: true,
       ...pagination,
       pagination,
-      services
+      services: enrichedServices
     });
   } catch (error) {
     logger.error({ err: error.message }, "Get All Services Error");
@@ -303,12 +305,13 @@ const getAllProfessionals = async (req, res) => {
     ]);
 
     const pagination = formatPaginationResult({ page, limit, total });
+    const enrichedProfessionals = await attachImageUrls(professionals);
 
     res.status(200).json({
       success: true,
       ...pagination,
       pagination,
-      professionals
+      professionals: enrichedProfessionals
     });
   } catch (error) {
     logger.error({ err: error.message }, "Get All Professionals Error");
@@ -441,14 +444,16 @@ const createService = async (req, res) => {
 
 const updateService = async (req, res) => {
   try {
-    const { name, category, price, description, image, duration, products } = req.body;
+    const { name, category, price, description, image, imageKey, imageAlt, duration, products } = req.body;
 
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (category !== undefined) updateData.category = category;
     if (price !== undefined) updateData.price = price;
     if (description !== undefined) updateData.description = description;
-    if (image !== undefined) updateData.image = image;
+    const finalImageKey = imageKey !== undefined ? imageKey : image;
+    if (finalImageKey !== undefined) updateData.imageKey = finalImageKey;
+    if (imageAlt !== undefined) updateData.imageAlt = imageAlt;
     if (duration !== undefined) updateData.duration = duration;
     if (products !== undefined) updateData.products = products;
 
@@ -520,13 +525,14 @@ const createProfessional = async (req, res) => {
 
 const updateProfessional = async (req, res) => {
   try {
-    const { name, category, experience, imageKey, imageAlt, description, status } = req.body;
+    const { name, category, experience, imageKey, imageAlt, image, description, status } = req.body;
 
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (category !== undefined) updateData.category = category;
     if (experience !== undefined) updateData.experience = experience;
-    if (imageKey !== undefined) updateData.imageKey = imageKey;
+    const finalImageKey = imageKey !== undefined ? imageKey : image;
+    if (finalImageKey !== undefined) updateData.imageKey = finalImageKey;
     if (imageAlt !== undefined) updateData.imageAlt = imageAlt;
     if (description !== undefined) updateData.description = description;
     if (status !== undefined) updateData.status = status;
