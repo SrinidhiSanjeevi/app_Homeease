@@ -7,8 +7,6 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "seed:admin": "node scripts/seedAdmin.js",
-    "test": "jest --forceExit --detectOpenHandles",
-    "test:coverage": "jest --forceExit --detectOpenHandles --coverage",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
@@ -37,27 +35,9 @@
     "@eslint/js": "^9.39.5",
     "eslint": "^9.39.5",
     "globals": "^15.15.0",
-    "jest": "^29.7.0",
-    "jest-junit": "^16.0.0",
-    "nodemon": "^3.1.14",
-    "supertest": "^7.2.2"
+    "nodemon": "^3.1.14"
   },
   "engines": {
     "node": ">=22.0.0"
-  },
-  "jest": {
-    "testEnvironment": "node",
-    "testMatch": [
-      "**/__tests__/**/*.test.js"
-    ],
-    "coverageDirectory": "coverage",
-    "coverageReporters": ["lcov", "cobertura", "text"],
-    "collectCoverageFrom": [
-      "controllers/**/*.js",
-      "services/**/*.js",
-      "middleware/**/*.js",
-      "utils/**/*.js",
-      "!**/node_modules/**"
-    ]
   }
 }
