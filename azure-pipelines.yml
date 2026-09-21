@@ -56,6 +56,7 @@ trigger:
       - backend/**
       - admin-backend/**
       - frontend/**
+      - admin-frontend/**
       - payment-service/**
       - azure-pipelines.yml
       - .azuredevops/**
@@ -69,6 +70,7 @@ pr:
       - backend/**
       - admin-backend/**
       - frontend/**
+      - admin-frontend/**
       - payment-service/**
       - azure-pipelines.yml
       - .azuredevops/**
@@ -79,7 +81,7 @@ pool:
 # ============================================================
 # SERVICE CATALOGUE
 #
-# The single source of truth. Adding a fifth service means adding
+# The single source of truth. Adding another service means adding
 # one entry here — not copying 200 lines of YAML.
 # ============================================================
 
@@ -111,6 +113,12 @@ parameters:
         hasBuild: true
         hasLint: false
         sonarProjectKey: homeease-frontend
+      - name: admin-frontend
+        path: admin-frontend
+        port: 8081
+        hasBuild: true
+        hasLint: false
+        sonarProjectKey: homeease-admin-frontend
 
 variables:
   # PUSHGATEWAY_URL (used by Package/Report stages below) comes from
@@ -188,7 +196,7 @@ stages:
             set -euo pipefail
             docker pull hadolint/hadolint:v2.15.1-alpine
             FAILED=0
-            for f in backend admin-backend frontend payment-service; do
+            for f in backend admin-backend frontend admin-frontend payment-service; do
               echo "── hadolint ${f}/Dockerfile ──"
               docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
                 hadolint --no-fail - < "${f}/Dockerfile" || FAILED=1
@@ -233,7 +241,7 @@ stages:
             #   FORCE_ALL=false
             # fi
 
-            for svc in backend admin-backend frontend payment-service; do
+            for svc in backend admin-backend frontend admin-frontend payment-service; do
               VAR="changed_$(echo $svc | tr '-' '_')"
               if [ "$FORCE_ALL" = "true" ] || echo "$CHANGED" | grep -q "^${svc}/"; then
                 echo "  ${svc}: CHANGED"
