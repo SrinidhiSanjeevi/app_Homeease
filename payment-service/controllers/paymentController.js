@@ -3,16 +3,22 @@ const logger = require("../utils/logger");
 const metrics = require("../metrics");
 
 const createOrder = async (req, res) => {
+  const endTimer = metrics.paymentProcessingDurationSeconds
+    ? metrics.paymentProcessingDurationSeconds.startTimer({ operation: "create_order" })
+    : null;
   try {
     const { bookingId, userId } = req.body;
     if (!bookingId || !userId) {
+      if (endTimer) endTimer();
       return res.status(400).json({ success: false, message: "bookingId and userId are required" });
     }
 
     const orderData = await paymentService.createOrder({ bookingId, userId });
     metrics.paymentOrderCreatedTotal.inc();
+    if (endTimer) endTimer();
     return res.status(200).json({ success: true, ...orderData });
   } catch (error) {
+    if (endTimer) endTimer();
     if (error.isOperational) {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
@@ -22,6 +28,9 @@ const createOrder = async (req, res) => {
 };
 
 const verifyPayment = async (req, res) => {
+  const endTimer = metrics.paymentProcessingDurationSeconds
+    ? metrics.paymentProcessingDurationSeconds.startTimer({ operation: "verify_payment" })
+    : null;
   try {
     const {
       bookingId,
@@ -39,6 +48,7 @@ const verifyPayment = async (req, res) => {
     const finalSignature = razorpaySignature || razorpay_signature;
 
     if (!bookingId || !userId || !finalOrderId || !finalPaymentId || !finalSignature) {
+      if (endTimer) endTimer();
       return res.status(400).json({ success: false, message: "All payment verification fields are required" });
     }
 
@@ -56,12 +66,14 @@ const verifyPayment = async (req, res) => {
       metrics.paymentVerifyFailedTotal.inc();
     }
 
+    if (endTimer) endTimer();
     return res.status(result.isValid ? 200 : 400).json({
       success: result.isValid,
       booking: result.booking,
       payment: result.payment
     });
   } catch (error) {
+    if (endTimer) endTimer();
     if (error.isOperational) {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
@@ -71,20 +83,27 @@ const verifyPayment = async (req, res) => {
 };
 
 const refundPayment = async (req, res) => {
+  const endTimer = metrics.paymentProcessingDurationSeconds
+    ? metrics.paymentProcessingDurationSeconds.startTimer({ operation: "refund" })
+    : null;
   try {
     const { bookingId } = req.body;
     if (!bookingId) {
+      if (endTimer) endTimer();
       return res.status(400).json({ success: false, message: "bookingId is required" });
     }
 
     const refund = await paymentService.refundPayment(bookingId);
     if (!refund) {
+      if (endTimer) endTimer();
       return res.status(404).json({ success: false, message: "Refund could not be processed or no eligible payment" });
     }
 
     metrics.paymentRefundTotal.inc();
+    if (endTimer) endTimer();
     return res.status(200).json({ success: true, refund });
   } catch (error) {
+    if (endTimer) endTimer();
     logger.error({ err: error.message }, "Payment Service refundPayment error");
     return res.status(500).json({ success: false, message: "Refund processing error" });
   }
