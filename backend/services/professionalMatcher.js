@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
 const EmergencyRequest = require("../models/EmergencyRequest");
 const Professional = require("../models/Professional");
@@ -51,17 +52,32 @@ function haversineDistanceKm([lng1, lat1], [lng2, lat2]) {
 async function claimNearestProfessional(category, coordinates, options = {}) {
   const ProfessionalModel = options.models?.Professional || Professional;
 
+  if (!Array.isArray(coordinates) || coordinates.length < 2) {
+    return { professional: null, distanceKm: null };
+  }
+  const lng = Number(coordinates[0]);
+  const lat = Number(coordinates[1]);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+    return { professional: null, distanceKm: null };
+  }
+  const safeCoords = [lng, lat];
+
+  const safeCategory = typeof category === "string" ? category.trim() : "";
+  if (!safeCategory && !CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(category)) {
+    return { professional: null, distanceKm: null };
+  }
+
   const geoFilter = {
     status: "Available",
     active: true,
     location: {
       $near: {
-        $geometry: { type: "Point", coordinates }
+        $geometry: { type: "Point", coordinates: safeCoords }
       }
     }
   };
-  if (!CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(category)) {
-    geoFilter.category = category;
+  if (!CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(safeCategory)) {
+    geoFilter.category = safeCategory;
   }
 
   const candidate = await ProfessionalModel.findOne(geoFilter).select("_id location");
@@ -84,22 +100,30 @@ async function claimNearestProfessional(category, coordinates, options = {}) {
     return { professional: null, distanceKm: null };
   }
 
-  const distanceKm = haversineDistanceKm(coordinates, professional.location.coordinates);
+  const distanceKm = haversineDistanceKm(safeCoords, professional.location.coordinates);
   return { professional, distanceKm: Math.round(distanceKm * 10) / 10 };
 }
 
 // Atomically claim the best-rated available professional in a category or by filter.
 async function claimProfessional(categoryOrFilter, options = {}) {
   const ProfessionalModel = options.models?.Professional || Professional;
-  let filter;
+  const filter = { status: "Available", active: true };
 
   if (typeof categoryOrFilter === "object" && categoryOrFilter !== null) {
-    filter = { status: "Available", active: true, ...categoryOrFilter };
-  } else {
-    const category = categoryOrFilter;
-    filter = CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(category)
-      ? { status: "Available", active: true }
-      : { category, status: "Available", active: true };
+    if (typeof categoryOrFilter.category === "string") {
+      const cat = categoryOrFilter.category.trim();
+      if (!CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(cat)) {
+        filter.category = cat;
+      }
+    }
+    if (categoryOrFilter._id && mongoose.Types.ObjectId.isValid(categoryOrFilter._id)) {
+      filter._id = new mongoose.Types.ObjectId(String(categoryOrFilter._id));
+    }
+  } else if (typeof categoryOrFilter === "string") {
+    const cat = categoryOrFilter.trim();
+    if (!CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(cat)) {
+      filter.category = cat;
+    }
   }
 
   const queryOptions = { sort: { rating: -1 }, new: true };
