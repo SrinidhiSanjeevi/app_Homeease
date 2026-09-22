@@ -1,18 +1,28 @@
 const EmergencyRequest = require("../models/EmergencyRequest");
 const Professional = require("../models/Professional");
 const logger = require("../utils/logger");
+const metrics = require("../metrics");
 const {
   SEVERITY_CONFIG,
   CATEGORY_DEFAULT_SEVERITY,
   VALID_EMERGENCY_CATEGORIES
 } = require("../services/customerCore/emergencyConfig");
-const { claimProfessional, reassignWaitingWork } = require("../services/customerCore");
+const { claimProfessional, claimNearestProfessional, reassignWaitingWork } = require("../services/customerCore");
 
 // DISPATCH EMERGENCY SERVICE
 const dispatchEmergency = async (req, res) => {
   try {
-    const { category, severity, description, contactNumber, address } = req.body;
+    const { category, severity, description, contactNumber, address, latitude, longitude, accuracy } = req.body;
     const userId = req.user._id;
+
+    // Optional — only present when the customer explicitly shared their
+    // location. Same validation/shape as bookingController.js.
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    const hasCoordinates =
+      Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
+      Number.isFinite(lng) && lng >= -180 && lng <= 180;
+    const coordinates = hasCoordinates ? [lng, lat] : null;
 
     if (!category || !VALID_EMERGENCY_CATEGORIES.includes(category)) {
       return res.status(400).json({
@@ -32,7 +42,19 @@ const dispatchEmergency = async (req, res) => {
 
     const severityConfig = SEVERITY_CONFIG[resolvedSeverity];
 
-    const professional = await claimProfessional(category);
+    // Nearest-provider matching when the customer shared their location;
+    // falls back to the existing best-rated matching whenever no
+    // registered responder has a location set (or none is available).
+    let professional = null;
+    let distanceKm = null;
+    if (coordinates) {
+      const nearest = await claimNearestProfessional(category, coordinates);
+      professional = nearest.professional;
+      distanceKm = nearest.distanceKm;
+    }
+    if (!professional) {
+      professional = await claimProfessional(category);
+    }
 
     const emergency = await EmergencyRequest.create({
       user: userId,
@@ -46,7 +68,11 @@ const dispatchEmergency = async (req, res) => {
       fireEngineDispatched: severityConfig.fireEngineDispatched,
       fireEngineNumber: severityConfig.fireEngineNumber,
       emergencyServiceNumber: severityConfig.emergencyServiceNumber,
-      estimatedArrivalMinutes: severityConfig.estimatedArrivalMinutes
+      estimatedArrivalMinutes: severityConfig.estimatedArrivalMinutes,
+      location: coordinates
+        ? { latitude: lat, longitude: lng, accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null }
+        : undefined,
+      assignedDistanceKm: distanceKm
     });
 
     const populatedEmergency = await EmergencyRequest.findById(emergency._id).populate("assignedProfessional");
@@ -61,6 +87,10 @@ const dispatchEmergency = async (req, res) => {
       message += ` Helpline: ${severityConfig.emergencyServiceNumber}.`;
     }
     message += ` ETA: ~${severityConfig.estimatedArrivalMinutes} minutes.`;
+
+    if (metrics && metrics.emergencyRequestsTotal) {
+      metrics.emergencyRequestsTotal.labels(category, resolvedSeverity).inc();
+    }
 
     return res.status(201).json({
       success: true,
@@ -119,6 +149,10 @@ const cancelEmergency = async (req, res) => {
     }
 
     await emergency.save();
+
+    if (metrics && metrics.emergencyRequestsCancelledTotal) {
+      metrics.emergencyRequestsCancelledTotal.inc();
+    }
 
     const populatedEmergency = await EmergencyRequest.findById(emergency._id).populate("assignedProfessional");
 

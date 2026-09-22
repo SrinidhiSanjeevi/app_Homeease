@@ -74,6 +74,20 @@ const professionalSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0
+    },
+
+    // Optional — only set for professionals seeded/updated with a known
+    // location. Professionals without this field simply never match a
+    // $near query, so nearest-provider matching falls back to the
+    // existing rating-based claimProfessional for them automatically.
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"]
+      },
+      coordinates: {
+        type: [Number] // [longitude, latitude]
+      }
     }
   },
   {
@@ -91,6 +105,10 @@ professionalSchema.index({
   rating: -1,
   ratingCount: -1
 });
+
+// Sparse: only professionals with a `location` set are indexed, so this
+// is cheap even though most existing seed data predates this feature.
+professionalSchema.index({ location: "2dsphere" }, { sparse: true });
 
 module.exports =
   mongoose.models.Professional ||

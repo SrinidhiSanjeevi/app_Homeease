@@ -1431,6 +1431,38 @@ export default function AdminDashboard({ token, user, onLogout }) {
             {activeSection === "overview" &&
               stats && (
                 <div>
+                  {/* Separate, visibly distinct box so an admin can't
+                      miss active emergencies without scrolling into the
+                      Emergencies tab. Only rendered when there's
+                      something to act on. */}
+                  {stats.activeEmergencies > 0 && (
+                    <div
+                      onClick={() => setActiveSection("emergencies")}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "14px",
+                        background: "#fef2f2",
+                        border: "2px solid #fca5a5",
+                        borderRadius: "16px",
+                        padding: "18px 22px",
+                        marginBottom: "20px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      <div style={{ fontSize: "1.8rem" }}>🚨</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 800, color: "#b91c1c", fontSize: "1rem" }}>
+                          {stats.activeEmergencies} Active Emergency{" "}
+                          {stats.activeEmergencies === 1 ? "Request" : "Requests"} — Needs Attention
+                        </div>
+                        <div style={{ fontSize: "0.82rem", color: "#991b1b", marginTop: "2px" }}>
+                          Click to review dispatched / en route / arrived emergencies.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div
                     style={{
                       display: "grid",
@@ -1448,10 +1480,22 @@ export default function AdminDashboard({ token, user, onLogout }) {
                         color: "#3b82f6"
                       },
                       {
-                        label: "Bookings",
+                        label: "All Bookings",
                         value: stats.totalBookings,
                         icon: "📋",
                         color: "#8b5cf6"
+                      },
+                      {
+                        label: "Pending",
+                        value: stats.pendingBookings,
+                        icon: "⏳",
+                        color: "#f59e0b"
+                      },
+                      {
+                        label: "Completed",
+                        value: stats.completedBookings,
+                        icon: "✅",
+                        color: "#10b981"
                       },
                       {
                         label: "Revenue",
@@ -2070,6 +2114,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
                           "Customer",
                           "Service",
                           "Professional",
+                          "Location",
+                          "Rating",
                           "Amount",
                           "Status",
                           "Date",
@@ -2185,6 +2231,56 @@ export default function AdminDashboard({ token, user, onLogout }) {
                           >
                             {b.professional
                               ?.name || "—"}
+                          </td>
+
+                          <td
+                            style={{
+                              padding:
+                                "14px 16px",
+                              fontSize:
+                                "0.76rem",
+                              color:
+                                "#6b7280"
+                            }}
+                          >
+                            {b.location?.latitude != null && b.location?.longitude != null ? (
+                              <>
+                                <div>
+                                  {b.location.latitude.toFixed(4)}, {b.location.longitude.toFixed(4)}
+                                </div>
+                                {b.assignedDistanceKm != null && (
+                                  <div style={{ color: "#9ca3af" }}>~{b.assignedDistanceKm} km away</div>
+                                )}
+                              </>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+
+                          <td
+                            style={{
+                              padding:
+                                "14px 16px",
+                              fontSize:
+                                "0.83rem"
+                            }}
+                          >
+                            {b.userRating ? (
+                              <span
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "3px",
+                                  fontWeight: 700,
+                                  color: "#d97706"
+                                }}
+                              >
+                                <Star size={13} fill="#f59e0b" stroke="#f59e0b" />
+                                {b.userRating}
+                              </span>
+                            ) : (
+                              <span style={{ color: "#9ca3af" }}>—</span>
+                            )}
                           </td>
 
                           <td
@@ -2311,7 +2407,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       {bookings.length === 0 && (
                         <tr>
                           <td
-                            colSpan={7}
+                            colSpan={9}
                             style={{
                               textAlign:
                                 "center",
@@ -2999,8 +3095,13 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                   "160px"
                               }}
                             >
-                              {e.address ||
-                                "—"}
+                              <div>{e.address || "—"}</div>
+                              {e.location?.latitude != null && e.location?.longitude != null && (
+                                <div style={{ fontSize: "0.72rem", color: "#9ca3af", marginTop: "2px" }}>
+                                  {e.location.latitude.toFixed(4)}, {e.location.longitude.toFixed(4)}
+                                  {e.assignedDistanceKm != null && ` · ~${e.assignedDistanceKm} km`}
+                                </div>
+                              )}
                             </td>
 
                             <td

@@ -18,6 +18,7 @@ const getStats = async (req, res) => {
       totalServices,
       totalProfessionals,
       totalEmergencies,
+      activeEmergencies,
       createdBookings,
       assignedBookings,
       confirmedBookings,
@@ -30,6 +31,9 @@ const getStats = async (req, res) => {
       Service.countDocuments(),
       Professional.countDocuments(),
       EmergencyRequest.countDocuments(),
+      // Everything still in flight — this is what the admin overview's
+      // emergency alert banner reacts to, not the all-time total above.
+      EmergencyRequest.countDocuments({ status: { $nin: ["Resolved", "Cancelled"] } }),
       Booking.countDocuments({ status: "Created" }),
       Booking.countDocuments({ status: "Assigned" }),
       Booking.countDocuments({ status: "Confirmed" }),
@@ -58,6 +62,7 @@ const getStats = async (req, res) => {
         totalServices,
         totalProfessionals,
         totalEmergencies,
+        activeEmergencies,
         createdBookings,
         assignedBookings,
         pendingBookings,
@@ -164,7 +169,7 @@ const getAllBookings = async (req, res) => {
     const [total, bookings] = await Promise.all([
       Booking.countDocuments(filter),
       Booking.find(filter)
-        .select("user service professional isCustom customCategory customDescription date timeSlot address contactNumber notes selectedProduct paymentMethod paymentStatus status totalPrice userRating userReview createdAt")
+        .select("user service professional isCustom customCategory customDescription date timeSlot address contactNumber notes selectedProduct paymentMethod paymentStatus status totalPrice userRating userReview location assignedDistanceKm createdAt")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -337,7 +342,7 @@ const getAllEmergencies = async (req, res) => {
     const [total, emergencies] = await Promise.all([
       EmergencyRequest.countDocuments(filter),
       EmergencyRequest.find(filter)
-        .select("user category severity description contactNumber address status assignedProfessional fireEngineDispatched fireEngineNumber emergencyServiceNumber estimatedArrivalMinutes resolvedAt createdAt")
+        .select("user category severity description contactNumber address status assignedProfessional fireEngineDispatched fireEngineNumber emergencyServiceNumber estimatedArrivalMinutes resolvedAt location assignedDistanceKm createdAt")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
