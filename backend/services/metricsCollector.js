@@ -7,7 +7,7 @@ const metrics = require("../metrics");
 const logger = require("../utils/logger");
 
 const POLL_INTERVAL_MS = 30000;
-const BOOKING_STATUSES = ["Assigned", "Confirmed", "Completed", "Cancelled"];
+const BOOKING_STATUSES = ["Created", "Assigned", "Confirmed", "Completed", "Cancelled"];
 
 async function collectDbMetrics() {
   try {
@@ -19,6 +19,7 @@ async function collectDbMetrics() {
       totalBookings,
       totalUsers,
       totalEmergencies,
+      activeEmergencies,
       revenueAgg,
       ...statusCounts
     ] = await Promise.all([
@@ -29,6 +30,7 @@ async function collectDbMetrics() {
       Booking.countDocuments(),
       User.countDocuments({ role: "user" }),
       EmergencyRequest.countDocuments(),
+      EmergencyRequest.countDocuments({ status: { $nin: ["Resolved", "Cancelled"] } }),
       Booking.aggregate([
         { $match: { status: { $in: ["Confirmed", "Completed"] } } },
         { $group: { _id: null, total: { $sum: "$totalPrice" } } }
@@ -43,6 +45,7 @@ async function collectDbMetrics() {
     metrics.totalBookingsGauge.set(totalBookings);
     metrics.totalUsersGauge.set(totalUsers);
     metrics.totalEmergenciesGauge.set(totalEmergencies);
+    metrics.activeEmergenciesGauge.set(activeEmergencies);
     metrics.totalRevenueGauge.set(revenueAgg.length > 0 ? revenueAgg[0].total : 0);
 
     BOOKING_STATUSES.forEach((status, i) => {

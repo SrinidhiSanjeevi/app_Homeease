@@ -178,6 +178,32 @@ const totalEmergenciesGauge = new client.Gauge({
   registers: [register]
 });
 
+// ─── Emergency Metrics ─────────────────────────────────────────────────────────
+const activeEmergenciesGauge = new client.Gauge({
+  name: 'serviceexpress_active_emergencies',
+  help: 'Number of emergency requests currently active (not Resolved or Cancelled)',
+  registers: [register]
+});
+
+const emergencyRequestsTotal = new client.Counter({
+  name: 'serviceexpress_emergency_requests_total',
+  help: 'Total number of emergency requests dispatched',
+  labelNames: ['category', 'severity'],
+  registers: [register]
+});
+
+const emergencyRequestsCancelledTotal = new client.Counter({
+  name: 'serviceexpress_emergency_requests_cancelled_total',
+  help: 'Total number of emergency requests cancelled by the user',
+  registers: [register]
+});
+
+const emergencyRequestsCompletedTotal = new client.Counter({
+  name: 'serviceexpress_emergency_requests_completed_total',
+  help: 'Total number of emergency requests resolved/completed',
+  registers: [register]
+});
+
 module.exports = {
   client,
   register,
@@ -205,5 +231,9 @@ module.exports = {
   bookingsByStatusGauge,
   totalRevenueGauge,
   totalUsersGauge,
-  totalEmergenciesGauge
+  totalEmergenciesGauge,
+  activeEmergenciesGauge,
+  emergencyRequestsTotal,
+  emergencyRequestsCancelledTotal,
+  emergencyRequestsCompletedTotal
 };
