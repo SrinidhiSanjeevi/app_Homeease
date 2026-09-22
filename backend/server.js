@@ -25,11 +25,11 @@ const { generalLimiter } = require("./middleware/rateLimiter");
 
 connectDB();
 
-if (process.env.METRICS_COLLECTOR_ENABLED === "true") {
+if (process.env.METRICS_COLLECTOR_ENABLED !== "false") {
   startMetricsCollector();
-  logger.info("Metrics collector started (METRICS_COLLECTOR_ENABLED=true)");
+  logger.info("Metrics collector started (METRICS_COLLECTOR_ENABLED!=false)");
 } else {
-  logger.info("Metrics collector not started (METRICS_COLLECTOR_ENABLED not set to 'true')");
+  logger.info("Metrics collector not started (METRICS_COLLECTOR_ENABLED set to 'false')");
 }
 
 const app = express();

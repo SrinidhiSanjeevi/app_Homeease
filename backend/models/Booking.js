@@ -78,6 +78,18 @@ const bookingSchema = new mongoose.Schema(
     userReview: {
       type: String,
       default: ""
+    },
+    // Optional — only set when the customer explicitly shared their
+    // location via the browser Geolocation API at booking time.
+    location: {
+      latitude: Number,
+      longitude: Number,
+      accuracy: Number
+    },
+    // Distance (km) between the customer and the professional that was
+    // actually assigned, when nearest-provider matching was used.
+    assignedDistanceKm: {
+      type: Number
     }
   },
   {

@@ -14,7 +14,14 @@ const emergencyRequestSchema = new mongoose.Schema(
     fireEngineNumber: { type: String, default: null },
     emergencyServiceNumber: { type: String, default: null },
     estimatedArrivalMinutes: { type: Number, default: null },
-    resolvedAt: { type: Date, default: null }
+    resolvedAt: { type: Date, default: null },
+    // Mirrors backend/models/EmergencyRequest.js — same collection.
+    location: {
+      latitude: Number,
+      longitude: Number,
+      accuracy: Number
+    },
+    assignedDistanceKm: { type: Number }
   },
   { timestamps: true }
 );
