@@ -24,7 +24,14 @@ const bookingSchema = new mongoose.Schema(
     },
     totalPrice: { type: Number, required: true },
     userRating: { type: Number, min: 1, max: 5 },
-    userReview: { type: String, default: "" }
+    userReview: { type: String, default: "" },
+    // Mirrors backend/models/Booking.js — same collection.
+    location: {
+      latitude: Number,
+      longitude: Number,
+      accuracy: Number
+    },
+    assignedDistanceKm: { type: Number }
   },
   { timestamps: true }
 );

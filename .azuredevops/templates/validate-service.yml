@@ -159,4 +159,3 @@ steps:
     displayName: 'SonarCloud Quality Gate — ${{ parameters.name }}'
     inputs:
       pollingTimeoutSec: '300'
-    continueOnError: true

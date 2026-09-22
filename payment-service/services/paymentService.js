@@ -73,21 +73,34 @@ const verifyPayment = async ({
     throw new AppError("Unauthorized to verify payment for this booking", 403);
   }
 
-  if (booking.paymentStatus === "Paid") {
-    throw new AppError("This booking is already paid", 400);
-  }
-
-  if (booking.status === "Cancelled" || booking.status === "Completed") {
-    throw new AppError(`Cannot verify payment for a booking with status: ${booking.status}`, 400);
-  }
-
+  // Idempotent success: this exact Razorpay payment was already verified and
+  // captured — most likely because the Razorpay webhook (see processWebhook
+  // below) raced ahead of this client-driven call and already marked it
+  // Success and the booking Paid. The booking is genuinely paid at this
+  // point, so report success instead of surfacing a false "verification
+  // failed" for a payment that actually went through. Without this check,
+  // this call would fall into the "already paid" / "already verified" guards
+  // below, which throw — correctly protecting against double-processing,
+  // but incorrectly read by the caller as a failed payment.
   const existingSuccessfulPayment = await Payment.findOne({
     transactionId: razorpayPaymentId,
     status: "Success"
   });
 
   if (existingSuccessfulPayment) {
-    throw new AppError("This payment has already been verified successfully", 400);
+    logger.info(
+      { bookingId: booking._id, paymentId: razorpayPaymentId },
+      "[PaymentService] verifyPayment: payment already verified (likely webhook race); returning idempotent success"
+    );
+    return { isValid: true, booking, payment: existingSuccessfulPayment };
+  }
+
+  if (booking.paymentStatus === "Paid") {
+    throw new AppError("This booking is already paid", 400);
+  }
+
+  if (booking.status === "Cancelled" || booking.status === "Completed") {
+    throw new AppError(`Cannot verify payment for a booking with status: ${booking.status}`, 400);
   }
 
   const secret = process.env.RAZORPAY_KEY_SECRET || "placeholder_secret";
