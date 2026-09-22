@@ -4,7 +4,7 @@ const Service = require("../models/Service");
 const Professional = require("../models/Professional");
 const Payment = require("../models/Payment");
 const Notification = require("../models/Notification");
-const { reassignWaitingWork, claimProfessional, canTransition } = require("../services/customerCore");
+const { reassignWaitingWork, claimProfessional, claimNearestProfessional, haversineDistanceKm, canTransition } = require("../services/customerCore");
 const {
   processNotificationSimulation,
   processCompletionEmailNotification
@@ -32,7 +32,8 @@ const createBooking = async (req, res) => {
     const {
       serviceId, professionalId, date, timeSlot, address, contactNumber,
       notes, selectedProduct, paymentMethod, totalPrice,
-      isCustom, customCategory, customDescription
+      isCustom, customCategory, customDescription,
+      latitude, longitude, accuracy
     } = req.body;
 
     if (!req.user || !req.user._id) {
@@ -40,6 +41,17 @@ const createBooking = async (req, res) => {
     }
 
     const userId = req.user._id;
+
+    // Optional — only present when the customer explicitly shared their
+    // location. [longitude, latitude] is the order MongoDB geo queries
+    // expect (GeoJSON), not the usual lat-first spoken order.
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    const hasCoordinates =
+      Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
+      Number.isFinite(lng) && lng >= -180 && lng <= 180;
+    const coordinates = hasCoordinates ? [lng, lat] : null;
+    let distanceKm = null;
 
     if (metrics && metrics.queueLength) {
       metrics.queueLength.inc();
@@ -64,9 +76,18 @@ const createBooking = async (req, res) => {
     const session = await mongoose.startSession();
     try {
       await session.withTransaction(async () => {
+        const matchStartTime = Date.now();
         if (isCustom) {
           const targetCategory = customCategory || "Spa";
-          professional = await claimAvailableProfessional({ category: targetCategory }, session);
+
+          if (coordinates) {
+            const nearest = await claimNearestProfessional(targetCategory, coordinates, { session });
+            professional = nearest.professional;
+            distanceKm = nearest.distanceKm;
+          }
+          if (!professional) {
+            professional = await claimAvailableProfessional({ category: targetCategory }, session);
+          }
           if (!professional) {
             professional = await claimAvailableProfessional({}, session);
           }
@@ -83,6 +104,17 @@ const createBooking = async (req, res) => {
             );
           }
 
+          // Nearest-provider matching: only when the customer shared their
+          // location and didn't already pick a specific professional.
+          // Falls back to the existing best-rated matching below whenever
+          // no professional has a location set (or none is available) —
+          // this is additive, not a replacement for the existing path.
+          if (!professional && service && coordinates) {
+            const nearest = await claimNearestProfessional(service.category, coordinates, { session });
+            professional = nearest.professional;
+            distanceKm = nearest.distanceKm;
+          }
+
           if (!professional && service) {
             professional = await claimAvailableProfessional({ category: service.category }, session);
           }
@@ -90,6 +122,19 @@ const createBooking = async (req, res) => {
           if (!professional) {
             professional = await claimAvailableProfessional({}, session);
           }
+        }
+
+        if (professional && metrics && metrics.professionalAssignmentTime) {
+          const durationSeconds = (Date.now() - matchStartTime) / 1000;
+          metrics.professionalAssignmentTime.observe(durationSeconds);
+        }
+
+        // Covers the professionalId (explicit choice) path, where a
+        // distance wasn't already computed by claimNearestProfessional.
+        if (professional && coordinates && distanceKm === null && professional.location?.coordinates) {
+          distanceKm = Math.round(
+            haversineDistanceKm(coordinates, professional.location.coordinates) * 10
+          ) / 10;
         }
 
         const [createdBooking] = await Booking.create(
@@ -110,7 +155,11 @@ const createBooking = async (req, res) => {
               paymentMethod: normalizedPaymentMethod,
               paymentStatus: isCash ? "Pending (Cash on Delivery)" : "Pending",
               status: professional ? "Confirmed" : "Assigned",
-              totalPrice: bookingAmount
+              totalPrice: bookingAmount,
+              location: coordinates
+                ? { latitude: lat, longitude: lng, accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null }
+                : undefined,
+              assignedDistanceKm: distanceKm
             }
           ],
           { session }
@@ -391,6 +440,12 @@ const completeBooking = async (req, res) => {
 
     if (metrics && metrics.bookingsCompleted) metrics.bookingsCompleted.inc();
     if (metrics && metrics.activeBookings) metrics.activeBookings.dec();
+    if (metrics && metrics.averageBookingLatency && booking.createdAt) {
+      const latencySeconds = (Date.now() - new Date(booking.createdAt).getTime()) / 1000;
+      if (latencySeconds >= 0) {
+        metrics.averageBookingLatency.observe(latencySeconds);
+      }
+    }
 
     return res.status(200).json({
       success: true,

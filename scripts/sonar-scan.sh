@@ -39,7 +39,7 @@ if [[ -z "${SONAR_HOST_URL:-}" ]]; then
 fi
 
 # ── Determine which services to scan ─────────────────────────
-ALL_SERVICES=(backend admin-backend payment-service frontend)
+ALL_SERVICES=(backend admin-backend payment-service frontend admin-frontend)
 SERVICES=("${@:-${ALL_SERVICES[@]}}")
 
 echo "==> Scanning services: ${SERVICES[*]}"

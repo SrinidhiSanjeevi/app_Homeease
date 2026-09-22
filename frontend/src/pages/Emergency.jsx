@@ -11,6 +11,7 @@ import {
   XCircle,
   CheckCircle2
 } from "lucide-react";
+import LocationCapture from "../components/LocationCapture";
 
 const CATEGORIES = [
   {
@@ -124,6 +125,7 @@ export default function Emergency({
   const [description, setDescription] = useState("");
   const [contactNumber, setContactNumber] = useState("");
   const [address, setAddress] = useState("");
+  const [location, setLocation] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [cancellingId, setCancellingId] = useState(null);
@@ -160,12 +162,16 @@ export default function Emergency({
         severity,
         description: description.trim(),
         contactNumber: contactNumber.trim(),
-        address: address.trim()
+        address: address.trim(),
+        latitude: location?.latitude ?? null,
+        longitude: location?.longitude ?? null,
+        accuracy: location?.accuracy ?? null
       });
 
       setDescription("");
       setContactNumber("");
       setAddress("");
+      setLocation(null);
     } catch (error) {
       showToast(
         error?.message || "Failed to dispatch emergency service",
@@ -660,6 +666,10 @@ export default function Emergency({
                   )
                 }
               />
+            </div>
+
+            <div style={{ marginBottom: "22px" }}>
+              <LocationCapture onLocationCaptured={setLocation} />
             </div>
 
             {/* ======================================================

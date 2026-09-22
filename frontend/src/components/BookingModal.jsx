@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, CreditCard, ChevronRight, ChevronLeft, Star } from "lucide-react";
+import LocationCapture from "./LocationCapture";
 
 export default function BookingModal({ service, onClose, onSubmit, onBookingSettled, professionals }) {
   const [step, setStep] = useState(1);
@@ -14,6 +15,7 @@ export default function BookingModal({ service, onClose, onSubmit, onBookingSett
   const [notes, setNotes] = useState("");
   const [address, setAddress] = useState("");
   const [contactNumber, setContactNumber] = useState("");
+  const [location, setLocation] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("Razorpay");
   const [processingPayment, setProcessingPayment] = useState(false);
   const [razorpayLoaded, setRazorpayLoaded] = useState(false);
@@ -71,7 +73,10 @@ export default function BookingModal({ service, onClose, onSubmit, onBookingSett
     notes,
     selectedProduct: service.isCustom ? null : selectedProduct,
     paymentMethod: paymentMethodValue,
-    totalPrice: total
+    totalPrice: total,
+    latitude: location?.latitude ?? null,
+    longitude: location?.longitude ?? null,
+    accuracy: location?.accuracy ?? null
   });
 
   const finalizeCashBooking = async () => {
@@ -329,6 +334,7 @@ export default function BookingModal({ service, onClose, onSubmit, onBookingSett
                 <label>Contact Phone Number</label>
                 <input type="tel" placeholder="Enter 10-digit mobile number" value={contactNumber} onChange={(e) => setContactNumber(e.target.value)} />
               </div>
+              <LocationCapture onLocationCaptured={setLocation} />
             </div>
           )}
           {step === 4 && (

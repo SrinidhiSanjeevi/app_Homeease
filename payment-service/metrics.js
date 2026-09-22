@@ -53,6 +53,17 @@ const paymentRefundTotal = new client.Counter({
   registers: [register]
 });
 
+// ─── Payment Latency Histogram ─────────────────────────────────────────────────
+// Tracks end-to-end processing time for each payment operation (create_order,
+// verify_payment, refund) so we can compute P50/P95/P99 per operation type.
+const paymentProcessingDurationSeconds = new client.Histogram({
+  name: "payment_processing_duration_seconds",
+  help: "Duration of payment operations in seconds",
+  labelNames: ["operation"],
+  buckets: [0.05, 0.1, 0.3, 0.5, 1, 2, 5],
+  registers: [register]
+});
+
 module.exports = {
   client,
   register,
@@ -63,6 +74,8 @@ module.exports = {
   paymentVerifySuccessTotal,
   paymentVerifyFailedTotal,
   paymentRefundTotal,
+  paymentProcessingDurationSeconds,
+  // Legacy snake_case aliases kept for backward compat with any direct imports
   payment_order_created_total: paymentOrderCreatedTotal,
   payment_verify_success_total: paymentVerifySuccessTotal,
   payment_verify_failed_total: paymentVerifyFailedTotal,
