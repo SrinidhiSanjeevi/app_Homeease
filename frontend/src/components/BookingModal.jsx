@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, CreditCard, ChevronRight, ChevronLeft, Star } from "lucide-react";
 import LocationCapture from "./LocationCapture";
 
-export default function BookingModal({ service, onClose, onSubmit, onBookingSettled, professionals }) {
+export default function BookingModal({ service, onClose, onSubmit, onBookingSettled, professionals, user }) {
   const [step, setStep] = useState(1);
   const [customCategory, setCustomCategory] = useState(service.category || "Spa");
   const [customDescription, setCustomDescription] = useState("");
@@ -110,10 +110,11 @@ export default function BookingModal({ service, onClose, onSubmit, onBookingSett
       }
 
       const token = localStorage.getItem("token");
+      const userId = user?.id || user?._id || "";
       const orderRes = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ bookingId: booking._id }),
+        body: JSON.stringify({ bookingId: booking._id, userId }),
       }).then(r => r.json());
 
       if (!orderRes.success) {
@@ -135,6 +136,7 @@ export default function BookingModal({ service, onClose, onSubmit, onBookingSett
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             body: JSON.stringify({
               bookingId: booking._id,
+              userId,
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
