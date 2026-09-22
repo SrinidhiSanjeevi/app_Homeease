@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const mongoose = require("mongoose");
 const Razorpay = require("razorpay");
 const razorpay = require("../config/razorpay");
 const Payment = require("../models/Payment");
@@ -11,7 +12,14 @@ const logger = require("../utils/logger");
 // CREATE ORDER
 // ============================================================
 const createOrder = async ({ bookingId, userId }) => {
-  const booking = await Booking.findOne({ _id: bookingId, user: userId });
+  if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId) || !userId || !mongoose.Types.ObjectId.isValid(userId)) {
+    throw new AppError("Invalid booking ID or user ID", 400);
+  }
+
+  const booking = await Booking.findOne({
+    _id: new mongoose.Types.ObjectId(String(bookingId)),
+    user: new mongoose.Types.ObjectId(String(userId))
+  });
 
   if (!booking) {
     throw new AppError("Booking not found", 404);
@@ -63,7 +71,15 @@ const verifyPayment = async ({
   razorpayPaymentId,
   razorpaySignature
 }) => {
-  const booking = await Booking.findById(bookingId);
+  if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+    throw new AppError("Invalid booking ID", 400);
+  }
+  if (typeof razorpayPaymentId !== "string" || !razorpayPaymentId.trim()) {
+    throw new AppError("Invalid payment ID", 400);
+  }
+
+  const safePaymentId = razorpayPaymentId.trim();
+  const booking = await Booking.findById(new mongoose.Types.ObjectId(String(bookingId)));
 
   if (!booking) {
     throw new AppError("Booking not found", 404);
@@ -83,7 +99,7 @@ const verifyPayment = async ({
   // below, which throw — correctly protecting against double-processing,
   // but incorrectly read by the caller as a failed payment.
   const existingSuccessfulPayment = await Payment.findOne({
-    transactionId: razorpayPaymentId,
+    transactionId: safePaymentId,
     status: "Success"
   });
 
@@ -150,7 +166,14 @@ const verifyPayment = async ({
 // REFUND PAYMENT
 // ============================================================
 const refundPayment = async (bookingId) => {
-  const payment = await Payment.findOne({ booking: bookingId, status: "Success" }).sort({ createdAt: -1 });
+  if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+    return null;
+  }
+
+  const payment = await Payment.findOne({
+    booking: new mongoose.Types.ObjectId(String(bookingId)),
+    status: "Success"
+  }).sort({ createdAt: -1 });
 
   if (!payment || payment.paymentMethod !== "Razorpay") {
     return null;
@@ -177,12 +200,12 @@ const refundPayment = async (bookingId) => {
 // ============================================================
 const getPaymentStatus = async ({ bookingId, transactionId }) => {
   const query = {};
-  if (transactionId) {
-    query.transactionId = transactionId;
-  } else if (bookingId) {
-    query.booking = bookingId;
+  if (typeof transactionId === "string" && transactionId.trim()) {
+    query.transactionId = transactionId.trim();
+  } else if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
+    query.booking = new mongoose.Types.ObjectId(String(bookingId));
   } else {
-    throw new AppError("Either bookingId or transactionId is required", 400);
+    throw new AppError("Either valid bookingId or transactionId is required", 400);
   }
 
   const payment = await Payment.findOne(query).sort({ createdAt: -1 });
@@ -232,9 +255,16 @@ const processWebhook = async ({ rawPayload, signature, webhookSecret, eventHeade
       return { statusCode: 400, success: false, message: "Missing payment entity in payload" };
     }
 
-    const paymentId = paymentEntity.id;
-    const orderId = paymentEntity.order_id;
-    const bookingIdFromNotes = paymentEntity.notes?.bookingId;
+    const paymentId = typeof paymentEntity.id === "string" ? paymentEntity.id.trim() : null;
+    const orderId = typeof paymentEntity.order_id === "string" ? paymentEntity.order_id.trim() : null;
+    const rawBookingId = paymentEntity.notes?.bookingId;
+    const bookingIdFromNotes = typeof rawBookingId === "string" && mongoose.Types.ObjectId.isValid(rawBookingId)
+      ? rawBookingId.trim()
+      : null;
+
+    if (!paymentId) {
+      return { statusCode: 400, success: false, message: "Invalid payment ID in payload" };
+    }
 
     const existingSuccessPayment = await Payment.findOne({
       transactionId: paymentId,
@@ -251,7 +281,7 @@ const processWebhook = async ({ rawPayload, signature, webhookSecret, eventHeade
 
     let booking = null;
     if (bookingIdFromNotes) {
-      booking = await Booking.findById(bookingIdFromNotes);
+      booking = await Booking.findById(new mongoose.Types.ObjectId(bookingIdFromNotes));
     }
     if (!booking && orderId) {
       const pendingPayment = await Payment.findOne({ razorpayOrderId: orderId });
@@ -337,14 +367,23 @@ const processWebhook = async ({ rawPayload, signature, webhookSecret, eventHeade
       return { statusCode: 400, success: false, message: "Missing payment entity in payload" };
     }
 
-    const paymentId = paymentEntity.id;
-    const orderId = paymentEntity.order_id;
-    const bookingIdFromNotes = paymentEntity.notes?.bookingId;
-    const failureReason = paymentEntity.error_description || "Payment failed at gateway";
+    const paymentId = typeof paymentEntity.id === "string" ? paymentEntity.id.trim() : null;
+    const orderId = typeof paymentEntity.order_id === "string" ? paymentEntity.order_id.trim() : null;
+    const rawBookingId = paymentEntity.notes?.bookingId;
+    const bookingIdFromNotes = typeof rawBookingId === "string" && mongoose.Types.ObjectId.isValid(rawBookingId)
+      ? rawBookingId.trim()
+      : null;
+    const failureReason = typeof paymentEntity.error_description === "string"
+      ? paymentEntity.error_description.trim()
+      : "Payment failed at gateway";
+
+    if (!paymentId) {
+      return { statusCode: 400, success: false, message: "Invalid payment ID in payload" };
+    }
 
     let booking = null;
     if (bookingIdFromNotes) {
-      booking = await Booking.findById(bookingIdFromNotes);
+      booking = await Booking.findById(new mongoose.Types.ObjectId(bookingIdFromNotes));
     }
     if (!booking && orderId) {
       const pendingPayment = await Payment.findOne({ razorpayOrderId: orderId });
