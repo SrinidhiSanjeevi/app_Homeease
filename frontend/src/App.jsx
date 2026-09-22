@@ -834,6 +834,7 @@ export default function App() {
       fetchProfessionals();
     }}
     professionals={professionals}
+    user={user}
   />
    )}
 
