@@ -34,9 +34,10 @@ async function claimProfessional(category) {
     });
   }
 
-  const filter = CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(category)
+  const safeCategory = typeof category === "string" ? category.trim() : "";
+  const filter = CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(safeCategory)
     ? { status: "Available", active: true }
-    : { category, status: "Available", active: true };
+    : { category: safeCategory, status: "Available", active: true };
 
   return Professional.findOneAndUpdate(
     filter,

@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const User = require("../models/User");
 const Booking = require("../models/Booking");
 const Service = require("../models/Service");
@@ -84,13 +85,13 @@ const getAllUsers = async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
 
     const filter = {};
-    if (req.query.role && ["user", "admin", "professional"].includes(req.query.role)) {
+    const ALLOWED_ROLES = ["user", "admin", "professional"];
+    if (typeof req.query.role === "string" && ALLOWED_ROLES.includes(req.query.role)) {
       filter.role = req.query.role;
     }
-    if (req.query.search) {
+    if (typeof req.query.search === "string" && req.query.search.trim()) {
       const escaped = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const searchRegex = new RegExp(escaped, "i");
-      filter.$or = [{ name: searchRegex }, { email: searchRegex }];
+      filter.$or = [{ name: { $regex: escaped, $options: "i" } }, { email: { $regex: escaped, $options: "i" } }];
     }
 
     const [total, users] = await Promise.all([
@@ -150,20 +151,20 @@ const getAllBookings = async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
 
     const filter = {};
-    if (req.query.status) {
-      filter.status = req.query.status;
+    if (typeof req.query.status === "string" && req.query.status.trim()) {
+      filter.status = req.query.status.trim();
     }
-    if (req.query.paymentStatus) {
-      filter.paymentStatus = req.query.paymentStatus;
+    if (typeof req.query.paymentStatus === "string" && req.query.paymentStatus.trim()) {
+      filter.paymentStatus = req.query.paymentStatus.trim();
     }
-    if (req.query.user) {
-      filter.user = req.query.user;
+    if (typeof req.query.user === "string" && mongoose.Types.ObjectId.isValid(req.query.user)) {
+      filter.user = new mongoose.Types.ObjectId(req.query.user);
     }
-    if (req.query.professional) {
-      filter.professional = req.query.professional;
+    if (typeof req.query.professional === "string" && mongoose.Types.ObjectId.isValid(req.query.professional)) {
+      filter.professional = new mongoose.Types.ObjectId(req.query.professional);
     }
-    if (req.query.service) {
-      filter.service = req.query.service;
+    if (typeof req.query.service === "string" && mongoose.Types.ObjectId.isValid(req.query.service)) {
+      filter.service = new mongoose.Types.ObjectId(req.query.service);
     }
 
     const [total, bookings] = await Promise.all([
@@ -244,15 +245,15 @@ const getAllServices = async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
 
     const filter = {};
-    if (req.query.category) {
-      filter.category = req.query.category;
+    if (typeof req.query.category === "string" && req.query.category.trim()) {
+      filter.category = req.query.category.trim();
     }
     if (req.query.active !== undefined) {
       filter.active = req.query.active === "true" || req.query.active === true;
     }
-    if (req.query.search) {
+    if (typeof req.query.search === "string" && req.query.search.trim()) {
       const escaped = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      filter.name = new RegExp(escaped, "i");
+      filter.name = { $regex: escaped, $options: "i" };
     }
 
     const [total, services] = await Promise.all([
@@ -285,18 +286,18 @@ const getAllProfessionals = async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
 
     const filter = {};
-    if (req.query.category) {
-      filter.category = req.query.category;
+    if (typeof req.query.category === "string" && req.query.category.trim()) {
+      filter.category = req.query.category.trim();
     }
-    if (req.query.status) {
-      filter.status = req.query.status;
+    if (typeof req.query.status === "string" && ["Available", "Busy"].includes(req.query.status.trim())) {
+      filter.status = req.query.status.trim();
     }
     if (req.query.active !== undefined) {
       filter.active = req.query.active === "true" || req.query.active === true;
     }
-    if (req.query.search) {
+    if (typeof req.query.search === "string" && req.query.search.trim()) {
       const escaped = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      filter.name = new RegExp(escaped, "i");
+      filter.name = { $regex: escaped, $options: "i" };
     }
 
     const [total, professionals] = await Promise.all([
@@ -329,14 +330,14 @@ const getAllEmergencies = async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
 
     const filter = {};
-    if (req.query.status) {
-      filter.status = req.query.status;
+    if (typeof req.query.status === "string" && req.query.status.trim()) {
+      filter.status = req.query.status.trim();
     }
-    if (req.query.category) {
-      filter.category = req.query.category;
+    if (typeof req.query.category === "string" && req.query.category.trim()) {
+      filter.category = req.query.category.trim();
     }
-    if (req.query.severity) {
-      filter.severity = req.query.severity;
+    if (typeof req.query.severity === "string" && req.query.severity.trim()) {
+      filter.severity = req.query.severity.trim();
     }
 
     const [total, emergencies] = await Promise.all([
@@ -588,10 +589,12 @@ const getAuditLogs = async (req, res) => {
   try {
     const { page = 1, limit = 20, action } = req.query;
     const query = {};
-    if (action) query.action = action;
+    if (typeof action === "string" && action.trim()) {
+      query.action = action.trim();
+    }
 
-    const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 20));
     const skip = (pageNum - 1) * limitNum;
 
     const [total, logs] = await Promise.all([
