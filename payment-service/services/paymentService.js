@@ -57,7 +57,7 @@ const createOrder = async ({ bookingId, userId }) => {
     orderId: order.id,
     amount: order.amount,
     currency: order.currency,
-    keyId: process.env.RAZORPAY_KEY_ID || "rzp_placeholder_key"
+    keyId: (process.env.RAZORPAY_KEY_ID || "rzp_placeholder_key").trim()
   };
 };
 
@@ -119,16 +119,22 @@ const verifyPayment = async ({
     throw new AppError(`Cannot verify payment for a booking with status: ${booking.status}`, 400);
   }
 
-  const secret = process.env.RAZORPAY_KEY_SECRET || "placeholder_secret";
+  // Trim everything that feeds the HMAC — a stray newline/space in the
+  // secret (common when it's injected via a Kubernetes Secret / Key Vault
+  // CSI mount) or in the order id otherwise produces a mismatch even though
+  // Razorpay's own checkout completed the payment successfully.
+  const secret = (process.env.RAZORPAY_KEY_SECRET || "placeholder_secret").trim();
+  const safeOrderId = typeof razorpayOrderId === "string" ? razorpayOrderId.trim() : razorpayOrderId;
+  const safeSignature = typeof razorpaySignature === "string" ? razorpaySignature.trim() : razorpaySignature;
   const expectedSignature = crypto
     .createHmac("sha256", secret)
-    .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+    .update(`${safeOrderId}|${safePaymentId}`)
     .digest("hex");
 
   const isValid =
-    typeof razorpaySignature === "string" &&
-    expectedSignature.length === razorpaySignature.length &&
-    crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(razorpaySignature));
+    typeof safeSignature === "string" &&
+    expectedSignature.length === safeSignature.length &&
+    crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(safeSignature));
 
   const payment = await Payment.create({
     booking: booking._id,
