@@ -13,11 +13,18 @@
 #   3. PACKAGE       build → trivy image → SBOM → push → sign      (per changed service, ONE job)
 #        │
 #        ▼
-#   4. REPORT        push CI duration metrics to Pushgateway
+#   4. PROMOTE       bump image.tag in Gitops_Homeease's charts/*/values-azure-dev.yaml,
+#                    commit + push to main    (main only, ONE job, all changed services)
+#        │
+#        ▼
+#   5. REPORT        push CI duration metrics to Pushgateway
 #
-# Promotion to Gitops_Homeease (bumping charts/*/values-azure-dev.yaml so
-# Argo CD deploys the new image) is done manually / out of band — this
-# pipeline stops at pushing the scanned image to ACR.
+# Argo CD needs no change to pick up what stage 4 pushes: every service
+# Application already has syncPolicy.automated.selfHeal and already
+# watches charts/<service>/values-azure-dev.yaml via helm.valueFiles
+# (see Gitops_Homeease/argocd/azure/bootstrap/0N-<service>.yaml). It
+# picks up the new commit on its next poll with no GitOps-repo change
+# required for this feature.
 #
 # DESIGN NOTES — read before editing
 #
@@ -144,9 +151,22 @@ variables:
     value: '0.74.0'
   - name: syftVersion
     value: '1.51.1'
+  # Pinned. Used only by the Promote stage to edit values-azure-dev.yaml.
+  - name: yqVersion
+    value: '4.48.1'
+
   # Only main produces pushed artifacts. PRs build and scan, then discard.
   - name: isMain
     value: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
+
+  # GitOps repo the Promote stage bumps image.tag in. Chart directory
+  # names under charts/ match parameters.services[].name exactly
+  # (backend, admin-backend, frontend, admin-frontend, payment-service)
+  # — no mapping table needed.
+  - name: gitopsRepo
+    value: 'github.com/SrinidhiSanjeevi/Gitops_Homeease.git'
+  - name: gitopsBranch
+    value: 'main'
 
 stages:
 
@@ -336,7 +356,123 @@ stages:
                 syftVersion: $(syftVersion)
 
 # ============================================================
-# STAGE 4 — REPORT
+# STAGE 4 — PROMOTE
+#
+# Bump image.tag in Gitops_Homeease so Argo CD deploys what Package
+# just pushed. Argo CD itself needs no change for this: every service
+# Application already has syncPolicy.automated.selfHeal on main and
+# already watches charts/<service>/values-azure-dev.yaml via
+# helm.valueFiles — this stage only ever edits a value that Application
+# already reads, never the chart or Application shape.
+#
+# ONE job, not one per service, on purpose: all 5 services share a
+# single image tag (see Static's "Same tag for every service built
+# from this commit"), so bumping all 5 files is naturally one commit.
+# Splitting into per-service jobs would mean concurrent pushes to the
+# same GitOps branch racing each other for a fast-forward.
+#
+# Runs only on main, only after Package succeeded — a PR's Package jobs
+# build and scan but skip the actual ACR push (see package-service.yml),
+# so there's nothing to promote.
+# ============================================================
+
+- stage: Promote
+  displayName: '4. Promote to GitOps'
+  dependsOn:
+    - Static
+    - Package
+  condition: and(succeeded(), eq(variables['isMain'], 'True'))
+  jobs:
+    - job: Promote
+      displayName: 'Bump image tags in Gitops_Homeease'
+      timeoutInMinutes: 10
+      variables:
+        imageTag: $[ stageDependencies.Static.Changes.outputs['detect.imageTag'] ]
+        changed_backend: $[ stageDependencies.Static.Changes.outputs['detect.changed_backend'] ]
+        changed_admin_backend: $[ stageDependencies.Static.Changes.outputs['detect.changed_admin_backend'] ]
+        changed_frontend: $[ stageDependencies.Static.Changes.outputs['detect.changed_frontend'] ]
+        changed_admin_frontend: $[ stageDependencies.Static.Changes.outputs['detect.changed_admin_frontend'] ]
+        changed_payment_service: $[ stageDependencies.Static.Changes.outputs['detect.changed_payment_service'] ]
+      steps:
+        - checkout: none
+
+        - script: |
+            set -euo pipefail
+            echo "Installing yq $(yqVersion)"
+            curl -fsSL -o /usr/local/bin/yq \
+              "https://github.com/mikefarah/yq/releases/download/v$(yqVersion)/yq_linux_amd64"
+            chmod +x /usr/local/bin/yq
+            yq --version
+          displayName: 'Install yq'
+
+        - script: |
+            set -euo pipefail
+
+            # GITOPS_PAT is a GitHub PAT scoped to Contents:write on
+            # Gitops_Homeease only — see .azuredevops/README.md for the
+            # variable-group setup this reads it from. Never echoed;
+            # Azure DevOps also auto-redacts any secret-variable value
+            # found in logs.
+            if [ -z "${GITOPS_PAT:-}" ]; then
+              echo "##vso[task.logissue type=error]GITOPS_PAT is not set. Add it as a secret variable in the homeease-ci variable group (see .azuredevops/README.md)."
+              exit 1
+            fi
+
+            WORKDIR=$(mktemp -d)
+            git clone --depth 1 --branch "$(gitopsBranch)" \
+              "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" \
+              "$WORKDIR/gitops"
+            cd "$WORKDIR/gitops"
+            git config user.name "homeease-ci"
+            git config user.email "homeease-ci@users.noreply.github.com"
+
+            declare -A CHANGED=(
+              [backend]="$(changed_backend)"
+              [admin-backend]="$(changed_admin_backend)"
+              [frontend]="$(changed_frontend)"
+              [admin-frontend]="$(changed_admin_frontend)"
+              [payment-service]="$(changed_payment_service)"
+            )
+
+            BUMPED=()
+            for svc in "${!CHANGED[@]}"; do
+              if [ "${CHANGED[$svc]}" = "true" ]; then
+                VALUES_FILE="charts/${svc}/values-azure-dev.yaml"
+                if [ ! -f "$VALUES_FILE" ]; then
+                  echo "##vso[task.logissue type=error]${VALUES_FILE} not found — chart layout may have changed."
+                  exit 1
+                fi
+                CURRENT_TAG=$(yq '.image.tag' "$VALUES_FILE")
+                if [ "$CURRENT_TAG" = "$(imageTag)" ]; then
+                  echo "${svc}: already at $(imageTag), nothing to do"
+                  continue
+                fi
+                yq -i '.image.tag = strenv(IMAGE_TAG)' "$VALUES_FILE"
+                echo "${svc}: ${CURRENT_TAG} -> $(imageTag)"
+                BUMPED+=("$svc")
+              fi
+            done
+
+            if [ ${#BUMPED[@]} -eq 0 ]; then
+              echo "Nothing to promote — no changed service is behind $(imageTag)."
+              exit 0
+            fi
+
+            echo "----- git diff (GitOps values files only) -----"
+            git --no-pager diff -- charts/*/values-azure-dev.yaml
+            echo "------------------------------------------------"
+
+            git add charts/*/values-azure-dev.yaml
+            SERVICE_LIST=$(IFS=', '; echo "${BUMPED[*]}")
+            git commit -m "$(printf 'ci: update %s image to %s\n\nSource: SrinidhiSanjeevi/app_Homeease@%s\nBuild: %s' "$SERVICE_LIST" "$(imageTag)" "$(Build.SourceVersion)" "$(Build.BuildId)")"
+            git push origin "HEAD:$(gitopsBranch)"
+          displayName: 'Bump image.tag + push'
+          env:
+            GITOPS_PAT: $(GITOPS_PAT)
+            IMAGE_TAG: $(imageTag)
+
+# ============================================================
+# STAGE 5 — REPORT
 #
 # Ship pipeline timing to Prometheus so CI health is graphable
 # alongside app health. Never fails the build: an unreachable
@@ -344,11 +480,12 @@ stages:
 # ============================================================
 
 - stage: Report
-  displayName: '4. Publish CI Metrics'
+  displayName: '5. Publish CI Metrics'
   dependsOn:
     - Static
     - Validate
     - Package
+    - Promote
   condition: always()
   jobs:
     - job: Metrics
