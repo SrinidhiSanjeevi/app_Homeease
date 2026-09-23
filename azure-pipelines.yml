@@ -418,6 +418,24 @@ stages:
               exit 1
             fi
 
+            echo "GitOps repo:   $(gitopsRepo)"
+            echo "GitOps branch: $(gitopsBranch)"
+
+            # Read-only auth check, before anything destructive. Confirms
+            # GITOPS_PAT can actually authenticate and see the target
+            # branch, so a failure here is unambiguously a token/repo
+            # problem and not a clone/push race. Never prints the token:
+            # git redacts credentials in its own output, and Azure DevOps
+            # separately masks any literal secret-variable value in logs.
+            if ! git ls-remote --exit-code \
+                 "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" \
+                 "refs/heads/$(gitopsBranch)" > /tmp/ls-remote.out 2>/tmp/ls-remote.err; then
+              echo "##vso[task.logissue type=error]Could not authenticate to $(gitopsRepo) / see refs/heads/$(gitopsBranch) with GITOPS_PAT. This is a token/permissions problem, not a pipeline bug — check the PAT's expiry, its Contents:write scope on Gitops_Homeease, and (for fine-grained tokens) whether it still needs org/repo approval."
+              cat /tmp/ls-remote.err
+              exit 1
+            fi
+            echo "Auth check passed — $(gitopsBranch) is reachable with GITOPS_PAT."
+
             WORKDIR=$(mktemp -d)
             git clone --depth 1 --branch "$(gitopsBranch)" \
               "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" \
@@ -465,7 +483,20 @@ stages:
             git add charts/*/values-azure-dev.yaml
             SERVICE_LIST=$(IFS=', '; echo "${BUMPED[*]}")
             git commit -m "$(printf 'ci: update %s image to %s\n\nSource: SrinidhiSanjeevi/app_Homeease@%s\nBuild: %s' "$SERVICE_LIST" "$(imageTag)" "$(Build.SourceVersion)" "$(Build.BuildId)")"
-            git push origin "HEAD:$(gitopsBranch)"
+
+            if ! git push origin "HEAD:$(gitopsBranch)" 2>/tmp/push.err; then
+              cat /tmp/push.err
+              if grep -qi "protected branch\|required status check\|pull request" /tmp/push.err; then
+                echo "##vso[task.logissue type=error]Push rejected by a GitHub branch protection rule on $(gitopsBranch). Check Gitops_Homeease > Settings > Branches: either allow the GITOPS_PAT identity to bypass required-PR/status-check rules, or note that this branch requires promotion via PR (a workflow change, out of scope for this pipeline)."
+              elif grep -qi "403\|authentication failed\|invalid username or token" /tmp/push.err; then
+                echo "##vso[task.logissue type=error]Push rejected by GitHub authentication/authorization. Re-check GITOPS_PAT expiry and its Contents:write scope on Gitops_Homeease."
+              elif grep -qi "non-fast-forward\|fetch first\|rejected" /tmp/push.err; then
+                echo "##vso[task.logissue type=error]$(gitopsBranch) moved on the remote after this job cloned it (e.g. a concurrent manual promotion). Re-run the pipeline rather than force-pushing over it."
+              else
+                echo "##vso[task.logissue type=error]git push to $(gitopsRepo) failed for an unrecognized reason — see the error above."
+              fi
+              exit 1
+            fi
           displayName: 'Bump image.tag + push'
           env:
             GITOPS_PAT: $(GITOPS_PAT)
