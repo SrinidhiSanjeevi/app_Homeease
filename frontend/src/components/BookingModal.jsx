@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, CreditCard, ChevronRight, ChevronLeft, Star } from "lucide-react";
+import { X, ChevronRight, ChevronLeft, Star } from "lucide-react";
 import LocationCapture from "./LocationCapture";
 
 export default function BookingModal({ service, onClose, onSubmit, onBookingSettled, professionals, user }) {
@@ -213,8 +213,8 @@ export default function BookingModal({ service, onClose, onSubmit, onBookingSett
             <h2 style={{ fontSize: "1.25rem", fontWeight: 800 }}>{service.isCustom ? "Custom Request" : "Book Service"}</h2>
             <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{service.isCustom ? "Submit custom requirements" : service.name}</p>
           </div>
-          <button onClick={onClose} style={{ background: "var(--primary-light)", color: "var(--text-main)", width: "32px", height: "32px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <X size={16} />
+          <button onClick={onClose} style={{ background: "var(--primary-light)", width: "32px", height: "32px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <X size={16} color="#000000" strokeWidth={2.5} />
           </button>
         </div>
         <div style={{ background: "var(--bg-main)", padding: "12px 24px", display: "flex", gap: "8px" }}>
@@ -369,16 +369,6 @@ export default function BookingModal({ service, onClose, onSubmit, onBookingSett
                   <option value="Cash on Delivery">Cash on Delivery (Pay after service)</option>
                 </select>
               </div>
-              {paymentMethod === "Razorpay" && (
-                <div style={{ padding: "14px", background: "var(--primary-light)", borderRadius: "8px", fontSize: "0.85rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "8px", marginTop: "12px" }}>
-                  <CreditCard size={18} />
-                  <span>
-                    {razorpayLoaded
-                      ? "You'll be redirected to Razorpay's secure test checkout. Use card 4111 1111 1111 1111, any future expiry, any CVV."
-                      : "Loading secure payment gateway..."}
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </div>
