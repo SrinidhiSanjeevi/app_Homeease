@@ -9,9 +9,15 @@ from a commit in this repo.
 
 Stage 4 (Promote) bumps `image.tag` in
 [`Gitops_Homeease`](https://github.com/SrinidhiSanjeevi/Gitops_Homeease)'s
-`charts/<service>/values-azure-dev.yaml` files and pushes the commit
-directly to that repo's `main` — that's what Argo CD's already-automated
-sync policy then picks up.
+`charts/<service>/values-azure-dev.yaml` files (all 5 services: backend,
+admin-backend, frontend, admin-frontend, payment-service) and pushes the
+commit directly to that repo's `main` — that's what Argo CD's
+already-automated sync policy then picks up.
+
+**As of this writing, `GITOPS_PAT` does not yet exist in the
+`homeease-ci` variable group** (verified via `az pipelines
+variable-group variable list`) — the Promote stage will fail fast with
+an explicit error until it's added. Follow the steps below once.
 
 To let this pipeline push there, add a secret pipeline variable named
 `GITOPS_PAT`:
