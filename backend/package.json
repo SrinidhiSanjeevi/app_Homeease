@@ -8,6 +8,8 @@
     "dev": "nodemon server.js",
     "seed:admin": "node scripts/seedAdmin.js",
     "seed:locations": "node scripts/seedProviderLocations.js",
+    "cleanup:locations": "node scripts/cleanupZeroLocations.js",
+    "migrate:slots": "node scripts/migrateSlotReservations.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

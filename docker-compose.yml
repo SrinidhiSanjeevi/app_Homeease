@@ -68,8 +68,11 @@ services:
       - NODE_ENV=production
       - PAYMENT_SERVICE_PORT=5002
       - PORT=5002
-    ports:
-      - "5002:5002"
+    # Internal only: reached by backend over homeease-net, never published
+    # on the host. Set INTERNAL_SERVICE_TOKEN in both backend/.env and
+    # payment-service/.env to require the shared service token.
+    expose:
+      - "5002"
     networks:
       - homeease-net
     healthcheck:

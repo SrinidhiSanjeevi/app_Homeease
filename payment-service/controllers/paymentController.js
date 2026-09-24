@@ -69,6 +69,7 @@ const verifyPayment = async (req, res) => {
     if (endTimer) endTimer();
     return res.status(result.isValid ? 200 : 400).json({
       success: result.isValid,
+      message: result.message,
       booking: result.booking,
       payment: result.payment
     });
@@ -87,13 +88,13 @@ const refundPayment = async (req, res) => {
     ? metrics.paymentProcessingDurationSeconds.startTimer({ operation: "refund" })
     : null;
   try {
-    const { bookingId } = req.body;
+    const { bookingId, amount } = req.body;
     if (!bookingId) {
       if (endTimer) endTimer();
       return res.status(400).json({ success: false, message: "bookingId is required" });
     }
 
-    const refund = await paymentService.refundPayment(bookingId);
+    const refund = await paymentService.refundPayment(bookingId, Number(amount) > 0 ? Number(amount) : undefined);
     if (!refund) {
       if (endTimer) endTimer();
       return res.status(404).json({ success: false, message: "Refund could not be processed or no eligible payment" });

@@ -17,6 +17,18 @@ const getSlotEnd = (booking) => {
   return end;
 };
 
+// When the booked slot starts, in the customer's local time.
+const getSlotStart = (booking) => {
+  const date = new Date(booking.date);
+  if (Number.isNaN(date.getTime())) return null;
+  const m = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(String(booking.timeSlot || ""));
+  const start = new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  if (m) start.setHours((Number(m[1]) % 12) + (m[3].toUpperCase() === "PM" ? 12 : 0), Number(m[2]));
+  return start;
+};
+
+const STATUS_LABELS = { Created: "Awaiting payment", Assigned: "Finding professional" };
+
 export default function Bookings({ bookings, onCancelBooking, onRateBooking, onCompleteBooking, onAcceptBooking: _onAcceptBooking, isProfessionalMode }) {
   const [ratingId, setRatingId] = useState(null);
   const [ratingVal, setRatingVal] = useState(5);
@@ -30,6 +42,28 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
+
+  // Show what cancelling costs (late-cancellation fee) before confirming.
+  const handleCancel = async (bookingId) => {
+    let text = "Cancel this booking?";
+    try {
+      const token = localStorage.getItem("token");
+      const r = await fetch(`/api/bookings/${bookingId}/cancel-quote`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (d.success) {
+        const q = d.quote;
+        if (!q.allowed) {
+          window.alert(q.reason);
+          return;
+        }
+        if (q.fee > 0) text = `Cancelling this close to the visit has a ₹${q.fee} late-cancellation fee. You'll get ₹${q.refund} back. Cancel anyway?`;
+        else if (q.refund > 0) text = `Cancel this booking? You'll get a full refund of ₹${q.refund}.`;
+      }
+    } catch {
+      /* fall back to a plain confirmation */
+    }
+    if (window.confirm(text)) onCancelBooking(bookingId);
+  };
 
   const handleComplete = async (bookingId) => {
     if (!onCompleteBooking || !window.confirm("Mark this service as completed?")) return;
@@ -195,6 +229,8 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
             const slotEnd = getSlotEnd(booking);
             const slotEnded = !slotEnd || now >= slotEnd.getTime();
             const canCustomerComplete = booking.status === "Confirmed";
+            const slotStart = getSlotStart(booking);
+            const visitStarted = slotStart && now >= slotStart.getTime();
 
             const simpleTrackerSteps = [
               { num: 1, label: "Booked",               done: currentStep >= 1 },
@@ -264,7 +300,7 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
                         color: isCompleted ? "#15803d" : isCancelled ? "#b91c1c" : "#1d4ed8",
                       }}
                     >
-                      {booking.status}
+                      {STATUS_LABELS[booking.status] || booking.status}
                     </span>
                     <span style={{ fontSize: "1.3rem", fontWeight: 800, color: "var(--primary)" }}>
                       ₹{booking.totalPrice}
@@ -464,10 +500,10 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
                   )}
 
                   <div style={{ display: "flex", gap: "12px" }}>
-                    {/* Cancel — only for non-completed, non-cancelled */}
-                    {!isCompleted && !isCancelled && (
+                    {/* Cancel — only before the visit starts (free until 2h before) */}
+                    {!isCompleted && !isCancelled && !visitStarted && (
                       <button
-                        onClick={() => onCancelBooking(booking._id)}
+                        onClick={() => handleCancel(booking._id)}
                         style={{
                           padding: "10px 18px",
                           fontSize: "0.85rem",

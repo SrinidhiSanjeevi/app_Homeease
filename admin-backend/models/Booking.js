@@ -31,7 +31,16 @@ const bookingSchema = new mongoose.Schema(
       longitude: Number,
       accuracy: Number
     },
-    assignedDistanceKm: { type: Number }
+    assignedDistanceKm: { type: Number },
+    subtotal: { type: Number },
+    gst: { type: Number },
+    cancelledAt: { type: Date },
+    cancelledBy: { type: String, enum: ["customer", "admin", "system"] },
+    cancellationReason: { type: String },
+    cancellationFee: { type: Number, default: 0 },
+    // Refunds are issued by the backend scheduler for "Refund Pending".
+    refundAmount: { type: Number },
+    refundAttempts: { type: Number, default: 0 }
   },
   { timestamps: true }
 );

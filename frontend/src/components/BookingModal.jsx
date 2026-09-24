@@ -26,6 +26,13 @@ const CUSTOM_CATEGORIES = [
   { value: "Repair", label: "General Cleaning & Repair" },
 ];
 
+// Minutes after midnight when a slot starts, e.g. "03:00 PM - 05:00 PM" → 900.
+const slotStartMinutes = (value) => {
+  const m = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(value);
+  if (!m) return 0;
+  return ((Number(m[1]) % 12) + (m[3].toUpperCase() === "PM" ? 12 : 0)) * 60 + Number(m[2]);
+};
+
 const todayIso = () => {
   const d = new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -80,6 +87,44 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
 
   const activeCategory = service.isCustom ? customCategory : service.category;
 
+  // Slots that already started today can't be booked (the server rejects them too).
+  const isToday = date === todayIso();
+  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+  const slotHasStarted = (value) => isToday && slotStartMinutes(value) <= nowMinutes;
+
+  useEffect(() => {
+    if (slotHasStarted(timeSlot)) {
+      const next = TIME_SLOTS.find((slot) => !slotHasStarted(slot.value));
+      if (next) setTimeSlot(next.value);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
+
+  // Professionals already booked for the chosen date + slot.
+  const [bookedIds, setBookedIds] = useState([]);
+  useEffect(() => {
+    if (!date || !timeSlot) {
+      setBookedIds([]);
+      return undefined;
+    }
+    let alive = true;
+    fetch(`/api/services/professionals/availability?date=${date}&timeSlot=${encodeURIComponent(timeSlot)}`)
+      .then((r) => r.json())
+      .then((d) => alive && setBookedIds(d.success ? d.bookedProfessionalIds : []))
+      .catch(() => alive && setBookedIds([]));
+    return () => {
+      alive = false;
+    };
+  }, [date, timeSlot]);
+
+  // Why a professional can't be picked for this slot, or null if they can.
+  const unavailableReason = (prof) => {
+    if (!prof.locality) return "Outside area";
+    if (prof.status !== "Available") return "Unavailable";
+    if (bookedIds.includes(prof._id)) return "Booked";
+    return null;
+  };
+
   // Every pro in this category; busy ones are shown but not selectable.
   const categoryProfessionals = useMemo(
     () =>
@@ -88,14 +133,15 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
         .sort((a, b) => (a.status === "Available" ? 0 : 1) - (b.status === "Available" ? 0 : 1) || (b.rating || 0) - (a.rating || 0)),
     [professionals, activeCategory]
   );
-  const availableCount = categoryProfessionals.filter((p) => p.status === "Available" && p.locality).length;
+  const availableCount = categoryProfessionals.filter((p) => !unavailableReason(p)).length;
 
   useEffect(() => {
-    // Drop a stale choice if that pro is no longer available / in category
-    if (selectedProfessional && !categoryProfessionals.some((p) => p._id === selectedProfessional && p.status === "Available")) {
+    // Drop a stale choice if that pro is no longer free for this slot / in category
+    if (selectedProfessional && !categoryProfessionals.some((p) => p._id === selectedProfessional && !unavailableReason(p))) {
       setSelectedProfessional("");
     }
-  }, [categoryProfessionals, selectedProfessional]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryProfessionals, selectedProfessional, bookedIds]);
 
   const basePrice = service.price;
   const productExtra = (!service.isCustom && selectedProduct) ? selectedProduct.extraPrice : 0;
@@ -105,6 +151,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
 
   const handleNext = () => {
     if (step === 1 && !date) return setStepError("Please pick a date for your visit.");
+    if (step === 1 && slotHasStarted(timeSlot)) return setStepError("That time slot has already started. Please pick a later one.");
     if (step === 2 && service.isCustom && !customDescription.trim()) return setStepError("Please describe what you need done.");
     if (step === 3) {
       if (!location) return setStepError("Please set your service location so we can send the nearest professional.");
@@ -133,7 +180,6 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
     notes,
     selectedProduct: service.isCustom ? null : selectedProduct,
     paymentMethod: paymentMethodValue,
-    totalPrice: total,
     latitude: location?.latitude ?? null,
     longitude: location?.longitude ?? null,
     accuracy: location?.accuracy ?? null
@@ -183,6 +229,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
         return;
       }
 
+      let paid = false;
       const rzp = new window.Razorpay({
         key: orderRes.keyId,
         amount: orderRes.amount,
@@ -203,49 +250,38 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
             }),
           }).then(r => r.json());
 
+          paid = true;
           setProcessingPayment(false);
+          if (typeof onBookingSettled === "function") onBookingSettled();
           if (verifyRes.success) {
-            if (typeof onBookingSettled === "function") onBookingSettled();
             onClose();
           } else {
-            alert("Payment verification failed. Your booking ID is " + booking._id + " — contact support if the amount was deducted.");
+            alert(verifyRes.message || "Payment could not be verified. If money was deducted, it will be refunded automatically.");
           }
         },
         modal: {
-          ondismiss: function () {
+          // Customer closed checkout without paying: release the slot now
+          // instead of holding the professional until the booking expires.
+          ondismiss: async function () {
+            if (!paid) {
+              await fetch(`/api/bookings/${booking._id}/cancel`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ reason: "Checkout closed without payment" }),
+              }).catch(() => {});
+              if (typeof onBookingSettled === "function") onBookingSettled();
+            }
             setProcessingPayment(false);
           },
         },
         theme: { color: "#0E5E4F" },
       });
 
-      // FIX: Razorpay does NOT call `handler` on a bank decline — it fires
-      // this event instead. Without reporting it to the backend, the
-      // booking stays "Pending" and the claimed professional stays "Busy"
-      // forever. We call /verify with an empty signature — the HMAC check
-      // will correctly fail, which marks the Payment "Failure", cancels
-      // the booking, and releases the professional (see paymentController.js).
-      rzp.on("payment.failed", async function (response) {
-        console.error("Razorpay payment failed:", response.error);
-        try {
-          const meta = response.error?.metadata || {};
-          await fetch("/api/payments/verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              bookingId: booking._id,
-              razorpay_order_id: meta.order_id || orderRes.orderId,
-              razorpay_payment_id: meta.payment_id || "",
-              razorpay_signature: "",
-            }),
-          });
-          if (typeof onBookingSettled === "function") onBookingSettled();
-        } catch (reportErr) {
-          console.error("Failed to record payment failure:", reportErr);
-        } finally {
-          setProcessingPayment(false);
-          alert("Payment failed: " + (response.error?.description || "Please try again."));
-        }
+      // A declined attempt is NOT the end: Razorpay keeps the checkout open
+      // so the customer can retry with another method. The booking is only
+      // released when checkout is closed (ondismiss) or it expires unpaid.
+      rzp.on("payment.failed", function (response) {
+        console.warn("Razorpay payment attempt failed:", response.error?.description);
       });
 
       rzp.open();
@@ -323,18 +359,23 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
               <div className="form-group">
                 <span className="field-label">Time slot</span>
                 <div className="slot-grid">
-                  {TIME_SLOTS.map((slot) => (
-                    <button
-                      key={slot.value}
-                      type="button"
-                      className={`slot${timeSlot === slot.value ? " is-active" : ""}`}
-                      onClick={() => setTimeSlot(slot.value)}
-                      aria-pressed={timeSlot === slot.value}
-                    >
-                      <strong>{slot.label}</strong>
-                      <span>{slot.time}</span>
-                    </button>
-                  ))}
+                  {TIME_SLOTS.map((slot) => {
+                    const started = slotHasStarted(slot.value);
+                    return (
+                      <button
+                        key={slot.value}
+                        type="button"
+                        className={`slot${timeSlot === slot.value ? " is-active" : ""}`}
+                        onClick={() => setTimeSlot(slot.value)}
+                        aria-pressed={timeSlot === slot.value}
+                        disabled={started}
+                        style={started ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
+                      >
+                        <strong>{slot.label}</strong>
+                        <span>{started ? "Already started" : slot.time}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -354,15 +395,14 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                     </span>
                     <div style={{ flex: 1 }}>
                       <strong style={{ fontSize: "0.95rem" }}>Auto-assign best match</strong>
-                      <div className="field-hint">We pick the highest-rated professional who is free — fastest option.</div>
+                      <div className="field-hint">We pick the nearest professional who is free for this slot — fastest option.</div>
                     </div>
                     <span className="badge badge-completed">Recommended</span>
                   </label>
 
                   {categoryProfessionals.map((prof) => {
-                    // Only professionals with a service-area locality can take jobs.
-                    const noArea = !prof.locality;
-                    const busy = prof.status !== "Available" || noArea;
+                    const reason = unavailableReason(prof);
+                    const busy = Boolean(reason);
                     const active = selectedProfessional === prof._id;
                     return (
                       <label key={prof._id} className={`option-card${active ? " is-active" : ""}${busy ? " is-disabled" : ""}`}>
@@ -400,7 +440,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                             )}
                           </div>
                         </div>
-                        <span className={`badge ${busy ? "badge-pending" : "badge-completed"}`}>{noArea ? "Outside area" : busy ? "Busy" : "Available"}</span>
+                        <span className={`badge ${busy ? "badge-pending" : "badge-completed"}`}>{reason || "Available"}</span>
                       </label>
                     );
                   })}
@@ -408,7 +448,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                   {categoryProfessionals.length > 0 && availableCount === 0 && (
                     <div className="notice notice-info">
                       <Icon name="schedule" size={18} />
-                      <span>All {activeCategory} professionals are on jobs right now. Choose auto-assign and we&apos;ll confirm the first one who frees up.</span>
+                      <span>No {activeCategory} professional is free for this slot. Try another slot, or choose auto-assign and we&apos;ll confirm the first one who frees up.</span>
                     </div>
                   )}
                 </div>

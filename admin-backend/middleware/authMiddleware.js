@@ -27,6 +27,15 @@ const protect = async (req, res, next) => {
             process.env.JWT_SECRET
         );
 
+        // A "password OK, MFA pending" token is only good for /mfa/verify —
+        // never as a login, or MFA could be skipped entirely.
+        if (decoded.mfaPending) {
+            return res.status(401).json({
+                success: false,
+                message: "Two-factor verification required"
+            });
+        }
+
         req.user = await User.findById(decoded.id)
             .select("-password");
 
@@ -34,6 +43,15 @@ const protect = async (req, res, next) => {
             return res.status(401).json({
                 success: false,
                 message: "Not authorized, user not found"
+            });
+        }
+
+        // Deactivated accounts lose access immediately, not when the
+        // access token expires.
+        if (req.user.active === false) {
+            return res.status(401).json({
+                success: false,
+                message: "This account has been deactivated"
             });
         }
 

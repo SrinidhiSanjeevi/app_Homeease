@@ -271,10 +271,24 @@ const setupMfa = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    // Re-keying an already-enabled authenticator requires a valid code
+    // from the current one — a stolen session can't swap in its own.
+    if (user.isMfaEnabled && user.mfaSecret) {
+      const { code } = req.body || {};
+      if (!code || !verifyTotp(code, user.mfaSecret)) {
+        return res.status(400).json({
+          success: false,
+          message: "Enter a valid code from your current authenticator app to set up a new one"
+        });
+      }
+    }
+
     const secret = generateSecret();
     const otpAuthUrl = getOtpAuthUrl(user.email, secret, "HomeEase");
 
-    user.mfaSecret = secret;
+    // Kept separate until confirmed, so the current authenticator keeps
+    // working if the new setup is abandoned.
+    user.mfaPendingSecret = secret;
     await user.save();
 
     res.status(200).json({
@@ -295,15 +309,17 @@ const confirmMfa = async (req, res) => {
     const { code } = req.body;
     const user = await User.findById(req.user._id || req.user.id);
 
-    if (!user || !user.mfaSecret) {
+    if (!user || !user.mfaPendingSecret) {
       return res.status(400).json({ success: false, message: "Please run MFA setup first" });
     }
 
-    const isValid = verifyTotp(code, user.mfaSecret);
+    const isValid = verifyTotp(code, user.mfaPendingSecret);
     if (!isValid) {
       return res.status(400).json({ success: false, message: "Invalid verification code" });
     }
 
+    user.mfaSecret = user.mfaPendingSecret;
+    user.mfaPendingSecret = null;
     user.isMfaEnabled = true;
     await user.save();
 

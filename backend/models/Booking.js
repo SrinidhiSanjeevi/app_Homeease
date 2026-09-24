@@ -79,8 +79,7 @@ const bookingSchema = new mongoose.Schema(
       type: String,
       default: ""
     },
-    // Optional — only set when the customer explicitly shared their
-    // location via the browser Geolocation API at booking time.
+    // Customer location (required since the service-area change).
     location: {
       latitude: Number,
       longitude: Number,
@@ -90,7 +89,18 @@ const bookingSchema = new mongoose.Schema(
     // actually assigned, when nearest-provider matching was used.
     assignedDistanceKm: {
       type: Number
-    }
+    },
+    // Price breakdown computed on the server (services/pricing.js).
+    subtotal: { type: Number },
+    gst: { type: Number },
+    // Cancellation / refund bookkeeping.
+    cancelledAt: { type: Date },
+    cancelledBy: { type: String, enum: ["customer", "admin", "system"] },
+    cancellationReason: { type: String },
+    cancellationFee: { type: Number, default: 0 },
+    // Amount still to be refunded when paymentStatus is "Refund Pending".
+    refundAmount: { type: Number },
+    refundAttempts: { type: Number, default: 0 }
   },
   {
     timestamps: true
