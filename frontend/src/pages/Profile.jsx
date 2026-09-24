@@ -1,5 +1,5 @@
 import React from "react";
-import { User, Mail, ShieldCheck, DollarSign, CalendarCheck, Sparkles } from "../components/Icon";
+import { User, Mail, ShieldCheck, CalendarCheck, Sparkles } from "../components/Icon";
 
 export default function Profile({ user, bookings, onLogout }) {
   // Stats calculations
@@ -7,9 +7,6 @@ export default function Profile({ user, bookings, onLogout }) {
   const completedBookings = bookings.filter((b) => b.status === "Completed").length;
   const activeBookings = bookings.filter((b) => b.status === "Confirmed" || b.status === "Assigned").length;
   
-  const totalSpent = bookings
-    .filter((b) => b.status === "Completed" || b.status === "Confirmed")
-    .reduce((sum, b) => sum + (b.totalPrice || 0), 0);
 
   return (
     <div style={{ animation: "fadeInUp 0.4s ease-out", padding: "40px 0", maxWidth: "800px", margin: "0 auto" }}>
@@ -69,7 +66,7 @@ export default function Profile({ user, bookings, onLogout }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
           gap: "20px",
           marginBottom: "30px",
         }}
@@ -103,15 +100,6 @@ export default function Profile({ user, bookings, onLogout }) {
           </div>
         </div>
 
-        <div className="glass-card" style={{ padding: "20px", display: "flex", alignItems: "center", gap: "16px" }}>
-          <div style={{ background: "hsl(190, 90%, 95%)", color: "var(--secondary)", padding: "12px", borderRadius: "12px" }}>
-            <DollarSign size={24} />
-          </div>
-          <div>
-            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "block" }}>Total Investment</span>
-            <span style={{ fontSize: "1.4rem", fontWeight: 800, color: "var(--primary)" }}>₹{totalSpent}</span>
-          </div>
-        </div>
       </div>
 
       {/* Account Settings / General Info */}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Icon from "./Icon";
-import LocationCapture from "./LocationCapture";
+import LocationPicker from "./LocationPicker";
 
 const STEPS = [
   { step: 1, label: "Schedule" },
@@ -88,7 +88,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
         .sort((a, b) => (a.status === "Available" ? 0 : 1) - (b.status === "Available" ? 0 : 1) || (b.rating || 0) - (a.rating || 0)),
     [professionals, activeCategory]
   );
-  const availableCount = categoryProfessionals.filter((p) => p.status === "Available").length;
+  const availableCount = categoryProfessionals.filter((p) => p.status === "Available" && p.locality).length;
 
   useEffect(() => {
     // Drop a stale choice if that pro is no longer available / in category
@@ -107,6 +107,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
     if (step === 1 && !date) return setStepError("Please pick a date for your visit.");
     if (step === 2 && service.isCustom && !customDescription.trim()) return setStepError("Please describe what you need done.");
     if (step === 3) {
+      if (!location) return setStepError("Please set your service location so we can send the nearest professional.");
       if (!address.trim()) return setStepError("Please enter the service address.");
       if (!/^[6-9]\d{9}$/.test(contactNumber.replace(/\D/g, "").slice(-10))) return setStepError("Please enter a valid 10-digit mobile number.");
     }
@@ -359,7 +360,9 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                   </label>
 
                   {categoryProfessionals.map((prof) => {
-                    const busy = prof.status !== "Available";
+                    // Only professionals with a service-area locality can take jobs.
+                    const noArea = !prof.locality;
+                    const busy = prof.status !== "Available" || noArea;
                     const active = selectedProfessional === prof._id;
                     return (
                       <label key={prof._id} className={`option-card${active ? " is-active" : ""}${busy ? " is-disabled" : ""}`}>
@@ -383,6 +386,12 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                             </span>
                             <span className="dot" />
                             <span>{prof.experience} yrs experience</span>
+                            {prof.locality && (
+                              <>
+                                <span className="dot" />
+                                <span>{prof.locality}</span>
+                              </>
+                            )}
                             {prof.completedJobs > 0 && (
                               <>
                                 <span className="dot" />
@@ -391,7 +400,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                             )}
                           </div>
                         </div>
-                        <span className={`badge ${busy ? "badge-pending" : "badge-completed"}`}>{busy ? "Busy" : "Available"}</span>
+                        <span className={`badge ${busy ? "badge-pending" : "badge-completed"}`}>{noArea ? "Outside area" : busy ? "Busy" : "Available"}</span>
                       </label>
                     );
                   })}
@@ -461,6 +470,11 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
 
           {step === 3 && (
             <div style={{ animation: "fadeIn 0.2s ease" }}>
+              <LocationPicker
+                value={location}
+                onChange={(loc) => { setLocation(loc); setStepError(""); }}
+                onAddressFound={(found) => setAddress((prev) => (prev.trim() ? prev : found))}
+              />
               <div className="form-group">
                 <label htmlFor="bm-address">Service address</label>
                 <textarea
@@ -483,7 +497,6 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                   onChange={(e) => { setContactNumber(e.target.value); setStepError(""); }}
                 />
               </div>
-              <LocationCapture onLocationCaptured={setLocation} />
             </div>
           )}
 

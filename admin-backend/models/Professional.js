@@ -21,6 +21,9 @@ const professionalSchema = new mongoose.Schema(
     completedJobs: { type: Number, default: 0, min: 0 },
     // Mirrors backend/models/Professional.js — same collection, see
     // that file for the field-level reasoning.
+    // Service-area neighbourhood (services/serviceArea.js LOCALITIES);
+    // `location` below holds its coordinates.
+    locality: { type: String, trim: true, default: null },
     location: {
       type: { type: String, enum: ["Point"] },
       coordinates: { type: [Number] }

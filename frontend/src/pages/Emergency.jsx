@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import Icon, { Star, Loader2, AlertTriangle, XCircle, Check, MapPin } from "../components/Icon";
-import LocationCapture from "../components/LocationCapture";
+import LocationPicker from "../components/LocationPicker";
 
 // ------------------------------------------------------------------
 // Static config
@@ -138,7 +138,10 @@ export default function Emergency({
   const [description, setDescription] = useState("");
   const [contactNumber, setContactNumber] = useState(remembered.contactNumber || "");
   const [address, setAddress] = useState(remembered.address || "");
-  const [location, setLocation] = useState(null);
+  const [location, setLocation] = useState(() => {
+    const saved = remembered.location;
+    return saved && Number.isFinite(saved.latitude) && Number.isFinite(saved.longitude) ? saved : null;
+  });
 
   const [loading, setLoading] = useState(false);
   const [cancellingId, setCancellingId] = useState(null);
@@ -146,7 +149,7 @@ export default function Emergency({
   const cat = CATEGORIES.find((c) => c.value === category) || CATEGORIES[0];
   const sev = SEVERITIES.find((s) => s.key === severity) || SEVERITIES[1];
   const callPublic = cat.publicService && cat.publicService.when.includes(severity);
-  const isReady = description.trim() && contactNumber.trim() && address.trim();
+  const isReady = description.trim() && contactNumber.trim() && address.trim() && location;
 
   // Live clock for ETA countdowns, only while something is active.
   const [now, setNow] = useState(Date.now());
@@ -173,7 +176,12 @@ export default function Emergency({
   const submit = async () => {
     if (loading) return;
     if (!isReady) {
-      showToast("Please describe the emergency and add your phone number and address", "error");
+      showToast(
+        location
+          ? "Please describe the emergency and add your phone number and address"
+          : "Please set your location so we can send the nearest specialist",
+        "error"
+      );
       return;
     }
 
@@ -182,7 +190,7 @@ export default function Emergency({
       try {
         localStorage.setItem(
           REMEMBER_KEY,
-          JSON.stringify({ contactNumber: contactNumber.trim(), address: address.trim() })
+          JSON.stringify({ contactNumber: contactNumber.trim(), address: address.trim(), location })
         );
       } catch {
         /* storage unavailable — not critical */
@@ -200,7 +208,6 @@ export default function Emergency({
       });
 
       setDescription("");
-      setLocation(null);
     } catch (error) {
       showToast(error?.message || "Failed to dispatch emergency service", "error");
     } finally {
@@ -243,7 +250,7 @@ export default function Emergency({
             <span className="em-live-dot" /> 24×7 dispatch is live
           </span>
           <h1>Emergency help</h1>
-          <p>Tell us what&apos;s wrong in three quick steps. We send the nearest verified specialist and tell you exactly what to do until they arrive.</p>
+          <p>Tell us what&apos;s wrong in three quick steps. We send the nearest verified specialist in the Gachibowli area and tell you exactly what to do until they arrive.</p>
         </div>
 
         <div className="em-dial">
@@ -380,6 +387,13 @@ export default function Emergency({
               {remembered.address && <span className="em-remembered">Filled in from your last request</span>}
             </div>
 
+            <LocationPicker
+              label="Your location"
+              value={location}
+              onChange={setLocation}
+              onAddressFound={(found) => setAddress((prev) => (prev.trim() ? prev : found))}
+            />
+
             <div className="em-fields">
               <label className="em-field">
                 <Icon name="call" size={18} />
@@ -401,7 +415,6 @@ export default function Emergency({
               </label>
             </div>
 
-            <LocationCapture onLocationCaptured={setLocation} />
           </div>
 
           <HoldToSend loading={loading} ready={Boolean(isReady)} onConfirm={submit} onBlocked={submit} />

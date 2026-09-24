@@ -4,24 +4,19 @@ const Service = require("../models/Service");
 const Professional = require("../models/Professional");
 const Payment = require("../models/Payment");
 const Notification = require("../models/Notification");
-const { reassignWaitingWork, claimProfessional, claimNearestProfessional, haversineDistanceKm, canTransition } = require("../services/customerCore");
+const { reassignWaitingWork, claimNearestProfessional, haversineDistanceKm, canTransition } = require("../services/customerCore");
 const {
   processNotificationSimulation,
   processCompletionEmailNotification
 } = require("../services/simulationService");
 const { refundPayment } = require("../services/payment/paymentService");
 const { generateImageUrl } = require("../services/blobStorage");
+const { getScheduledEnd, hasScheduledTimeEnded } = require("../services/booking/bookingSchedule");
+const { checkCustomerLocation, MATCH_RADIUS_KM, EARTH_RADIUS_KM } = require("../services/serviceArea");
 const metrics = require("../metrics");
 const logger = require("../utils/logger");
 
 const DEFAULT_BOOKING_AMOUNT = 500;
-
-// ============================================================
-// CLAIM AVAILABLE PROFESSIONAL (Delegates to Authoritative Matcher)
-// ============================================================
-async function claimAvailableProfessional(filter = {}, session = null) {
-  return claimProfessional(filter, { session });
-}
 
 // Populated services only carry imageKey; attach the signed imageUrl so
 // each booking card shows its own service image instead of a placeholder.
@@ -55,15 +50,16 @@ const createBooking = async (req, res) => {
 
     const userId = req.user._id;
 
-    // Optional — only present when the customer explicitly shared their
-    // location. [longitude, latitude] is the order MongoDB geo queries
-    // expect (GeoJSON), not the usual lat-first spoken order.
-    const lat = Number(latitude);
-    const lng = Number(longitude);
-    const hasCoordinates =
-      Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
-      Number.isFinite(lng) && lng >= -180 && lng <= 180;
-    const coordinates = hasCoordinates ? [lng, lat] : null;
+    // Location is required and must be inside the service area
+    // (Gachibowli and surroundings). [longitude, latitude] is the order
+    // MongoDB geo queries expect (GeoJSON), not the spoken lat-first order.
+    const locationCheck = checkCustomerLocation(latitude, longitude);
+    if (!locationCheck.ok) {
+      return res.status(locationCheck.status).json({ success: false, message: locationCheck.message });
+    }
+    const lat = locationCheck.latitude;
+    const lng = locationCheck.longitude;
+    const coordinates = [lng, lat];
     let distanceKm = null;
 
     if (metrics && metrics.queueLength) {
@@ -90,50 +86,42 @@ const createBooking = async (req, res) => {
     try {
       await session.withTransaction(async () => {
         const matchStartTime = Date.now();
+        // Every assignment is "nearest available professional within the
+        // service radius" — professionals without a location, or too far
+        // away, are never assigned. No match → booking waits ("Assigned")
+        // and is picked up by reassignWaitingWork() when someone frees up.
         if (isCustom) {
           const targetCategory = customCategory || "Spa";
-
-          if (coordinates) {
-            const nearest = await claimNearestProfessional(targetCategory, coordinates, { session });
-            professional = nearest.professional;
-            distanceKm = nearest.distanceKm;
-          }
-          if (!professional) {
-            professional = await claimAvailableProfessional({ category: targetCategory }, session);
-          }
-          if (!professional) {
-            professional = await claimAvailableProfessional({}, session);
-          }
+          const nearest = await claimNearestProfessional(targetCategory, coordinates, { session });
+          professional = nearest.professional;
+          distanceKm = nearest.distanceKm;
         } else {
           if (serviceId) {
             service = await Service.findById(serviceId).session(session);
           }
 
+          // A professional the customer picked explicitly is honoured only
+          // when they are within reach of this address. $geoWithin (unlike
+          // $near) is allowed inside a transaction.
           if (professionalId) {
             professional = await Professional.findOneAndUpdate(
-              { _id: professionalId, status: "Available", active: true },
+              {
+                _id: professionalId,
+                status: "Available",
+                active: true,
+                location: {
+                  $geoWithin: { $centerSphere: [coordinates, MATCH_RADIUS_KM / EARTH_RADIUS_KM] }
+                }
+              },
               { $set: { status: "Busy" } },
               { new: true, session }
             );
           }
 
-          // Nearest-provider matching: only when the customer shared their
-          // location and didn't already pick a specific professional.
-          // Falls back to the existing best-rated matching below whenever
-          // no professional has a location set (or none is available) —
-          // this is additive, not a replacement for the existing path.
-          if (!professional && service && coordinates) {
+          if (!professional && service) {
             const nearest = await claimNearestProfessional(service.category, coordinates, { session });
             professional = nearest.professional;
             distanceKm = nearest.distanceKm;
-          }
-
-          if (!professional && service) {
-            professional = await claimAvailableProfessional({ category: service.category }, session);
-          }
-
-          if (!professional) {
-            professional = await claimAvailableProfessional({}, session);
           }
         }
 
@@ -169,9 +157,7 @@ const createBooking = async (req, res) => {
               paymentStatus: isCash ? "Pending (Cash on Delivery)" : "Pending",
               status: professional ? "Confirmed" : "Assigned",
               totalPrice: bookingAmount,
-              location: coordinates
-                ? { latitude: lat, longitude: lng, accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null }
-                : undefined,
+              location: { latitude: lat, longitude: lng, accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null },
               assignedDistanceKm: distanceKm
             }
           ],
@@ -384,20 +370,35 @@ const completeBooking = async (req, res) => {
       return res.status(401).json({ success: false, message: "User not authenticated" });
     }
 
-    // Completion is an admin-only action (done from the admin dashboard);
-    // customers and professionals can't mark a service completed.
-    if (req.user.role !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Only an admin can mark a service as completed"
-      });
-    }
-
     const { id } = req.params;
     const booking = await Booking.findById(id);
 
     if (!booking) {
       return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    // Admins can complete a booking at any time. The customer who owns the
+    // booking can only complete it once its booked time slot has ended.
+    const isAdmin = req.user.role === "admin";
+    const isOwner = booking.user && booking.user.toString() === req.user._id.toString();
+
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to complete this booking"
+      });
+    }
+
+    if (!isAdmin && !hasScheduledTimeEnded(booking)) {
+      const end = getScheduledEnd(booking);
+      return res.status(400).json({
+        success: false,
+        message: `You can mark this service completed after its time slot ends (${end.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })})`
+      });
+    }
+
+    if (booking.status === "Completed") {
+      return res.status(400).json({ success: false, message: "This booking is already completed" });
     }
 
     if (!canTransition(booking.status, "Completed")) {

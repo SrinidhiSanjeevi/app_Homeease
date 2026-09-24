@@ -13,9 +13,9 @@ const dispatchEmergencyRules = [
     .optional()
     .isIn(["Low", "Medium", "High", "Critical"])
     .withMessage("Severity must be one of: Low, Medium, High, Critical"),
-  // Optional — only sent when the customer used "Use my current location".
-  body("latitude").optional({ nullable: true }).isFloat({ min: -90, max: 90 }).withMessage("Latitude must be between -90 and 90"),
-  body("longitude").optional({ nullable: true }).isFloat({ min: -180, max: 180 }).withMessage("Longitude must be between -180 and 180"),
+  // Required — bookings are limited to the service area (services/serviceArea.js).
+  body("latitude").exists({ values: "null" }).withMessage("Location is required").bail().isFloat({ min: -90, max: 90 }).withMessage("Latitude must be between -90 and 90"),
+  body("longitude").exists({ values: "null" }).withMessage("Location is required").bail().isFloat({ min: -180, max: 180 }).withMessage("Longitude must be between -180 and 180"),
   body("accuracy").optional({ nullable: true }).isFloat({ min: 0 }).withMessage("Accuracy must be a positive number")
 ];
 

@@ -1,21 +1,18 @@
 /**
- * Backfill existing Professional documents with demo coordinates, so
- * nearest-provider matching has something to match against.
+ * Give existing professionals a base locality inside the HomeEase
+ * service area (Gachibowli, Hyderabad and surroundings).
  *
- * This does NOT create new professionals — it only adds a `location`
- * to ones that already exist (created via the admin panel), grouped
- * by category. For each category it demonstrates all three cases the
- * capstone spec asks for:
- *   - Provider A: ~1km from the reference point   → nearest, Available
- *   - Provider B: ~8km from the reference point   → farther, Available
- *   - Provider C: ~2km from the reference point   → closer than B,
- *                 but marked Busy, so it must be ignored
+ * Bookings and emergencies are only ever assigned to professionals with
+ * a location within MATCH_RADIUS_KM of the customer, so professionals
+ * created before localities existed (or seeded with the old demo
+ * coordinates) receive no jobs until this runs.
  *
- * A category with fewer than 3 professionals just gets what it can
- * (e.g. 1 professional = Provider A only).
+ * Within each category, professionals are spread round-robin across the
+ * localities in services/serviceArea.js. Status is left unchanged.
  *
  * Usage:
- *   node backend/scripts/seedProviderLocations.js
+ *   node backend/scripts/seedProviderLocations.js          # only those missing / outside the area
+ *   node backend/scripts/seedProviderLocations.js --all    # reassign everyone
  *
  * Reads MONGO_URI the same way scripts/seedAdmin.js does.
  */
@@ -23,18 +20,15 @@
 require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const Professional = require("../models/Professional");
+const { LOCALITIES, SERVICE_AREA, isWithinServiceArea } = require("../services/serviceArea");
 
-// Coimbatore, Tamil Nadu — arbitrary reference point, not tied to any
-// real customer address. Small offsets below approximate real-world
-// distances closely enough for a capstone demo (roughly 111km per
-// degree of latitude near the equator).
-const REFERENCE = { latitude: 11.0168, longitude: 76.9558 };
+const reassignAll = process.argv.includes("--all");
 
-const DEMO_OFFSETS = [
-  { label: "Provider A (nearest)", latDelta: 0.009, lngDelta: 0.0, status: "Available" }, // ~1km
-  { label: "Provider C (closer, but unavailable)", latDelta: 0.0, lngDelta: 0.018, status: "Busy" }, // ~2km
-  { label: "Provider B (farther)", latDelta: 0.07, lngDelta: 0.0, status: "Available" } // ~8km
-];
+function hasValidLocation(professional) {
+  const coords = professional.location?.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) return false;
+  return isWithinServiceArea(coords[1], coords[0]);
+}
 
 async function seedProviderLocations() {
   const mongoUri = process.env.MONGO_URI;
@@ -45,7 +39,7 @@ async function seedProviderLocations() {
 
   console.log("Connecting to database...");
   await mongoose.connect(mongoUri);
-  console.log("Connected to MongoDB.");
+  console.log(`Connected. Service area: ${SERVICE_AREA.name} (${SERVICE_AREA.radiusKm} km)`);
 
   const professionals = await Professional.find({ active: true }).sort({ category: 1, createdAt: 1 });
   const byCategory = new Map();
@@ -58,27 +52,24 @@ async function seedProviderLocations() {
   for (const [category, list] of byCategory.entries()) {
     console.log(`\n${category}: ${list.length} professional(s)`);
 
-    for (let i = 0; i < list.length && i < DEMO_OFFSETS.length; i++) {
+    for (let i = 0; i < list.length; i++) {
       const professional = list[i];
-      const offset = DEMO_OFFSETS[i];
+      if (!reassignAll && professional.locality && hasValidLocation(professional)) {
+        console.log(`  keep  ${professional.name} -> ${professional.locality}`);
+        continue;
+      }
 
-      professional.location = {
-        type: "Point",
-        coordinates: [
-          REFERENCE.longitude + offset.lngDelta,
-          REFERENCE.latitude + offset.latDelta
-        ]
-      };
-      professional.status = offset.status;
+      const locality = LOCALITIES[i % LOCALITIES.length];
+      professional.locality = locality.name;
+      professional.location = { type: "Point", coordinates: [locality.longitude, locality.latitude] };
       await professional.save();
       updated++;
 
-      console.log(`  ${offset.label}: ${professional.name} -> status=${offset.status}`);
+      console.log(`  set   ${professional.name} -> ${locality.name}`);
     }
   }
 
-  console.log(`\nDone. Updated ${updated} professional(s) with demo coordinates.`);
-  console.log(`Reference point (approximate "customer" location for testing): ${REFERENCE.latitude}, ${REFERENCE.longitude}`);
+  console.log(`\nDone. Updated ${updated} professional(s).`);
 
   await mongoose.disconnect();
   process.exit(0);

@@ -80,6 +80,9 @@ const professionalSchema = new mongoose.Schema(
     // location. Professionals without this field simply never match a
     // $near query, so nearest-provider matching falls back to the
     // existing rating-based claimProfessional for them automatically.
+    // Service-area neighbourhood (services/serviceArea.js LOCALITIES);
+    // `location` below holds its coordinates.
+    locality: { type: String, trim: true, default: null },
     location: {
       type: {
         type: String,

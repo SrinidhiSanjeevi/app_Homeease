@@ -1,11 +1,45 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Calendar, Clock, MapPin, User, Star, CheckCircle, CreditCard, Mail, ArrowRight, XCircle, Activity, TrendingUp, Check } from "../components/Icon";
 
-export default function Bookings({ bookings, onCancelBooking, onRateBooking, onAcceptBooking: _onAcceptBooking, isProfessionalMode }) {
+// When the booked slot ends, in the customer's local time. Dates are stored
+// as UTC midnight of the picked day; slots look like "09:00 AM - 11:00 AM".
+const getSlotEnd = (booking) => {
+  const date = new Date(booking.date);
+  if (Number.isNaN(date.getTime())) return null;
+  const times = [...String(booking.timeSlot || "").matchAll(/(\d{1,2}):(\d{2})\s*(AM|PM)/gi)];
+  const end = new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  if (times.length) {
+    const [, h, m, meridiem] = times[times.length - 1];
+    end.setHours((Number(h) % 12) + (meridiem.toUpperCase() === "PM" ? 12 : 0), Number(m));
+  } else {
+    end.setDate(end.getDate() + 1);
+  }
+  return end;
+};
+
+export default function Bookings({ bookings, onCancelBooking, onRateBooking, onCompleteBooking, onAcceptBooking: _onAcceptBooking, isProfessionalMode }) {
   const [ratingId, setRatingId] = useState(null);
   const [ratingVal, setRatingVal] = useState(5);
   const [reviewText, setReviewText] = useState("");
   const [filter, setFilter] = useState("All");
+  const [completingId, setCompletingId] = useState(null);
+
+  // Re-render every 30s so "Mark Service Completed" unlocks when a slot ends.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleComplete = async (bookingId) => {
+    if (!onCompleteBooking || !window.confirm("Mark this service as completed?")) return;
+    setCompletingId(bookingId);
+    try {
+      await onCompleteBooking(bookingId);
+    } finally {
+      setCompletingId(null);
+    }
+  };
 
   const handleRatingSubmit = (e, bookingId) => {
     e.preventDefault();
@@ -158,6 +192,9 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
             const isCash = booking.paymentMethod === "Cash" || booking.paymentMethod === "Cash on Delivery";
 
             const currentStep = getStepProgress(booking);
+            const slotEnd = getSlotEnd(booking);
+            const slotEnded = !slotEnd || now >= slotEnd.getTime();
+            const canCustomerComplete = booking.status === "Confirmed";
 
             const simpleTrackerSteps = [
               { num: 1, label: "Booked",               done: currentStep >= 1 },
@@ -395,11 +432,26 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
                 {/* ── ACTION BUTTONS ──────────────────────────────── */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", paddingTop: "8px" }}>
 
-                  {/* CUSTOMER VIEW: awaiting completion — only an admin can mark it completed */}
-                  {!isProfessionalMode && !isCompleted && !isCancelled && (
+                  {/* CUSTOMER VIEW: can mark completed once the booked slot has ended */}
+                  {!isProfessionalMode && canCustomerComplete && slotEnded && (
+                    <button
+                      onClick={() => handleComplete(booking._id)}
+                      disabled={completingId === booking._id}
+                      className="btn"
+                      style={{ padding: "10px 18px", fontSize: "0.9rem", fontWeight: 700, background: "#16a34a", color: "#fff", display: "flex", alignItems: "center", gap: "8px" }}
+                    >
+                      <CheckCircle size={16} />
+                      {completingId === booking._id ? "Completing…" : "Mark Service Completed"}
+                    </button>
+                  )}
+
+                  {/* CUSTOMER VIEW: slot not over yet (or not confirmed) — awaiting completion */}
+                  {!isProfessionalMode && !isCompleted && !isCancelled && !(canCustomerComplete && slotEnded) && (
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-muted)", fontWeight: 600, fontSize: "0.9rem" }}>
                       <Clock size={16} />
-                      Scheduled for {new Date(booking.date).toLocaleDateString()}, {booking.timeSlot} — awaiting completion
+                      {canCustomerComplete && slotEnd
+                        ? `You can mark this completed after ${slotEnd.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
+                        : `Scheduled for ${new Date(booking.date).toLocaleDateString()}, ${booking.timeSlot} — awaiting completion`}
                     </div>
                   )}
 
