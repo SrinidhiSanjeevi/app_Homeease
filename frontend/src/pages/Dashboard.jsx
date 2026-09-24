@@ -7,7 +7,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 
-export default function Dashboard({ services = [], onBookClick }) {
+export default function Dashboard({ services = [], onBookClick, onViewService }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
 
@@ -220,6 +220,7 @@ export default function Dashboard({ services = [], onBookClick }) {
               key={service._id}
               service={service}
               onBook={onBookClick}
+              onView={onViewService}
             />
           ))}
         </div>

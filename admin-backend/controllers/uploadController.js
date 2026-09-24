@@ -40,12 +40,17 @@ const MIME_TO_EXT = {
   "image/avif": "avif"
 };
 
+const FOLDER_TO_CONTAINER = {
+  services: "service-images",
+  professionals: "professional-images"
+};
+
 /**
  * POST /api/admin/upload
  * Query param: ?folder=services|professionals  (defaults to "services")
  * Multipart body field: image  (the file)
  *
- * Response 200: { imageKey: "services/uuid.jpg", imageUrl: "<SAS URL>" }
+ * Response 200: { imageKey: "service-images/uuid.jpg", imageUrl: "<SAS URL>" }
  * Response 400: invalid file type or missing file
  * Response 413: file too large
  * Response 500: Azure upload failure
@@ -72,7 +77,9 @@ async function uploadImage(req, res, next) {
 
     const ext = MIME_TO_EXT[req.file.mimetype] || "jpg";
     const blobName = `${randomUUID()}.${ext}`;
-    const containerName = folder;          // e.g. "services" or "professionals"
+    // Must match the containers Terraform provisions
+    // (Infrastructure_Homeease/terraform/persistent/azure-storage/main.tf).
+    const containerName = FOLDER_TO_CONTAINER[folder];
     const imageKey = `${containerName}/${blobName}`;
 
     try {

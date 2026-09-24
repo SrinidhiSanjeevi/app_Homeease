@@ -49,8 +49,10 @@ const verifyPayment = async (req, res) => {
       razorpaySignature: razorpay_signature
     });
 
-    return res.status(result.isValid ? 200 : 400).json({
-      success: result.isValid,
+    // payment-service responds with { success, booking, payment } — not the
+    // internal { isValid, ... } shape its service layer returns.
+    return res.status(result.success ? 200 : 400).json({
+      success: result.success === true,
       booking: result.booking,
       payment: result.payment
     });

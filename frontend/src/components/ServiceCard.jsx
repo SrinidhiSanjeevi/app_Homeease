@@ -1,7 +1,7 @@
 import React from "react";
 import { Star, Clock, Check } from "lucide-react";
 
-export default function ServiceCard({ service, onBook }) {
+export default function ServiceCard({ service, onBook, onView }) {
   return (
     <div
       className="glass-card"
@@ -12,7 +12,9 @@ export default function ServiceCard({ service, onBook }) {
         borderRadius: "16px",
         overflow: "hidden",
         position: "relative",
+        cursor: onView ? "pointer" : "default",
       }}
+      onClick={() => onView && onView(service)}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = "translateY(-4px)";
         e.currentTarget.style.boxShadow = "var(--shadow-lg)";
@@ -146,7 +148,12 @@ export default function ServiceCard({ service, onBook }) {
               ₹{service.price}
             </span>
           </div>
-          <button onClick={() => onBook(service)} className="btn btn-primary" style={{ padding: "10px 16px" }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onBook(service);
+            }}
+            className="btn btn-primary" style={{ padding: "10px 16px" }}>
             Book Now
           </button>
         </div>
