@@ -10,6 +10,17 @@ import BookingModal from "./components/BookingModal";
 import Toast from "./components/Toast";
 
 // ============================================================
+// URL HELPERS — /services/:id deep links to a service page
+// ============================================================
+
+const SERVICE_PATH = /^\/services\/([a-f0-9]{24})\/?$/i;
+
+const getServiceIdFromUrl = () => {
+  const match = window.location.pathname.match(SERVICE_PATH);
+  return match ? match[1] : null;
+};
+
+// ============================================================
 // SAFE LOCAL STORAGE HELPERS
 // ============================================================
 
@@ -60,9 +71,34 @@ export default function App() {
   const [bookingProduct, setBookingProduct] =
     useState(null);
 
-  // Service whose detail page is open (null = service grid)
-  const [viewService, setViewService] =
-    useState(null);
+  // Id of the service whose detail page is open (null = service grid).
+  // Kept in sync with the URL so refresh, sharing and Back all work.
+  const [viewServiceId, setViewServiceId] =
+    useState(() => getServiceIdFromUrl());
+
+  const openService = (service) => {
+    if (!service?._id) return;
+    window.history.pushState({ serviceId: service._id }, "", `/services/${service._id}`);
+    setViewServiceId(service._id);
+  };
+
+  const closeService = ({ useHistory = true } = {}) => {
+    if (useHistory && window.history.state?.serviceId) {
+      // We pushed this entry ourselves — pop it so Back/Forward stay sane.
+      window.history.back();
+      return;
+    }
+    if (getServiceIdFromUrl()) {
+      window.history.pushState(null, "", "/");
+    }
+    setViewServiceId(null);
+  };
+
+  useEffect(() => {
+    const onPopState = () => setViewServiceId(getServiceIdFromUrl());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const [toast, setToast] = useState(null);
 
@@ -115,7 +151,7 @@ export default function App() {
     setBookings([]);
     setActiveEmergencies([]);
     setBookingService(null);
-    setViewService(null);
+    closeService({ useHistory: false });
 
     setActiveTab("dashboard");
 
@@ -765,7 +801,7 @@ export default function App() {
       <Navbar
         activeTab={activeTab}
         setActiveTab={(tab) => {
-          setViewService(null);
+          closeService({ useHistory: false });
           setActiveTab(tab);
         }}
         user={user}
@@ -780,23 +816,27 @@ export default function App() {
         }}
       >
         {/* Dashboard */}
-        {activeTab === "dashboard" && !viewService && (
+        {activeTab === "dashboard" && !viewServiceId && (
           <Dashboard
             services={services}
             onBookClick={(service) => {
               setBookingProduct(null);
               setBookingService(service);
             }}
-            onViewService={setViewService}
+            onViewService={openService}
           />
         )}
 
         {/* Service Detail */}
-        {activeTab === "dashboard" && viewService && (
+        {activeTab === "dashboard" && viewServiceId && (
           <ServiceDetail
-            service={viewService}
+            key={viewServiceId}
+            serviceId={viewServiceId}
+            initialService={services.find((s) => s._id === viewServiceId)}
+            services={services}
             professionals={professionals}
-            onBack={() => setViewService(null)}
+            onBack={() => closeService()}
+            onViewService={openService}
             onBook={(service, product) => {
               setBookingProduct(product);
               setBookingService(service);

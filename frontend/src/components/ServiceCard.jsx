@@ -1,6 +1,12 @@
 import React from "react";
 import { Star, Clock, Check } from "lucide-react";
 
+export const FALLBACK_IMAGE =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="#f5f5f5"/><text x="50%" y="50%" fill="#a3a3a3" font-family="sans-serif" font-size="16" text-anchor="middle" dominant-baseline="middle">Image unavailable</text></svg>'
+  );
+
 export default function ServiceCard({ service, onBook, onView }) {
   return (
     <div
@@ -15,6 +21,15 @@ export default function ServiceCard({ service, onBook, onView }) {
         cursor: onView ? "pointer" : "default",
       }}
       onClick={() => onView && onView(service)}
+      role={onView ? "link" : undefined}
+      tabIndex={onView ? 0 : undefined}
+      aria-label={onView ? `View details for ${service.name}` : undefined}
+      onKeyDown={(e) => {
+        if (onView && e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onView(service);
+        }
+      }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = "translateY(-4px)";
         e.currentTarget.style.boxShadow = "var(--shadow-lg)";
@@ -30,6 +45,11 @@ export default function ServiceCard({ service, onBook, onView }) {
         <img
           src={service.imageUrl || service.image}
           alt={service.imageAlt || service.name}
+          loading="lazy"
+          onError={(e) => {
+            e.currentTarget.onerror = null;
+            e.currentTarget.src = FALLBACK_IMAGE;
+          }}
           style={{
             width: "100%",
             height: "100%",

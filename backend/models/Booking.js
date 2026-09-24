@@ -100,6 +100,7 @@ const bookingSchema = new mongoose.Schema(
 bookingSchema.index({ user: 1, createdAt: -1 });        // user booking history
 bookingSchema.index({ professional: 1, status: 1 });   // professional job queries
 bookingSchema.index({ status: 1, createdAt: 1 });       // reassignment sweep queries
+bookingSchema.index({ service: 1, status: 1, updatedAt: -1 }); // public service reviews
 
 module.exports =
   mongoose.models.Booking ||

@@ -8,20 +8,149 @@ import {
   Users,
   BadgeCheck,
   Package,
+  Share2,
+  MessageSquare,
+  AlertCircle,
 } from "lucide-react";
+import { FALLBACK_IMAGE } from "../components/ServiceCard";
 
-export default function ServiceDetail({ service, professionals = [], onBack, onBook }) {
-  const products = service.products || [];
-  const [selectedProduct, setSelectedProduct] = useState(products[0] || null);
+const formatDate = (value) =>
+  value ? new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "";
+
+export default function ServiceDetail({
+  serviceId,
+  initialService,
+  services = [],
+  professionals = [],
+  onBack,
+  onBook,
+  onViewService,
+}) {
+  const [service, setService] = useState(initialService || null);
+  const [status, setStatus] = useState(initialService ? "ready" : "loading");
+  const [selectedProduct, setSelectedProduct] = useState(initialService?.products?.[0] || null);
+  const [reviewsData, setReviewsData] = useState({ reviews: [], breakdown: {}, total: 0 });
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [shareLabel, setShareLabel] = useState("Share");
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [service._id]);
+  }, [serviceId]);
+
+  // Always fetch the latest copy — covers deep links / refresh and keeps
+  // price, rating and options fresh even when the grid data is stale.
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch(`/api/services/${serviceId}`, { signal: controller.signal })
+      .then(async (res) => {
+        if (res.status === 404) {
+          setStatus("notfound");
+          return;
+        }
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || "Failed to load service");
+        setService(data.service);
+        setSelectedProduct((prev) =>
+          data.service.products?.find((p) => p.name === prev?.name) || data.service.products?.[0] || null
+        );
+        setStatus("ready");
+      })
+      .catch((err) => {
+        if (err.name === "AbortError") return;
+        console.error("Fetch service error:", err);
+        // Keep showing grid data if we have it; otherwise surface the error.
+        setStatus((prev) => (prev === "ready" ? prev : "error"));
+      });
+
+    fetch(`/api/services/${serviceId}/reviews?limit=10`, { signal: controller.signal })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) setReviewsData(data);
+      })
+      .catch((err) => {
+        if (err.name !== "AbortError") console.error("Fetch reviews error:", err);
+      })
+      .finally(() => setReviewsLoading(false));
+
+    return () => controller.abort();
+  }, [serviceId]);
+
+  useEffect(() => {
+    if (!service) return undefined;
+    const previousTitle = document.title;
+    document.title = `${service.name} · HomeEase`;
+    return () => {
+      document.title = previousTitle;
+    };
+  }, [service]);
+
+  const relatedServices = useMemo(
+    () =>
+      service
+        ? services.filter((s) => s.category === service.category && s._id !== service._id).slice(0, 3)
+        : [],
+    [services, service]
+  );
 
   const categoryPros = useMemo(
-    () => professionals.filter((p) => p.category === service.category),
-    [professionals, service.category]
+    () => (service ? professionals.filter((p) => p.category === service.category) : []),
+    [professionals, service]
   );
+
+  const handleShare = async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: service.name, text: service.description, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      setShareLabel("Link copied");
+    } catch (err) {
+      if (err?.name === "AbortError") return; // user closed the share sheet
+      setShareLabel("Copy failed");
+    }
+    setTimeout(() => setShareLabel("Share"), 2000);
+  };
+
+  if (status === "loading") {
+    return (
+      <div style={{ padding: "24px 0 60px" }} aria-busy="true">
+        <div className="skeleton" style={{ width: "160px", height: "38px", marginBottom: "20px" }} />
+        <div className="service-detail-grid">
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <div className="skeleton" style={{ height: "380px", borderRadius: "var(--radius-lg)" }} />
+            <div className="skeleton" style={{ height: "36px", width: "60%" }} />
+            <div className="skeleton" style={{ height: "80px" }} />
+          </div>
+          <div className="skeleton" style={{ height: "360px", borderRadius: "var(--radius-lg)" }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "notfound" || status === "error") {
+    return (
+      <div style={{ padding: "80px 20px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+        <AlertCircle size={40} color="var(--text-muted)" />
+        <h2 style={{ fontSize: "1.3rem", fontWeight: 800 }}>
+          {status === "notfound" ? "This service isn't available" : "Couldn't load this service"}
+        </h2>
+        <p style={{ color: "var(--text-muted)", maxWidth: "380px" }}>
+          {status === "notfound"
+            ? "It may have been removed or is temporarily inactive."
+            : "Please check your connection and try again."}
+        </p>
+        <button onClick={onBack} className="btn btn-primary" style={{ marginTop: "8px" }}>
+          <ArrowLeft size={16} /> Back to services
+        </button>
+      </div>
+    );
+  }
+
+  const products = service.products || [];
+
   const availableCount = categoryPros.filter((p) => p.status === "Available").length;
 
   const productExtra = selectedProduct ? selectedProduct.extraPrice : 0;
@@ -41,9 +170,14 @@ export default function ServiceDetail({ service, professionals = [], onBack, onB
 
   return (
     <div style={{ padding: "24px 0 60px", animation: "fadeIn 0.2s ease" }}>
-      <button onClick={onBack} className="btn btn-secondary" style={{ marginBottom: "20px", padding: "8px 14px" }}>
-        <ArrowLeft size={16} /> Back to services
-      </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+        <button onClick={onBack} className="btn btn-secondary" style={{ padding: "8px 14px" }}>
+          <ArrowLeft size={16} /> Back to services
+        </button>
+        <button onClick={handleShare} className="btn btn-secondary" style={{ padding: "8px 14px" }} aria-live="polite">
+          <Share2 size={16} /> {shareLabel}
+        </button>
+      </div>
 
       <div className="service-detail-grid">
         {/* ================= LEFT: INFO ================= */}
@@ -52,6 +186,10 @@ export default function ServiceDetail({ service, professionals = [], onBack, onB
             <img
               src={service.imageUrl || service.image}
               alt={service.imageAlt || service.name}
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src = FALLBACK_IMAGE;
+              }}
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
             <span
@@ -178,10 +316,117 @@ export default function ServiceDetail({ service, professionals = [], onBack, onB
               </div>
             ) : (
               <p style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
-                No specialists listed yet. We'll auto-assign the best available professional.
+                No specialists listed yet. We&apos;ll auto-assign the best available professional.
               </p>
             )}
           </section>
+
+          {/* Reviews */}
+          <section>
+            <h2 style={{ fontSize: "1.2rem", fontWeight: 800, marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+              <MessageSquare size={20} /> Customer Reviews
+            </h2>
+            {reviewsLoading ? (
+              <div className="skeleton" style={{ height: "120px", borderRadius: "var(--radius-md)" }} />
+            ) : reviewsData.total === 0 ? (
+              <p style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
+                No reviews yet — be the first to book and rate this service.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div className="glass-card service-detail-rating" style={{ padding: "16px", borderRadius: "var(--radius-md)" }}>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "2.2rem", fontWeight: 800, lineHeight: 1 }}>{service.rating || "–"}</div>
+                    <div style={{ display: "flex", justifyContent: "center", gap: "2px", margin: "6px 0" }}>
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <Star
+                          key={n}
+                          size={14}
+                          fill={n <= Math.round(service.rating || 0) ? "var(--warning)" : "none"}
+                          stroke="var(--warning)"
+                        />
+                      ))}
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{reviewsData.total} ratings</div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
+                    {[5, 4, 3, 2, 1].map((n) => {
+                      const count = reviewsData.breakdown?.[n] || 0;
+                      const pct = reviewsData.total ? (count / reviewsData.total) * 100 : 0;
+                      return (
+                        <div key={n} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.75rem" }}>
+                          <span style={{ width: "10px" }}>{n}</span>
+                          <div style={{ flex: 1, height: "8px", background: "var(--primary-light)", borderRadius: "4px", overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: "var(--warning)" }} />
+                          </div>
+                          <span style={{ width: "28px", textAlign: "right", color: "var(--text-muted)" }}>{count}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {reviewsData.reviews.map((r) => (
+                  <div key={r._id} style={{ paddingBottom: "14px", borderBottom: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ width: "32px", height: "32px", borderRadius: "50%", background: "var(--primary)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.8rem" }}>
+                          {r.author[0]}
+                        </span>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{r.author}</div>
+                          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                            {formatDate(r.date)}
+                            {r.product ? ` · ${r.product}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <span style={{ display: "flex", alignItems: "center", gap: "3px", fontWeight: 700, fontSize: "0.85rem" }}>
+                        <Star size={14} fill="var(--warning)" stroke="var(--warning)" /> {r.rating}
+                      </span>
+                    </div>
+                    {r.review && (
+                      <p style={{ fontSize: "0.9rem", color: "var(--text-main)", lineHeight: 1.6 }}>{r.review}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Related services */}
+          {relatedServices.length > 0 && (
+            <section>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 800, marginBottom: "12px" }}>
+                More {service.category} services
+              </h2>
+              <div className="service-detail-pros">
+                {relatedServices.map((rs) => (
+                  <button
+                    key={rs._id}
+                    onClick={() => onViewService(rs)}
+                    className="glass-card"
+                    style={{ display: "flex", flexDirection: "column", textAlign: "left", padding: 0, borderRadius: "var(--radius-md)", overflow: "hidden", cursor: "pointer", border: "1px solid var(--border)" }}
+                  >
+                    <img
+                      src={rs.imageUrl || rs.image}
+                      alt={rs.imageAlt || rs.name}
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = FALLBACK_IMAGE;
+                      }}
+                      style={{ width: "100%", height: "120px", objectFit: "cover" }}
+                    />
+                    <div style={{ padding: "12px" }}>
+                      <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "4px" }}>{rs.name}</div>
+                      <div style={{ fontSize: "0.85rem", fontWeight: 800 }}>₹{rs.price}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
 
         {/* ================= RIGHT: BOOKING CARD ================= */}
