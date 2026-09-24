@@ -12,7 +12,7 @@ const serviceSchema = new mongoose.Schema(
     category: {
       type: String,
       required: true,
-      enum: ["Spa", "Electrician", "Carpentry", "Plumbing", "Security", "Repair"],
+      enum: ["Spa", "Electrician", "Carpentry", "Plumbing", "Security", "Repair", "Cleaning"],
       index: true
     },
     price: { type: Number, required: true, min: 0 },

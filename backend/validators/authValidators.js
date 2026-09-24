@@ -17,8 +17,14 @@ const signupRules = [
   body("password")
     .notEmpty()
     .withMessage("Password is required")
-    .isLength({ min: 8 })
-    .withMessage("Password must be at least 8 characters")
+    .isLength({ min: 8, max: 128 })
+    .withMessage("Password must be 8–128 characters")
+    .matches(/[a-z]/)
+    .withMessage("Password must include a lowercase letter")
+    .matches(/[A-Z]/)
+    .withMessage("Password must include an uppercase letter")
+    .matches(/\d/)
+    .withMessage("Password must include a number")
 ];
 
 const loginRules = [

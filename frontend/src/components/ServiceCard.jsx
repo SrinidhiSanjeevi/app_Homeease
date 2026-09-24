@@ -1,25 +1,20 @@
 import React from "react";
-import { Star, Clock, Check } from "lucide-react";
+import Icon from "./Icon";
 
 export const FALLBACK_IMAGE =
   "data:image/svg+xml;utf8," +
   encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="#f5f5f5"/><text x="50%" y="50%" fill="#a3a3a3" font-family="sans-serif" font-size="16" text-anchor="middle" dominant-baseline="middle">Image unavailable</text></svg>'
+    '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="250"><rect width="100%" height="100%" fill="#eef0ee"/><text x="50%" y="50%" fill="#9aa39f" font-family="sans-serif" font-size="15" text-anchor="middle" dominant-baseline="middle">Image unavailable</text></svg>'
   );
 
+export const formatCount = (n = 0) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${n}`);
+
 export default function ServiceCard({ service, onBook, onView }) {
+  const reviewCount = service.ratingCount || 0;
+
   return (
-    <div
-      className="glass-card"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        borderRadius: "16px",
-        overflow: "hidden",
-        position: "relative",
-        cursor: onView ? "pointer" : "default",
-      }}
+    <article
+      className="card service-card"
       onClick={() => onView && onView(service)}
       role={onView ? "link" : undefined}
       tabIndex={onView ? 0 : undefined}
@@ -30,154 +25,71 @@ export default function ServiceCard({ service, onBook, onView }) {
           onView(service);
         }
       }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-4px)";
-        e.currentTarget.style.boxShadow = "var(--shadow-lg)";
-        e.currentTarget.style.borderColor = "var(--primary)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0)";
-        e.currentTarget.style.boxShadow = "var(--shadow-md)";
-        e.currentTarget.style.borderColor = "var(--border)";
-      }}
     >
-      <div style={{ position: "relative", height: "200px", overflow: "hidden" }}>
+      <div className="service-card-media">
         <img
-          src={service.imageUrl || service.image}
+          src={service.imageUrl || service.image || FALLBACK_IMAGE}
           alt={service.imageAlt || service.name}
           loading="lazy"
           onError={(e) => {
             e.currentTarget.onerror = null;
             e.currentTarget.src = FALLBACK_IMAGE;
           }}
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            transition: "transform 0.5s ease",
-          }}
-          onMouseEnter={(e) => (e.target.style.transform = "scale(1.08)")}
-          onMouseLeave={(e) => (e.target.style.transform = "scale(1)")}
         />
-        <div
-          style={{
-            position: "absolute",
-            top: "12px",
-            left: "12px",
-            background: "rgba(15, 23, 42, 0.6)",
-            backdropFilter: "blur(4px)",
-            color: "white",
-            padding: "4px 12px",
-            borderRadius: "20px",
-            fontSize: "0.75rem",
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-          }}
-        >
-          {service.category}
-        </div>
-        <div
-          style={{
-            position: "absolute",
-            bottom: "12px",
-            right: "12px",
-            background: "white",
-            color: "var(--text-main)",
-            padding: "4px 8px",
-            borderRadius: "8px",
-            display: "flex",
-            alignItems: "center",
-            gap: "4px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-            fontWeight: 700,
-            fontSize: "0.8rem",
-          }}
-        >
-          <Star size={14} fill="var(--warning)" stroke="var(--warning)" />
-          {service.rating || "New"}
-        </div>
+        <span className="service-card-tag">{service.category}</span>
       </div>
 
-      <div
-        style={{
-          padding: "20px",
-          display: "flex",
-          flexDirection: "column",
-          flexGrow: 1,
-          gap: "10px",
-        }}
-      >
-        <h3
-          style={{
-            fontSize: "1.1rem",
-            fontWeight: 700,
-            color: "var(--text-main)",
-            lineHeight: 1.3,
-          }}
-        >
-          {service.name}
-        </h3>
-        
-        <p
-          style={{
-            fontSize: "0.85rem",
-            color: "var(--text-muted)",
-            lineHeight: 1.5,
-            flexGrow: 1,
-          }}
-        >
-          {service.description}
-        </p>
+      <div className="service-card-body">
+        <h3>{service.name}</h3>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            fontSize: "0.8rem",
-            color: "var(--text-muted)",
-            paddingBottom: "10px",
-            borderBottom: "1px solid var(--border)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            <Clock size={14} />
-            <span>{service.duration}</span>
-          </div>
-          {service.products && service.products.length > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "var(--secondary)" }}>
-              <Check size={14} />
-              <span>Custom Brands</span>
-            </div>
+        <div className="service-card-meta">
+          {service.rating ? (
+            <span className="rating-pill">
+              <Icon name="star" size={16} filled />
+              {Number(service.rating).toFixed(1)}
+              <span style={{ fontWeight: 500, color: "var(--text-muted)" }}>
+                ({formatCount(reviewCount)} {reviewCount === 1 ? "review" : "reviews"})
+              </span>
+            </span>
+          ) : (
+            <span className="rating-pill" style={{ color: "var(--brand)" }}>New</span>
+          )}
+          {service.duration && (
+            <>
+              <span className="dot" />
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon name="schedule" size={15} /> {service.duration}
+              </span>
+            </>
           )}
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginTop: "10px",
-          }}
-        >
-          <div>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>
-              Starting from
-            </span>
-            <span style={{ fontSize: "1.3rem", fontWeight: 800, color: "var(--primary)" }}>
-              ₹{service.price}
-            </span>
+        <p className="service-card-desc">{service.description}</p>
+
+        {service.products?.length > 0 && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: "0.78rem", color: "var(--brand)", fontWeight: 600 }}>
+            <Icon name="inventory_2" size={15} /> {service.products.length} package{service.products.length > 1 ? "s" : ""} available
+          </span>
+        )}
+
+        <div className="service-card-foot">
+          <div className="price">
+            <small>Starts at</small>₹{service.price}
           </div>
           <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ minHeight: 40, padding: "0 18px", borderColor: "var(--brand)", color: "var(--brand)" }}
             onClick={(e) => {
               e.stopPropagation();
               onBook(service);
             }}
-            className="btn btn-primary" style={{ padding: "10px 16px" }}>
-            Book Now
+          >
+            Book
+            <Icon name="arrow_forward" size={18} />
           </button>
         </div>
       </div>
-    </div>
+    </article>
   );
 }

@@ -8,6 +8,7 @@ import ServiceDetail from "./pages/ServiceDetail";
 import Navbar from "./components/Navbar";
 import BookingModal from "./components/BookingModal";
 import Toast from "./components/Toast";
+import Footer from "./components/Footer";
 
 // ============================================================
 // URL HELPERS — /services/:id deep links to a service page
@@ -477,62 +478,6 @@ export default function App() {
   };
 
   // ============================================================
-  // PROFESSIONAL COMPLETE BOOKING
-  // ============================================================
-
-  const handleCompleteBooking = async (
-    bookingId
-  ) => {
-    if (!token || !bookingId) {
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `/api/bookings/${bookingId}/complete`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (response.ok && data.success) {
-        showToast(
-          data.message ||
-            "Booking completed successfully",
-          "success"
-        );
-
-        await Promise.all([
-          fetchBookings(),
-          fetchProfessionals()
-        ]);
-      } else {
-        showToast(
-          data.message ||
-            "Failed to complete booking",
-          "error"
-        );
-      }
-    } catch (error) {
-      console.error(
-        "Complete booking error:",
-        error
-      );
-
-      showToast(
-        "Server communication error",
-        "error"
-      );
-    }
-  };
-
-  // ============================================================
   // CANCEL BOOKING
   // ============================================================
 
@@ -796,25 +741,21 @@ export default function App() {
   // USER / PROFESSIONAL APPLICATION
   // ============================================================
 
+  const navigate = (tab) => {
+    closeService({ useHistory: false });
+    setActiveTab(tab);
+  };
+
   return (
-    <div>
+    <>
       <Navbar
         activeTab={activeTab}
-        setActiveTab={(tab) => {
-          closeService({ useHistory: false });
-          setActiveTab(tab);
-        }}
+        setActiveTab={navigate}
         user={user}
         onLogout={handleLogout}
       />
 
-      <div
-        style={{
-          maxWidth: "1280px",
-          margin: "0 auto",
-          padding: "0 24px"
-        }}
-      >
+      <main className="app-shell page">
         {/* Dashboard */}
         {activeTab === "dashboard" && !viewServiceId && (
           <Dashboard
@@ -857,9 +798,6 @@ export default function App() {
             onAcceptBooking={
               handleAcceptBooking
             }
-            onCompleteBooking={
-              handleCompleteBooking
-            }
             isProfessionalMode={
               user.role === "professional"
             }
@@ -888,7 +826,9 @@ export default function App() {
             onLogout={handleLogout}
           />
         )}
-      </div>
+      </main>
+
+      <Footer onNavigate={navigate} />
 
       {/* Booking Modal */}
       {bookingService && (
@@ -916,6 +856,6 @@ export default function App() {
           }
         />
       )}
-    </div>
+    </>
   );
 }

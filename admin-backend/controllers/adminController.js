@@ -7,6 +7,7 @@ const EmergencyRequest = require("../models/EmergencyRequest");
 const AuditLog = require("../models/AuditLog");
 const { reassignWaitingWork } = require("../services/professionalMatcher");
 const { canTransition } = require("../services/booking/bookingStateMachine");
+const { getScheduledStart, hasScheduledTimeStarted } = require("../services/booking/bookingSchedule");
 const logger = require("../utils/logger");
 const { parsePagination, formatPaginationResult } = require("../utils/pagination");
 const { attachImageUrls } = require("../services/blobStorage");
@@ -221,6 +222,15 @@ const updateBookingStatus = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `Illegal booking status transition from '${existingBooking.status}' to '${status}'`
+      });
+    }
+
+    // A service can't be completed before its booked slot has even started.
+    if (status === "Completed" && existingBooking.status !== "Completed" && !hasScheduledTimeStarted(existingBooking)) {
+      const start = getScheduledStart(existingBooking);
+      return res.status(400).json({
+        success: false,
+        message: `Cannot complete this booking before its scheduled time (${start.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })})`
       });
     }
 

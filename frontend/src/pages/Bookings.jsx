@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { Calendar, Clock, MapPin, User, Star, CheckCircle, CreditCard, Mail, ArrowRight, XCircle, Activity, TrendingUp } from "lucide-react";
+import { Calendar, Clock, MapPin, User, Star, CheckCircle, CreditCard, Mail, ArrowRight, XCircle, Activity, TrendingUp, Check } from "../components/Icon";
 
-export default function Bookings({ bookings, onCancelBooking, onRateBooking, onAcceptBooking: _onAcceptBooking, onCompleteBooking, isProfessionalMode }) {
+export default function Bookings({ bookings, onCancelBooking, onRateBooking, onAcceptBooking: _onAcceptBooking, isProfessionalMode }) {
   const [ratingId, setRatingId] = useState(null);
   const [ratingVal, setRatingVal] = useState(5);
   const [reviewText, setReviewText] = useState("");
@@ -47,9 +47,9 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
     {
       label: "Total Bookings",
       value: totalCount,
-      color: "#6366f1",
-      bg: "rgba(99,102,241,0.1)",
-      icon: <Activity size={20} color="#6366f1" />,
+      color: "#0e5e4f",
+      bg: "rgba(14, 94, 79,0.1)",
+      icon: <Activity size={20} color="#0e5e4f" />,
     },
     {
       label: "Active / In-Progress",
@@ -131,14 +131,14 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
               fontSize: "0.85rem",
               cursor: "pointer",
               transition: "all 0.2s",
-              backgroundColor: filter === tab.label ? "var(--primary)" : "rgba(99,102,241,0.08)",
+              backgroundColor: filter === tab.label ? "var(--primary)" : "rgba(14, 94, 79,0.08)",
               color: filter === tab.label ? "white" : "var(--text-muted)",
             }}
           >
             {tab.label}
             <span style={{
               marginLeft: "6px",
-              background: filter === tab.label ? "rgba(255,255,255,0.25)" : "rgba(99,102,241,0.15)",
+              background: filter === tab.label ? "rgba(255,255,255,0.25)" : "rgba(14, 94, 79,0.15)",
               borderRadius: "30px",
               padding: "1px 7px",
               fontSize: "0.75rem",
@@ -259,7 +259,7 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
                                 color: step.done ? "#ffffff" : "#6b7280",
                               }}
                             >
-                              {step.done ? "✓" : step.num}
+                              {step.done ? <Check size={16} strokeWidth={3} /> : step.num}
                             </div>
                             <span style={{ fontSize: "0.9rem", fontWeight: step.done ? 700 : 500, color: step.done ? "#15803d" : "#4b5563" }}>
                               {step.label}
@@ -331,7 +331,7 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
                 </div>
 
                 {/* ── Payment & Notifications ─────────────────────── */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: "16px" }}>
                   {/* Payment Card */}
                   <div style={{ border: "1px solid var(--border)", padding: "14px 18px", borderRadius: "14px", fontSize: "0.85rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, marginBottom: "8px" }}>
@@ -395,29 +395,12 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
                 {/* ── ACTION BUTTONS ──────────────────────────────── */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", paddingTop: "8px" }}>
 
-                  {/* CUSTOMER ONLY: Mark Service Completed */}
+                  {/* CUSTOMER VIEW: awaiting completion — only an admin can mark it completed */}
                   {!isProfessionalMode && !isCompleted && !isCancelled && (
-                    <button
-                      onClick={() => onCompleteBooking(booking._id)}
-                      style={{
-                        padding: "10px 22px",
-                        fontSize: "0.88rem",
-                        fontWeight: 700,
-                        backgroundColor: "#16a34a",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "10px",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        transition: "transform 0.15s, box-shadow 0.15s",
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(22,163,74,0.4)"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}
-                    >
-                      <CheckCircle size={16} /> Mark Service Completed
-                    </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-muted)", fontWeight: 600, fontSize: "0.9rem" }}>
+                      <Clock size={16} />
+                      Scheduled for {new Date(booking.date).toLocaleDateString()}, {booking.timeSlot} — awaiting completion
+                    </div>
                   )}
 
                   {/* CUSTOMER VIEW: completed banner */}
@@ -452,7 +435,7 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
                     {isCompleted && !booking.userRating && !isProfessionalMode && (
                       <button
                         onClick={() => setRatingId(booking._id)}
-                        className="btn-primary"
+                        className="btn btn-primary"
                         style={{ padding: "10px 18px", fontSize: "0.85rem" }}
                       >
                         Rate & Review
@@ -482,7 +465,7 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onA
                       style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", marginBottom: "10px" }}
                     />
                     <div style={{ display: "flex", gap: "10px" }}>
-                      <button type="submit" className="btn-primary" style={{ padding: "8px 16px" }}>Submit Rating</button>
+                      <button type="submit" className="btn btn-primary" style={{ padding: "8px 16px" }}>Submit Rating</button>
                       <button type="button" onClick={() => setRatingId(null)} style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer" }}>Cancel</button>
                     </div>
                   </form>

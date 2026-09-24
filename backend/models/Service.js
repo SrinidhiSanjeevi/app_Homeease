@@ -38,7 +38,8 @@ const serviceSchema = new mongoose.Schema(
         "Carpentry",
         "Plumbing",
         "Security",
-        "Repair"
+        "Repair",
+        "Cleaning"
       ],
       index: true
     },

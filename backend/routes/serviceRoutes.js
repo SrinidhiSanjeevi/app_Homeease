@@ -4,14 +4,16 @@ const {
   getServices,
   getProfessionals,
   getServiceById,
-  getServiceReviews
+  getServiceReviews,
+  getRecentReviews
 } = require("../controllers/serviceController");
 const validate = require("../middleware/validate");
-const { serviceIdRules, serviceReviewsRules } = require("../validators/serviceValidators");
+const { serviceIdRules, serviceReviewsRules, recentReviewsRules } = require("../validators/serviceValidators");
 
 // PUBLIC ROUTES
 router.get("/", getServices);
 router.get("/professionals", getProfessionals);
+router.get("/reviews/recent", validate(recentReviewsRules), getRecentReviews);
 router.get("/:id", validate(serviceIdRules), getServiceById);
 router.get("/:id/reviews", validate(serviceReviewsRules), getServiceReviews);
 
