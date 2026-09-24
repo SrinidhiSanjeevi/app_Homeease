@@ -11,6 +11,16 @@ const logger = require("../utils/logger");
 const { parsePagination, formatPaginationResult } = require("../utils/pagination");
 const { attachImageUrls } = require("../services/blobStorage");
 
+// The admin form's `image` field may hold a short-lived SAS preview URL.
+// Only persist real blob keys ("<container>/<blob>"), never URLs, or the
+// stored image breaks once the SAS token expires.
+const toImageKey = (value) => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) return undefined;
+  return trimmed;
+};
+
 const getStats = async (req, res) => {
   try {
     const [
@@ -419,7 +429,7 @@ const updateEmergencyStatus = async (req, res) => {
 const createService = async (req, res) => {
   try {
     const { name, category, price, description, imageKey, imageAlt, image, duration, products } = req.body;
-    const finalImageKey = imageKey || image;
+    const finalImageKey = toImageKey(imageKey) || toImageKey(image);
     const finalImageAlt = imageAlt || (name ? `${name} service` : "HomeEase service");
 
     if (!name || !category || !price || !description || !finalImageKey || !duration) {
@@ -457,7 +467,7 @@ const updateService = async (req, res) => {
     if (category !== undefined) updateData.category = category;
     if (price !== undefined) updateData.price = price;
     if (description !== undefined) updateData.description = description;
-    const finalImageKey = imageKey !== undefined ? imageKey : image;
+    const finalImageKey = imageKey !== undefined ? toImageKey(imageKey) : toImageKey(image);
     if (finalImageKey !== undefined) updateData.imageKey = finalImageKey;
     if (imageAlt !== undefined) updateData.imageAlt = imageAlt;
     if (duration !== undefined) updateData.duration = duration;
@@ -501,7 +511,7 @@ const deleteService = async (req, res) => {
 const createProfessional = async (req, res) => {
   try {
     const { name, category, experience, imageKey, imageAlt, image, description, status } = req.body;
-    const finalImageKey = imageKey || image;
+    const finalImageKey = toImageKey(imageKey) || toImageKey(image);
     const finalImageAlt = imageAlt || (name ? `${name} - ${category} professional` : "HomeEase professional");
 
     if (!name || !category || experience === undefined || !finalImageKey) {
@@ -537,7 +547,7 @@ const updateProfessional = async (req, res) => {
     if (name !== undefined) updateData.name = name;
     if (category !== undefined) updateData.category = category;
     if (experience !== undefined) updateData.experience = experience;
-    const finalImageKey = imageKey !== undefined ? imageKey : image;
+    const finalImageKey = imageKey !== undefined ? toImageKey(imageKey) : toImageKey(image);
     if (finalImageKey !== undefined) updateData.imageKey = finalImageKey;
     if (imageAlt !== undefined) updateData.imageAlt = imageAlt;
     if (description !== undefined) updateData.description = description;

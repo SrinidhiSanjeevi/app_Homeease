@@ -213,8 +213,11 @@ async function uploadBuffer(buffer, containerName, blobName, contentType) {
   const client = getBlobServiceClient();
   const containerClient = client.getContainerClient(containerName);
 
-  // Create container if it doesn't exist (idempotent, no-op when already present)
-  await containerClient.createIfNotExists({ access: "blob" });
+  // Create container if it doesn't exist (idempotent, no-op when already present).
+  // Must stay private: the storage account disallows public access, so
+  // requesting { access: "blob" } fails with 409 PublicAccessNotPermitted.
+  // Images are served to the browser via short-lived SAS URLs instead.
+  await containerClient.createIfNotExists();
 
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
   await blockBlobClient.uploadData(buffer, {

@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard";
 import Bookings from "./pages/Bookings";
 import Emergency from "./pages/Emergency";
 import Profile from "./pages/Profile";
+import ServiceDetail from "./pages/ServiceDetail";
 import Navbar from "./components/Navbar";
 import BookingModal from "./components/BookingModal";
 import Toast from "./components/Toast";
@@ -54,6 +55,13 @@ export default function App() {
   // ============================================================
 
   const [bookingService, setBookingService] =
+    useState(null);
+
+  const [bookingProduct, setBookingProduct] =
+    useState(null);
+
+  // Service whose detail page is open (null = service grid)
+  const [viewService, setViewService] =
     useState(null);
 
   const [toast, setToast] = useState(null);
@@ -107,6 +115,7 @@ export default function App() {
     setBookings([]);
     setActiveEmergencies([]);
     setBookingService(null);
+    setViewService(null);
 
     setActiveTab("dashboard");
 
@@ -755,7 +764,10 @@ export default function App() {
     <div>
       <Navbar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={(tab) => {
+          setViewService(null);
+          setActiveTab(tab);
+        }}
         user={user}
         onLogout={handleLogout}
       />
@@ -768,12 +780,27 @@ export default function App() {
         }}
       >
         {/* Dashboard */}
-        {activeTab === "dashboard" && (
+        {activeTab === "dashboard" && !viewService && (
           <Dashboard
             services={services}
-            onBookClick={
-              setBookingService
-            }
+            onBookClick={(service) => {
+              setBookingProduct(null);
+              setBookingService(service);
+            }}
+            onViewService={setViewService}
+          />
+        )}
+
+        {/* Service Detail */}
+        {activeTab === "dashboard" && viewService && (
+          <ServiceDetail
+            service={viewService}
+            professionals={professionals}
+            onBack={() => setViewService(null)}
+            onBook={(service, product) => {
+              setBookingProduct(product);
+              setBookingService(service);
+            }}
           />
         )}
 
@@ -827,6 +854,7 @@ export default function App() {
       {bookingService && (
   <BookingModal
     service={bookingService}
+    initialProduct={bookingProduct}
     onClose={() => setBookingService(null)}
     onSubmit={handleBookSubmit}
     onBookingSettled={() => {

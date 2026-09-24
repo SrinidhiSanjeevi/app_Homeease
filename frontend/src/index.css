@@ -406,3 +406,40 @@ textarea {
   }
 }
 
+
+/* ================= SERVICE DETAIL PAGE ================= */
+.service-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 32px;
+  align-items: start;
+}
+
+.service-detail-aside {
+  position: sticky;
+  top: 90px;
+}
+
+.service-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.service-detail-pros {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .service-detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .service-detail-aside {
+    position: static;
+  }
+  .service-detail-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

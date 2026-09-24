@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, ChevronRight, ChevronLeft, Star } from "lucide-react";
 import LocationCapture from "./LocationCapture";
 
-export default function BookingModal({ service, onClose, onSubmit, onBookingSettled, professionals, user }) {
+export default function BookingModal({ service, initialProduct, onClose, onSubmit, onBookingSettled, professionals, user }) {
   const [step, setStep] = useState(1);
   const [customCategory, setCustomCategory] = useState(service.category || "Spa");
   const [customDescription, setCustomDescription] = useState("");
@@ -10,7 +10,7 @@ export default function BookingModal({ service, onClose, onSubmit, onBookingSett
   const [timeSlot, setTimeSlot] = useState("09:00 AM - 11:00 AM");
   const [selectedProfessional, setSelectedProfessional] = useState("");
   const [selectedProduct, setSelectedProduct] = useState(
-    service.products && service.products.length > 0 ? service.products[0] : null
+    initialProduct || (service.products && service.products.length > 0 ? service.products[0] : null)
   );
   const [notes, setNotes] = useState("");
   const [address, setAddress] = useState("");
@@ -213,8 +213,8 @@ export default function BookingModal({ service, onClose, onSubmit, onBookingSett
             <h2 style={{ fontSize: "1.25rem", fontWeight: 800 }}>{service.isCustom ? "Custom Request" : "Book Service"}</h2>
             <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{service.isCustom ? "Submit custom requirements" : service.name}</p>
           </div>
-          <button onClick={onClose} style={{ background: "var(--primary-light)", width: "32px", height: "32px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <X size={16} color="#000000" strokeWidth={2.5} />
+          <button onClick={onClose} aria-label="Close" style={{ background: "var(--primary)", width: "32px", height: "32px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <X size={16} color="#ffffff" strokeWidth={2.5} />
           </button>
         </div>
         <div style={{ background: "var(--bg-main)", padding: "12px 24px", display: "flex", gap: "8px" }}>

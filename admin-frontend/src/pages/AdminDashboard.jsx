@@ -21,6 +21,17 @@ import {
 
 const BASE = "/api/admin";
 
+// Mirrors backend/services/booking/bookingStateMachine.js — only offer
+// statuses the API will accept. "Assigned" with no professional means the
+// booking is queued until a professional in that category frees up.
+const BOOKING_TRANSITIONS = {
+  Created: ["Assigned", "Confirmed", "Cancelled"],
+  Assigned: ["Confirmed", "Cancelled"],
+  Confirmed: ["Completed", "Cancelled"],
+  Completed: [],
+  Cancelled: []
+};
+
 const CATEGORIES = [
   "Spa",
   "Electrician",
@@ -173,7 +184,7 @@ function ImageUploader({ currentUrl, folder = "services", onUploaded }) {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Upload failed (${res.status})`);
+        throw new Error(err.error || err.message || `Upload failed (${res.status})`);
       }
       const data = await res.json();
       onUploaded(data); // { imageKey, imageUrl }
@@ -2384,21 +2395,11 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                 fontWeight: 600
                               }}
                             >
-                              <option value="Created">
-                                Created
-                              </option>
-                              <option value="Assigned">
-                                Assigned
-                              </option>
-                              <option value="Confirmed">
-                                Confirmed
-                              </option>
-                              <option value="Completed">
-                                Completed
-                              </option>
-                              <option value="Cancelled">
-                                Cancelled
-                              </option>
+                              {[b.status, ...(BOOKING_TRANSITIONS[b.status] || [])].map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
                             </select>
                           </td>
                         </tr>
