@@ -2,7 +2,9 @@ const mongoose = require("mongoose");
 const Service = require("../models/Service");
 const Professional = require("../models/Professional");
 const Booking = require("../models/Booking");
+const SlotReservation = require("../models/SlotReservation");
 const { attachImageUrls } = require("../services/blobStorage");
+const { TIME_SLOTS } = require("../services/booking/bookingSchedule");
 const logger = require("../utils/logger");
 
 // GET ALL ACTIVE SERVICES
@@ -39,8 +41,9 @@ const getProfessionals = async (req, res) => {
       ...(category ? { category: category.trim() } : {})
     };
 
+    // Public listing: no account link or exact coordinates, just the area.
     const rawProfessionals = await Professional.find(filter)
-      .select("-image")
+      .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs locality")
       .sort({ rating: -1, name: 1 })
       .lean();
 
@@ -187,9 +190,26 @@ const getRecentReviews = async (req, res) => {
   }
 };
 
+// GET /api/services/professionals/availability?date=YYYY-MM-DD&timeSlot=...
+// → ids of professionals already booked for that slot.
+const getProfessionalAvailability = async (req, res) => {
+  try {
+    const { date, timeSlot } = req.query;
+    if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !TIME_SLOTS.includes(timeSlot)) {
+      return res.status(400).json({ success: false, message: "Valid date and timeSlot are required" });
+    }
+    const bookedIds = await SlotReservation.find({ date: new Date(`${date}T00:00:00Z`), timeSlot }).distinct("professional");
+    return res.status(200).json({ success: true, bookedProfessionalIds: bookedIds.map(String) });
+  } catch (error) {
+    logger.error({ err: error.message }, "Error fetching professional availability");
+    return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
+  }
+};
+
 module.exports = {
   getServices,
   getProfessionals,
+  getProfessionalAvailability,
   getServiceById,
   getServiceReviews,
   getRecentReviews

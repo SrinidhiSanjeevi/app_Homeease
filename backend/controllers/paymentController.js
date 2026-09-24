@@ -53,6 +53,7 @@ const verifyPayment = async (req, res) => {
     // internal { isValid, ... } shape its service layer returns.
     return res.status(result.success ? 200 : 400).json({
       success: result.success === true,
+      message: result.message,
       booking: result.booking,
       payment: result.payment
     });
@@ -68,8 +69,8 @@ const verifyPayment = async (req, res) => {
 // ============================================================
 // REFUND PAYMENT (Delegator for backward compatibility)
 // ============================================================
-const refundPayment = async (bookingId) => {
-  return paymentClient.refundPayment(bookingId);
+const refundPayment = async (bookingId, amount) => {
+  return paymentClient.refundPayment(bookingId, amount);
 };
 
 // ============================================================

@@ -61,6 +61,8 @@ const CATEGORIES = [
     tint: "#dc2626",
     sub: "Active fire, smoke, gas leak",
     defaultSeverity: "Critical",
+    // Life-safety: HomeEase never dispatches for this — call the public service.
+    callOnly: true,
     publicService: { name: "Fire", number: "101", when: ["Low", "Medium", "High", "Critical"], note: "fire brigade" },
     chips: ["Kitchen fire", "Heavy smoke", "Gas smell", "Electrical fire", "People trapped"],
     tips: [
@@ -76,6 +78,7 @@ const CATEGORIES = [
     tint: "#db2777",
     sub: "Injury, unconscious, cardiac",
     defaultSeverity: "Critical",
+    callOnly: true,
     publicService: { name: "Ambulance", number: "108", when: ["Low", "Medium", "High", "Critical"], note: "ambulance" },
     chips: ["Unconscious", "Chest pain", "Heavy bleeding", "Fall injury", "Breathing difficulty"],
     tips: [
@@ -91,7 +94,7 @@ const SEVERITIES = [
   { key: "Low", eta: 30, color: "#16a34a", hint: "Can wait a little" },
   { key: "Medium", eta: 20, color: "#d97706", hint: "Needs attention soon" },
   { key: "High", eta: 10, color: "#ea580c", hint: "Risk to property" },
-  { key: "Critical", eta: 5, color: "#dc2626", hint: "Risk to life" }
+  { key: "Critical", eta: 10, color: "#dc2626", hint: "Danger to people" }
 ];
 
 const STEPS = ["Dispatched", "En route", "Arrived", "Resolved"];
@@ -304,120 +307,147 @@ export default function Emergency({
               })}
             </div>
 
-            <div className="em-chips">
-              {cat.chips.map((chip) => (
-                <button
-                  type="button"
-                  key={chip}
-                  className={`em-chip${description.includes(chip) ? " is-on" : ""}`}
-                  onClick={() => toggleChip(chip)}
-                >
-                  {description.includes(chip) ? <Check size={14} /> : <Icon name="add" size={14} />}
-                  {chip}
-                </button>
-              ))}
-            </div>
-
-            <textarea
-              className="em-textarea"
-              placeholder="Tap the chips above or describe it in your own words…"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-
-          {/* Step 2 */}
-          <div className="em-step">
-            <div className="em-step-head">
-              <span className="em-step-num">2</span>
-              <h2>How serious is it?</h2>
-            </div>
-
-            <div className="em-meter" role="radiogroup" aria-label="Severity">
-              {SEVERITIES.map((item, index) => {
-                const filled = SEVERITIES.findIndex((s) => s.key === severity) >= index;
-                return (
-                  <button
-                    type="button"
-                    key={item.key}
-                    role="radio"
-                    aria-checked={severity === item.key}
-                    className={`em-meter-seg${filled ? " is-filled" : ""}${severity === item.key ? " is-current" : ""}`}
-                    onClick={() => setSeverity(item.key)}
-                  >
-                    <span className="em-meter-bar" />
-                    <span className="em-meter-label">{item.key}</span>
-                    <span className="em-meter-hint">{item.hint}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Live dispatch preview */}
-            <div className="em-preview">
-              <div className="em-preview-item">
-                <Icon name="engineering" size={20} />
+            {cat.callOnly ? (
+              <div className="em-callonly">
+                <Icon name="emergency" size={28} filled />
                 <div>
-                  <strong>{cat.value} specialist</strong>
-                  <span>Nearest verified pro · ETA ~{sev.eta} min</span>
+                  <strong>Call {cat.publicService.number} ({cat.publicService.name}) or 112 now</strong>
+                  <p>
+                    HomeEase sends home-service specialists, not {cat.value === "Fire" ? "fire engines" : "ambulances"}.
+                    For a {cat.value.toLowerCase()} emergency, the {cat.publicService.note} will reach you fastest.
+                  </p>
+                  <div className="em-callonly-actions">
+                    <a href={`tel:${cat.publicService.number}`} className="em-callonly-btn">
+                      <Icon name="call" size={18} /> Call {cat.publicService.number}
+                    </a>
+                    <a href="tel:112" className="em-callonly-btn is-alt">
+                      <Icon name="call" size={18} /> Call 112
+                    </a>
+                  </div>
                 </div>
               </div>
-              {cat.publicService && (
-                <a
-                  href={`tel:${cat.publicService.number}`}
-                  className={`em-preview-item em-preview-public${callPublic ? " is-urgent" : ""}`}
-                >
-                  <Icon name="call" size={20} />
-                  <div>
-                    <strong>
-                      {callPublic ? "Also call" : "Call"} {cat.publicService.number} ({cat.publicService.name})
-                    </strong>
-                    <span>{callPublic ? "Recommended at this severity" : `Only ${cat.publicService.note}`}</span>
+            ) : (
+              <>
+                <div className="em-chips">
+                  {cat.chips.map((chip) => (
+                    <button
+                      type="button"
+                      key={chip}
+                      className={`em-chip${description.includes(chip) ? " is-on" : ""}`}
+                      onClick={() => toggleChip(chip)}
+                    >
+                      {description.includes(chip) ? <Check size={14} /> : <Icon name="add" size={14} />}
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  className="em-textarea"
+                  placeholder="Tap the chips above or describe it in your own words…"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </>
+            )}
+          </div>
+
+          {!cat.callOnly && (
+            <>
+              {/* Step 2 */}
+              <div className="em-step">
+                <div className="em-step-head">
+                  <span className="em-step-num">2</span>
+                  <h2>How serious is it?</h2>
+                </div>
+
+                <div className="em-meter" role="radiogroup" aria-label="Severity">
+                  {SEVERITIES.map((item, index) => {
+                    const filled = SEVERITIES.findIndex((s) => s.key === severity) >= index;
+                    return (
+                      <button
+                        type="button"
+                        key={item.key}
+                        role="radio"
+                        aria-checked={severity === item.key}
+                        className={`em-meter-seg${filled ? " is-filled" : ""}${severity === item.key ? " is-current" : ""}`}
+                        onClick={() => setSeverity(item.key)}
+                      >
+                        <span className="em-meter-bar" />
+                        <span className="em-meter-label">{item.key}</span>
+                        <span className="em-meter-hint">{item.hint}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Live dispatch preview */}
+                <div className="em-preview">
+                  <div className="em-preview-item">
+                    <Icon name="engineering" size={20} />
+                    <div>
+                      <strong>{cat.value} specialist</strong>
+                      <span>Nearest verified pro · ETA ~{sev.eta} min</span>
+                    </div>
                   </div>
-                </a>
-              )}
-            </div>
-          </div>
+                  {cat.publicService && (
+                    <a
+                      href={`tel:${cat.publicService.number}`}
+                      className={`em-preview-item em-preview-public${callPublic ? " is-urgent" : ""}`}
+                    >
+                      <Icon name="call" size={20} />
+                      <div>
+                        <strong>
+                          {callPublic ? "Also call" : "Call"} {cat.publicService.number} ({cat.publicService.name})
+                        </strong>
+                        <span>{callPublic ? "Recommended at this severity" : `Only ${cat.publicService.note}`}</span>
+                      </div>
+                    </a>
+                  )}
+                </div>
+              </div>
 
-          {/* Step 3 */}
-          <div className="em-step">
-            <div className="em-step-head">
-              <span className="em-step-num">3</span>
-              <h2>Where should we come?</h2>
-              {remembered.address && <span className="em-remembered">Filled in from your last request</span>}
-            </div>
+              {/* Step 3 */}
+              <div className="em-step">
+                <div className="em-step-head">
+                  <span className="em-step-num">3</span>
+                  <h2>Where should we come?</h2>
+                  {remembered.address && <span className="em-remembered">Filled in from your last request</span>}
+                </div>
 
-            <LocationPicker
-              label="Your location"
-              value={location}
-              onChange={setLocation}
-              onAddressFound={(found) => setAddress((prev) => (prev.trim() ? prev : found))}
-            />
-
-            <div className="em-fields">
-              <label className="em-field">
-                <Icon name="call" size={18} />
-                <input
-                  type="tel"
-                  placeholder="Phone number the specialist can reach"
-                  value={contactNumber}
-                  onChange={(e) => setContactNumber(e.target.value)}
+                <LocationPicker
+                  label="Your location"
+                  value={location}
+                  onChange={setLocation}
+                  onAddressFound={(found) => setAddress((prev) => (prev.trim() ? prev : found))}
                 />
-              </label>
-              <label className="em-field">
-                <Icon name="home_pin" size={18} />
-                <input
-                  type="text"
-                  placeholder="Full address with a landmark"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                />
-              </label>
-            </div>
 
-          </div>
+                <div className="em-fields">
+                  <label className="em-field">
+                    <Icon name="call" size={18} />
+                    <input
+                      type="tel"
+                      placeholder="Phone number the specialist can reach"
+                      value={contactNumber}
+                      onChange={(e) => setContactNumber(e.target.value)}
+                    />
+                  </label>
+                  <label className="em-field">
+                    <Icon name="home_pin" size={18} />
+                    <input
+                      type="text"
+                      placeholder="Full address with a landmark"
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                    />
+                  </label>
+                </div>
 
-          <HoldToSend loading={loading} ready={Boolean(isReady)} onConfirm={submit} onBlocked={submit} />
+              </div>
+
+              <HoldToSend loading={loading} ready={Boolean(isReady)} onConfirm={submit} onBlocked={submit} />
+            </>
+          )}
         </section>
 
         {/* ========================= RIGHT COLUMN ========================= */}
@@ -799,6 +829,16 @@ const STYLES = `
 .em-sos:focus-visible { outline: 3px solid var(--ring); outline-offset: 3px; }
 .em-sos-fill { position: absolute; inset: 0; background: #9f1239; transform-origin: left; transform: scaleX(0); }
 .em-sos-content { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; }
+
+/* Fire / medical: call instead of dispatch */
+.em-callonly { display: flex; gap: 14px; margin-top: 16px; padding: 18px; border-radius: 14px;
+  background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+.em-callonly strong { display: block; font-size: 1.02rem; }
+.em-callonly p { margin: 6px 0 12px; font-size: .86rem; line-height: 1.5; color: #7f1d1d; }
+.em-callonly-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.em-callonly-btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 16px; border-radius: 12px;
+  background: #dc2626; color: #fff; font-weight: 800; text-decoration: none; }
+.em-callonly-btn.is-alt { background: #fff; color: #b91c1c; border: 1px solid #fca5a5; }
 
 /* Right column */
 .em-side { display: flex; flex-direction: column; gap: 18px; }

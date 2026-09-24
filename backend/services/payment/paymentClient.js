@@ -10,11 +10,14 @@ const logger = require("../../utils/logger");
 
 const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || "http://127.0.0.1:5002";
 const DEFAULT_TIMEOUT_MS = parseInt(process.env.PAYMENT_SERVICE_TIMEOUT_MS || "5000", 10);
+// Shared secret with payment-service (middleware/internalAuth.js).
+const INTERNAL_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 
 async function makeRequest(path, options = {}) {
   const url = `${PAYMENT_SERVICE_URL}${path}`;
   const headers = {
     "Content-Type": "application/json",
+    ...(INTERNAL_TOKEN ? { "X-Internal-Token": INTERNAL_TOKEN } : {}),
     ...(options.headers || {})
   };
 
@@ -78,11 +81,11 @@ const verifyPayment = async ({
   });
 };
 
-const refundPayment = async (bookingId) => {
+const refundPayment = async (bookingId, amount) => {
   try {
     const res = await makeRequest("/api/payments/refund", {
       method: "POST",
-      body: JSON.stringify({ bookingId })
+      body: JSON.stringify({ bookingId, amount })
     });
     return res.refund || res;
   } catch (err) {

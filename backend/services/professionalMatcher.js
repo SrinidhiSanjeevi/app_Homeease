@@ -1,23 +1,33 @@
-const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
 const EmergencyRequest = require("../models/EmergencyRequest");
 const Professional = require("../models/Professional");
+const SlotReservation = require("../models/SlotReservation");
 const metrics = require("../metrics");
 const logger = require("../utils/logger");
 const { processNotificationSimulation } = require("./simulationService");
 const { MATCH_RADIUS_KM } = require("./serviceArea");
+const { localToday, currentSlot, hasScheduledTimeStarted } = require("./booking/bookingSchedule");
 
-// Categories with no dedicated professional roster — same exception
-// used in emergencyController.js. Fire/Medical emergencies match ANY
-// available professional, not a specific category.
-const CATEGORIES_WITHOUT_DEDICATED_ROSTER = new Set(["Fire", "Medical"]);
+// How many of the nearest professionals to try before giving up.
+const CANDIDATE_LIMIT = 15;
+
+// Emergency types use different names from professional categories.
+const EMERGENCY_TO_PROFESSIONAL_CATEGORY = Object.freeze({
+  Electrical: "Electrician",
+  Plumbing: "Plumbing",
+  Security: "Security"
+});
+
+function professionalCategoryFor(category) {
+  const safe = typeof category === "string" ? category.trim() : "";
+  return EMERGENCY_TO_PROFESSIONAL_CATEGORY[safe] || safe;
+}
 
 // Haversine distance in km between two [lng, lat] points — good enough
-// for "how far is the assigned professional" display purposes, no map
-// API needed.
+// for "how far is the assigned professional" display, no map API needed.
 function haversineDistanceKm([lng1, lat1], [lng2, lat2]) {
   const toRad = (deg) => (deg * Math.PI) / 180;
-  const R = 6371; // Earth radius, km
+  const R = 6371;
   const dLat = toRad(lat2 - lat1);
   const dLng = toRad(lng2 - lng1);
   const a =
@@ -26,232 +36,226 @@ function haversineDistanceKm([lng1, lat1], [lng2, lat2]) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Claim the nearest available professional in a category, using
-// MongoDB's $near (2dsphere index on Professional.location). $near
-// returns matches nearest-first, so the first result is the closest.
-//
-// Two steps rather than one findOneAndUpdate($near filter):
-//   1. A plain, session-less read to find the nearest candidate's _id.
-//      countDocuments()/aggregation pipelines explicitly forbid $near
-//      inside a transaction (it's a "Match Execution operator", not
-//      allowed in $match) — bookingController.js calls this from
-//      inside session.withTransaction(), so this lookup deliberately
-//      never takes a session, to stay clear of that restriction
-//      regardless of exactly which read path a given MongoDB/driver
-//      version routes it through.
-//   2. An ordinary _id-based findOneAndUpdate (no geo operator at all)
-//      to atomically claim that candidate — this step DOES honor
-//      options.session, so the claim still participates in, and rolls
-//      back with, the caller's transaction exactly like every other
-//      claim path in this file.
-// If another request claims the same candidate between steps 1 and 2
-// (rare), step 2 simply returns null and the caller falls back to
-// claimProfessional(), same as "no professional available".
-//
-// Professionals with no `location` set never match $near, so this
-// naturally returns null for a category with no geo-tagged providers.
-async function claimNearestProfessional(category, coordinates, options = {}) {
-  const ProfessionalModel = options.models?.Professional || Professional;
+const roundKm = (km) => Math.round(km * 10) / 10;
 
-  if (!Array.isArray(coordinates) || coordinates.length < 2) {
-    return { professional: null, distanceKm: null };
-  }
-  const lng = Number(coordinates[0]);
-  const lat = Number(coordinates[1]);
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
-    return { professional: null, distanceKm: null };
-  }
-  const safeCoords = [lng, lat];
-
-  const safeCategory = typeof category === "string" ? category.trim() : "";
-  if (!safeCategory && !CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(category)) {
-    return { professional: null, distanceKm: null };
-  }
-
-  const geoFilter = {
-    status: "Available",
-    active: true,
-    location: {
-      $near: {
-        $geometry: { type: "Point", coordinates: safeCoords },
-        // Only professionals within the service radius of the customer.
-        $maxDistance: (options.maxDistanceKm || MATCH_RADIUS_KM) * 1000
-      }
-    }
-  };
-  if (!CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(safeCategory)) {
-    geoFilter.category = safeCategory;
-  }
-
-  const candidate = await ProfessionalModel.findOne(geoFilter).select("_id location");
-  if (!candidate) {
-    return { professional: null, distanceKm: null };
-  }
-
-  const queryOptions = { new: true };
-  if (options.session) {
-    queryOptions.session = options.session;
-  }
-
-  const professional = await ProfessionalModel.findOneAndUpdate(
-    { _id: candidate._id, status: "Available", active: true },
-    { $set: { status: "Busy" } },
-    queryOptions
-  );
-
-  if (!professional) {
-    return { professional: null, distanceKm: null };
-  }
-
-  const distanceKm = haversineDistanceKm(safeCoords, professional.location.coordinates);
-  return { professional, distanceKm: Math.round(distanceKm * 10) / 10 };
-}
-
-// Atomically claim the best-rated available professional in a category or by filter.
-async function claimProfessional(categoryOrFilter, options = {}) {
-  const ProfessionalModel = options.models?.Professional || Professional;
-  const filter = { status: "Available", active: true };
-
-  if (typeof categoryOrFilter === "object" && categoryOrFilter !== null) {
-    if (typeof categoryOrFilter.category === "string") {
-      const cat = categoryOrFilter.category.trim();
-      if (!CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(cat)) {
-        filter.category = cat;
-      }
-    }
-    if (categoryOrFilter._id && mongoose.Types.ObjectId.isValid(categoryOrFilter._id)) {
-      filter._id = new mongoose.Types.ObjectId(String(categoryOrFilter._id));
-    }
-  } else if (typeof categoryOrFilter === "string") {
-    const cat = categoryOrFilter.trim();
-    if (!CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(cat)) {
-      filter.category = cat;
-    }
-  }
-
-  const queryOptions = { sort: { rating: -1 }, new: true };
-  if (options.session) {
-    queryOptions.session = options.session;
-  }
-
-  return ProfessionalModel.findOneAndUpdate(
-    filter,
-    { $set: { status: "Busy" } },
-    queryOptions
-  );
+function isValidCoordinates(coordinates) {
+  return Array.isArray(coordinates) &&
+    coordinates.length >= 2 &&
+    Number.isFinite(Number(coordinates[0])) &&
+    Number.isFinite(Number(coordinates[1]));
 }
 
 // { latitude, longitude } stored on a booking/emergency → GeoJSON [lng, lat].
+// 0,0 is treated as missing (older records stored Number(null) === 0).
 function locationToCoordinates(location) {
   const lat = Number(location?.latitude);
   const lng = Number(location?.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat === 0 && lng === 0) return null;
   return [lng, lat];
 }
 
-// Reassigns any bookings still waiting for a professional in this category.
-async function reassignWaitingBookings(category, options = {}) {
-  if (!category) return;
+// Nearest on-duty professionals in a category within MATCH_RADIUS_KM,
+// nearest first. $near is a plain read (never inside a transaction).
+async function findNearestCandidates(category, coordinates, excludeIds = []) {
+  const filter = {
+    status: "Available",
+    active: true,
+    category: professionalCategoryFor(category),
+    location: {
+      $near: {
+        $geometry: { type: "Point", coordinates: [Number(coordinates[0]), Number(coordinates[1])] },
+        $maxDistance: MATCH_RADIUS_KM * 1000
+      }
+    }
+  };
+  if (excludeIds.length) filter._id = { $nin: excludeIds };
 
-  const BookingModel = options.models?.Booking || Booking;
-  const onReassigned = options.onBookingReassigned !== undefined
-    ? options.onBookingReassigned
-    : (booking) => {
-        if (metrics && metrics.bookingsConfirmed) metrics.bookingsConfirmed.inc();
-        processNotificationSimulation(booking, booking.user).catch((err) => {
-          logger.error({ err: err.message }, "Reassignment notification error");
-        });
+  return Professional.find(filter).select("_id location").limit(CANDIDATE_LIMIT).lean();
+}
+
+// ------------------------------------------------------------------
+// Scheduled bookings: reserve a professional for one date + time slot
+// ------------------------------------------------------------------
+
+/**
+ * Reserves the nearest professional who is free for this slot.
+ * A professional the customer picked is tried first (if within range).
+ * Returns { professional, distanceKm } — professional null when nobody is free.
+ */
+async function reserveNearestProfessional({ category, coordinates, date, timeSlot, bookingId, preferredProfessionalId = null }) {
+  if (!isValidCoordinates(coordinates) || !category || !date || !timeSlot || !bookingId) {
+    return { professional: null, distanceKm: null };
+  }
+
+  const taken = await SlotReservation.find({ date, timeSlot }).distinct("professional");
+  const candidates = await findNearestCandidates(category, coordinates, taken);
+
+  if (preferredProfessionalId) {
+    const index = candidates.findIndex((c) => c._id.toString() === String(preferredProfessionalId));
+    if (index > 0) candidates.unshift(...candidates.splice(index, 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      await SlotReservation.create({ professional: candidate._id, date, timeSlot, booking: bookingId });
+    } catch (error) {
+      if (error && error.code === 11000) continue; // someone else just took this slot
+      throw error;
+    }
+
+    const professional = await Professional.findById(candidate._id);
+    const distanceKm = professional?.location?.coordinates
+      ? roundKm(haversineDistanceKm(coordinates, professional.location.coordinates))
+      : null;
+    return { professional, distanceKm };
+  }
+
+  return { professional: null, distanceKm: null };
+}
+
+async function releaseBookingReservation(bookingId) {
+  if (!bookingId) return;
+  await SlotReservation.deleteMany({ booking: bookingId });
+}
+
+// Professionals busy with a scheduled job right now (today's current slot).
+async function professionalsInCurrentSlot(now = new Date()) {
+  const slot = currentSlot(now);
+  if (!slot) return [];
+  return SlotReservation.find({ date: localToday(now), timeSlot: slot }).distinct("professional");
+}
+
+// ------------------------------------------------------------------
+// Emergencies: claim the nearest on-duty professional right now
+// ------------------------------------------------------------------
+
+/**
+ * Claims (marks Busy) the nearest available professional for an
+ * emergency, skipping anyone in the middle of a scheduled job.
+ */
+async function claimNearestProfessional(category, coordinates) {
+  if (!isValidCoordinates(coordinates) || !category) {
+    return { professional: null, distanceKm: null };
+  }
+
+  const busyNow = await professionalsInCurrentSlot();
+  const candidates = await findNearestCandidates(category, coordinates, busyNow);
+
+  for (const candidate of candidates) {
+    const professional = await Professional.findOneAndUpdate(
+      { _id: candidate._id, status: "Available", active: true },
+      { $set: { status: "Busy" } },
+      { new: true }
+    );
+    if (professional) {
+      return {
+        professional,
+        distanceKm: roundKm(haversineDistanceKm(coordinates, professional.location.coordinates))
       };
-  const logPrefix = options.logPrefix || "[professionalMatcher]";
+    }
+  }
 
-  const pendingBookings = await BookingModel.find({
-    professional: null,
-    status: "Assigned"
-  })
+  return { professional: null, distanceKm: null };
+}
+
+// ------------------------------------------------------------------
+// Waiting work — swept by services/scheduler.js every minute
+// ------------------------------------------------------------------
+
+function bookingCategory(booking) {
+  return booking.isCustom ? booking.customCategory : booking.service?.category;
+}
+
+async function assignWaitingBooking(booking) {
+  const coordinates = locationToCoordinates(booking.location);
+  const category = bookingCategory(booking);
+  if (!coordinates || !category) return false;
+
+  const { professional, distanceKm } = await reserveNearestProfessional({
+    category,
+    coordinates,
+    date: booking.date,
+    timeSlot: booking.timeSlot,
+    bookingId: booking._id
+  });
+  if (!professional) return false;
+
+  const updated = await Booking.findOneAndUpdate(
+    { _id: booking._id, professional: null, status: "Assigned" },
+    { $set: { professional: professional._id, status: "Confirmed", assignedDistanceKm: distanceKm } },
+    { new: true }
+  );
+
+  if (!updated) {
+    // Booking changed meanwhile (cancelled / assigned elsewhere) — give the slot back.
+    await releaseBookingReservation(booking._id);
+    return false;
+  }
+
+  if (metrics && metrics.bookingsConfirmed) metrics.bookingsConfirmed.inc();
+  processNotificationSimulation(updated, updated.user).catch((err) => {
+    logger.error({ err: err.message }, "Reassignment notification error");
+  });
+  logger.info({ professionalName: professional.name, bookingId: booking._id }, "[professionalMatcher] Auto-assigned professional to booking");
+  return true;
+}
+
+async function reassignWaitingBookings() {
+  const pendingBookings = await Booking.find({ professional: null, status: "Assigned" })
     .populate("service")
     .sort({ createdAt: 1 })
-    .limit(20);
+    .limit(50);
 
   for (const booking of pendingBookings) {
-    const bookingCategory = booking.isCustom
-      ? booking.customCategory
-      : booking.service?.category;
-
-    if (bookingCategory !== category) continue;
-
-    // Only bookings with a customer location can be matched — assignment
-    // is always "nearest professional within the service radius".
-    const coords = locationToCoordinates(booking.location);
-    if (!coords) continue;
-
-    const matchStart = Date.now();
-    const { professional, distanceKm } = await claimNearestProfessional(category, coords, options);
-    if (!professional) continue;
-    if (metrics && metrics.professionalAssignmentTime) {
-      metrics.professionalAssignmentTime.observe((Date.now() - matchStart) / 1000);
-    }
-
-    booking.professional = professional._id;
-    booking.status = "Confirmed";
-    booking.assignedDistanceKm = distanceKm;
-    await booking.save();
-
-    if (typeof onReassigned === "function") {
-      onReassigned(booking, professional);
-    }
-
-    logger.info({ professionalName: professional.name, bookingId: booking._id }, `${logPrefix} Auto-assigned professional to booking`);
+    if (hasScheduledTimeStarted(booking)) continue; // scheduler cancels these
+    await assignWaitingBooking(booking);
   }
 }
 
-// Same idea for EmergencyRequest documents: sweeps waiting emergencies for category
-async function reassignWaitingEmergencies(category, options = {}) {
-  if (!category) return;
-
-  const EmergencyRequestModel = options.models?.EmergencyRequest || EmergencyRequest;
-  const logPrefix = options.logPrefix || "[professionalMatcher]";
-
-  const pendingEmergencies = await EmergencyRequestModel.find({
-    assignedProfessional: null,
-    status: "Dispatched"
-  })
+async function reassignWaitingEmergencies() {
+  const pendingEmergencies = await EmergencyRequest.find({ assignedProfessional: null, status: "Dispatched" })
     .sort({ createdAt: 1 })
     .limit(20);
 
   for (const emergency of pendingEmergencies) {
-    const matchesCategory =
-      CATEGORIES_WITHOUT_DEDICATED_ROSTER.has(emergency.category) ||
-      emergency.category === category;
+    const coordinates = locationToCoordinates(emergency.location);
+    if (!coordinates) continue;
 
-    if (!matchesCategory) continue;
-
-    const coords = locationToCoordinates(emergency.location);
-    if (!coords) continue;
-
-    const { professional, distanceKm } = await claimNearestProfessional(category, coords, options);
+    const { professional, distanceKm } = await claimNearestProfessional(emergency.category, coordinates);
     if (!professional) continue;
 
-    emergency.assignedProfessional = professional._id;
-    emergency.assignedDistanceKm = distanceKm;
-    await emergency.save();
-
-    logger.info({ professionalName: professional.name, emergencyId: emergency._id }, `${logPrefix} Auto-assigned professional to emergency`);
+    const updated = await EmergencyRequest.findOneAndUpdate(
+      { _id: emergency._id, assignedProfessional: null, status: "Dispatched" },
+      { $set: { assignedProfessional: professional._id, assignedDistanceKm: distanceKm } },
+      { new: true }
+    );
+    if (!updated) {
+      await Professional.updateOne({ _id: professional._id }, { $set: { status: "Available" } });
+      continue;
+    }
+    logger.info({ professionalName: professional.name, emergencyId: emergency._id }, "[professionalMatcher] Auto-assigned professional to emergency");
   }
 }
 
-// Convenience wrapper — call this one from controllers whenever a
-// professional's status flips back to Available, and it sweeps both
-// waiting bookings and waiting emergencies for that category.
-async function reassignWaitingWork(category, options = {}) {
-  await reassignWaitingBookings(category, options);
-  await reassignWaitingEmergencies(category, options);
+// Called whenever someone frees up; sweeps all waiting work (cheap —
+// both queries are indexed and capped). The category argument is kept
+// for backward compatibility with existing callers.
+async function reassignWaitingWork() {
+  await reassignWaitingBookings();
+  await reassignWaitingEmergencies();
 }
 
 module.exports = {
-  CATEGORIES_WITHOUT_DEDICATED_ROSTER,
-  claimProfessional,
-  claimNearestProfessional,
+  EMERGENCY_TO_PROFESSIONAL_CATEGORY,
+  professionalCategoryFor,
   haversineDistanceKm,
+  locationToCoordinates,
+  reserveNearestProfessional,
+  releaseBookingReservation,
+  professionalsInCurrentSlot,
+  claimNearestProfessional,
+  assignWaitingBooking,
   reassignWaitingBookings,
   reassignWaitingEmergencies,
   reassignWaitingWork

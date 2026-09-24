@@ -7,6 +7,7 @@ const {
   acceptBooking,
   completeBooking,
   cancelBooking,
+  getCancellationQuote,
   rateBooking
 } = require("../controllers/bookingController");
 const { protect } = require("../middleware/authMiddleware");
@@ -28,9 +29,10 @@ router.get("/", getUserBookings); // Fallback
 // Professional endpoints
 router.get("/professional", getProfessionalBookings);
 router.put("/:id/accept", acceptBooking);
-router.put("/:id/complete", completeBooking);
+router.put("/:id/complete", validate(cancelBookingRules), completeBooking);
 
 // Lifecycle actions
+router.get("/:id/cancel-quote", validate(cancelBookingRules), getCancellationQuote);
 router.put("/:id/cancel", validate(cancelBookingRules), cancelBooking);
 router.put("/:id/rate", validate(rateBookingRules), rateBooking);
 

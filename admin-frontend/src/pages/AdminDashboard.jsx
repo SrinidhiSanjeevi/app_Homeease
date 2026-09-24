@@ -21,6 +21,24 @@ import {
 
 const BASE = "/api/admin";
 
+// A stored location is only real if both coordinates are numbers and it
+// isn't 0,0 — older records saved Number(null) === 0 for "no location".
+const hasRealLocation = (loc) =>
+  typeof loc?.latitude === "number" &&
+  typeof loc?.longitude === "number" &&
+  !(loc.latitude === 0 && loc.longitude === 0);
+
+// What to show in the specialist column when nobody is assigned.
+const unassignedLabel = (status, loc) => {
+  if (["Resolved", "Cancelled", "Completed"].includes(status)) {
+    return { text: "Not assigned", color: "#9ca3af" };
+  }
+  if (!hasRealLocation(loc)) {
+    return { text: "Waiting — no customer location", color: "#dc2626" };
+  }
+  return { text: "Waiting for nearest specialist…", color: "#d97706" };
+};
+
 // Mirrors backend/services/booking/bookingStateMachine.js — only offer
 // statuses the API will accept. "Assigned" with no professional means the
 // booking is queued until a professional in that category frees up.
@@ -2287,7 +2305,10 @@ export default function AdminDashboard({ token, user, onLogout }) {
                             }}
                           >
                             {b.professional
-                              ?.name || "—"}
+                              ?.name || (() => {
+                              const label = unassignedLabel(b.status, b.location);
+                              return <span style={{ color: label.color }}>{label.text}</span>;
+                            })()}
                           </td>
 
                           <td
@@ -2300,7 +2321,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                 "#6b7280"
                             }}
                           >
-                            {b.location?.latitude != null && b.location?.longitude != null ? (
+                            {hasRealLocation(b.location) ? (
                               <>
                                 <div>
                                   {b.location.latitude.toFixed(4)}, {b.location.longitude.toFixed(4)}
@@ -3154,7 +3175,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                               }}
                             >
                               <div>{e.address || "—"}</div>
-                              {e.location?.latitude != null && e.location?.longitude != null && (
+                              {hasRealLocation(e.location) && (
                                 <div style={{ fontSize: "0.72rem", color: "#9ca3af", marginTop: "2px" }}>
                                   {e.location.latitude.toFixed(4)}, {e.location.longitude.toFixed(4)}
                                   {e.assignedDistanceKm != null && ` · ~${e.assignedDistanceKm} km`}
@@ -3172,18 +3193,14 @@ export default function AdminDashboard({ token, user, onLogout }) {
                               }}
                             >
                               {e.assignedProfessional
-                                ?.name || (
-                                <span
-                                  style={{
-                                    color:
-                                      "#d97706",
-                                    fontSize:
-                                      "0.78rem"
-                                  }}
-                                >
-                                  Auto-assigning...
-                                </span>
-                              )}
+                                ?.name || (() => {
+                                const label = unassignedLabel(e.status, e.location);
+                                return (
+                                  <span style={{ color: label.color, fontSize: "0.78rem" }}>
+                                    {label.text}
+                                  </span>
+                                );
+                              })()}
                             </td>
 
                             <td

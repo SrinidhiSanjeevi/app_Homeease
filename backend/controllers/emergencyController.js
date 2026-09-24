@@ -5,16 +5,38 @@ const metrics = require("../metrics");
 const {
   SEVERITY_CONFIG,
   CATEGORY_DEFAULT_SEVERITY,
-  VALID_EMERGENCY_CATEGORIES
+  DISPATCHABLE_CATEGORIES,
+  PUBLIC_EMERGENCY_NUMBERS,
+  SAFETY_HINTS
 } = require("../services/customerCore/emergencyConfig");
 const { claimNearestProfessional, reassignWaitingWork } = require("../services/customerCore");
 const { checkCustomerLocation } = require("../services/serviceArea");
+
+const ACTIVE_EMERGENCY_STATUSES = ["Dispatched", "OnTheWay", "Arrived"];
 
 // DISPATCH EMERGENCY SERVICE
 const dispatchEmergency = async (req, res) => {
   try {
     const { category, severity, description, contactNumber, address, latitude, longitude, accuracy } = req.body;
     const userId = req.user._id;
+
+    // Fire / medical: HomeEase is not an emergency service — send the
+    // customer to the real one instead of dispatching a handyman.
+    if (PUBLIC_EMERGENCY_NUMBERS[category]) {
+      const { number, service } = PUBLIC_EMERGENCY_NUMBERS[category];
+      return res.status(422).json({
+        success: false,
+        callNumber: number,
+        message: `For a ${category.toLowerCase()} emergency, call ${number} (${service}) or 112 right away. HomeEase specialists can't respond to ${category.toLowerCase()} emergencies.`
+      });
+    }
+
+    if (!DISPATCHABLE_CATEGORIES.includes(category)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid emergency category. Must be one of: ${DISPATCHABLE_CATEGORIES.join(", ")}.`
+      });
+    }
 
     // Location is required and must be inside the service area.
     const locationCheck = checkCustomerLocation(latitude, longitude);
@@ -25,26 +47,22 @@ const dispatchEmergency = async (req, res) => {
     const lng = locationCheck.longitude;
     const coordinates = [lng, lat];
 
-    if (!category || !VALID_EMERGENCY_CATEGORIES.includes(category)) {
-      return res.status(400).json({
+    // One live emergency per customer — stops one account from tying up
+    // every nearby specialist.
+    const existing = await EmergencyRequest.findOne({ user: userId, status: { $in: ACTIVE_EMERGENCY_STATUSES } });
+    if (existing) {
+      return res.status(409).json({
         success: false,
-        message: `Invalid emergency category. Must be one of: ${VALID_EMERGENCY_CATEGORIES.join(", ")}.`
+        message: "You already have an active emergency request. Cancel it or wait until it's resolved before raising another."
       });
     }
 
-    const resolvedSeverity = severity || CATEGORY_DEFAULT_SEVERITY[category] || "Medium";
-    const validSeverities = ["Low", "Medium", "High", "Critical"];
-    if (!validSeverities.includes(resolvedSeverity)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid severity. Must be one of: ${validSeverities.join(", ")}.`
-      });
-    }
-
+    const resolvedSeverity = SEVERITY_CONFIG[severity] ? severity : (CATEGORY_DEFAULT_SEVERITY[category] || "Medium");
     const severityConfig = SEVERITY_CONFIG[resolvedSeverity];
 
-    // Nearest available responder within the service radius. No match →
-    // the emergency waits and reassignWaitingWork() picks it up.
+    // Nearest on-duty specialist within the service radius who isn't in
+    // the middle of a scheduled job. No match → the emergency waits and
+    // the scheduler keeps retrying every minute.
     const { professional, distanceKm } = await claimNearestProfessional(category, coordinates);
 
     const emergency = await EmergencyRequest.create({
@@ -56,26 +74,24 @@ const dispatchEmergency = async (req, res) => {
       address,
       status: "Dispatched",
       assignedProfessional: professional ? professional._id : null,
-      fireEngineDispatched: severityConfig.fireEngineDispatched,
-      fireEngineNumber: severityConfig.fireEngineNumber,
-      emergencyServiceNumber: severityConfig.emergencyServiceNumber,
+      fireEngineDispatched: false,
+      fireEngineNumber: null,
+      emergencyServiceNumber: null,
       estimatedArrivalMinutes: severityConfig.estimatedArrivalMinutes,
-      location: { latitude: lat, longitude: lng, accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null },
+      location: {
+        latitude: lat,
+        longitude: lng,
+        accuracy: Number.isFinite(Number(accuracy)) && accuracy !== null ? Number(accuracy) : null
+      },
       assignedDistanceKm: distanceKm
     });
 
     const populatedEmergency = await EmergencyRequest.findById(emergency._id).populate("assignedProfessional");
 
     let message = professional
-      ? `Emergency dispatched! Assigned provider: ${professional.name}.`
-      : "Emergency requested! No specialist is currently available — you'll be assigned automatically the moment one is free.";
-
-    if (severityConfig.fireEngineDispatched) {
-      message += ` Fire Engine ${severityConfig.fireEngineNumber} has been alerted. Call ${severityConfig.emergencyServiceNumber} for immediate fire/safety assistance.`;
-    } else if (severityConfig.emergencyServiceNumber) {
-      message += ` Helpline: ${severityConfig.emergencyServiceNumber}.`;
-    }
-    message += ` ETA: ~${severityConfig.estimatedArrivalMinutes} minutes.`;
+      ? `Emergency dispatched! ${professional.name} is on the way (~${distanceKm} km away).`
+      : "Emergency received. No specialist is free right now — we'll assign the nearest one the moment someone is available.";
+    message += ` ${SAFETY_HINTS[category]}`;
 
     if (metrics && metrics.emergencyRequestsTotal) {
       metrics.emergencyRequestsTotal.labels(category, resolvedSeverity).inc();
@@ -86,10 +102,8 @@ const dispatchEmergency = async (req, res) => {
       message,
       severity: resolvedSeverity,
       severityLabel: severityConfig.label,
-      fireEngineDispatched: severityConfig.fireEngineDispatched,
-      fireEngineNumber: severityConfig.fireEngineNumber,
-      emergencyServiceNumber: severityConfig.emergencyServiceNumber,
       estimatedArrivalMinutes: severityConfig.estimatedArrivalMinutes,
+      safetyHint: SAFETY_HINTS[category],
       emergency: populatedEmergency
     });
   } catch (error) {
@@ -118,26 +132,22 @@ const cancelEmergency = async (req, res) => {
       });
     }
 
-    emergency.status = "Cancelled";
-
-    if (emergency.assignedProfessional) {
-      const freedProfessional = await Professional.findByIdAndUpdate(
-        emergency.assignedProfessional,
-        { status: "Available" },
-        { new: true }
-      );
-      // FIX: this was the missing piece — releasing a professional
-      // previously never checked whether another customer (booking OR
-      // emergency) in the same category was still waiting. That's why
-      // "No specialist available" stayed stuck even after someone freed up.
-      if (freedProfessional) {
-        reassignWaitingWork(freedProfessional.category).catch((err) =>
-          logger.error({ err: err.message }, "Auto-reassignment error")
-        );
-      }
+    // Atomic, so cancelling twice can't free the specialist twice.
+    const cancelled = await EmergencyRequest.findOneAndUpdate(
+      { _id: emergency._id, status: emergency.status },
+      { $set: { status: "Cancelled", resolvedAt: new Date() } },
+      { new: true }
+    );
+    if (!cancelled) {
+      return res.status(409).json({ success: false, message: "This request was just updated. Please refresh." });
     }
 
-    await emergency.save();
+    if (cancelled.assignedProfessional) {
+      await Professional.updateOne({ _id: cancelled.assignedProfessional, status: "Busy" }, { $set: { status: "Available" } });
+      reassignWaitingWork().catch((err) =>
+        logger.error({ err: err.message }, "Auto-reassignment error")
+      );
+    }
 
     if (metrics && metrics.emergencyRequestsCancelledTotal) {
       metrics.emergencyRequestsCancelledTotal.inc();

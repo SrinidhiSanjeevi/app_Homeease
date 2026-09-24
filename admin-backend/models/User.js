@@ -12,6 +12,8 @@ const userSchema = new mongoose.Schema(
     failedLoginAttempts: { type: Number, default: 0 },
     lockUntil: { type: Date, default: null },
     mfaSecret: { type: String, default: null },
+    // New authenticator secret awaiting confirmation (authController.setupMfa).
+    mfaPendingSecret: { type: String, default: null },
     isMfaEnabled: { type: Boolean, default: false },
     permissions: { type: [String], default: [] },
     refreshTokens: [

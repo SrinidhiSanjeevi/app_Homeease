@@ -5,8 +5,19 @@ const Service = require("../models/Service");
 const Professional = require("../models/Professional");
 const EmergencyRequest = require("../models/EmergencyRequest");
 const AuditLog = require("../models/AuditLog");
+const SlotReservation = require("../models/SlotReservation");
 const { reassignWaitingWork } = require("../services/professionalMatcher");
 const { canTransition } = require("../services/booking/bookingStateMachine");
+
+// Allowed emergency status moves — mirrors backend emergencyConfig.js.
+const EMERGENCY_TRANSITIONS = {
+  Dispatched: ["OnTheWay", "Arrived", "Resolved", "Cancelled"],
+  OnTheWay: ["Arrived", "Resolved", "Cancelled"],
+  Arrived: ["Resolved", "Cancelled"],
+  Resolved: [],
+  Cancelled: []
+};
+const canTransitionEmergency = (from, to) => (EMERGENCY_TRANSITIONS[from] || []).includes(to);
 const logger = require("../utils/logger");
 const { findLocality, publicServiceArea } = require("../services/serviceArea");
 const { parsePagination, formatPaginationResult } = require("../utils/pagination");
@@ -75,8 +86,19 @@ const getStats = async (req, res) => {
     const pendingBookings = createdBookings + assignedBookings;
 
     const revenueAgg = await Booking.aggregate([
-      { $match: { status: { $in: ["Confirmed", "Completed"] } } },
-      { $group: { _id: null, total: { $sum: "$totalPrice" } } },
+      // Money actually received: paid online, cash collected, or the fee
+      // kept on a late cancellation.
+      { $match: { paymentStatus: { $in: ["Paid", "Paid (Cash Collected)", "Partially Refunded"] } } },
+      {
+        $group: {
+          _id: null,
+          total: {
+            $sum: {
+              $cond: [{ $eq: ["$paymentStatus", "Partially Refunded"] }, { $ifNull: ["$cancellationFee", 0] }, "$totalPrice"]
+            }
+          }
+        }
+      },
     ]);
     const totalRevenue = revenueAgg.length > 0 ? revenueAgg[0].total : 0;
 
@@ -227,9 +249,15 @@ const updateBookingStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid status value" });
     }
 
-    const existingBooking = await Booking.findById(req.params.id).populate("professional", "category");
+    const existingBooking = await Booking.findById(req.params.id);
     if (!existingBooking) {
       return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    // Setting the same status again is a no-op — never re-run the side
+    // effects (freeing the professional, refunds) a second time.
+    if (existingBooking.status === status) {
+      return res.status(400).json({ success: false, message: `Booking is already ${status}` });
     }
 
     if (!canTransition(existingBooking.status, status)) {
@@ -239,24 +267,48 @@ const updateBookingStatus = async (req, res) => {
       });
     }
 
+    const isCash = existingBooking.paymentMethod === "Cash on Delivery";
+    const isPaid = existingBooking.paymentStatus === "Paid";
+
+    if ((status === "Confirmed" || status === "Assigned") && !isCash && !isPaid) {
+      return res.status(400).json({ success: false, message: "An online booking can't be confirmed before it is paid" });
+    }
+
+    const update = { status };
+    if (status === "Completed" && isCash) {
+      update.paymentStatus = "Paid (Cash Collected)";
+    }
+    if (status === "Cancelled") {
+      Object.assign(update, { cancelledAt: new Date(), cancelledBy: "admin", cancellationReason: "Cancelled by admin" });
+      if (isPaid) {
+        // Full refund; issued (and retried) by the backend scheduler.
+        Object.assign(update, { paymentStatus: "Refund Pending", refundAmount: existingBooking.totalPrice, refundAttempts: 0 });
+      } else if (existingBooking.paymentStatus === "Pending") {
+        update.paymentStatus = "Cancelled";
+      }
+    }
+
     // Admins may complete a booking at any time, regardless of its slot.
-    const booking = await Booking.findByIdAndUpdate(
-      req.params.id,
-      { status },
+    // Conditional on the old status so two admins can't both apply it.
+    const booking = await Booking.findOneAndUpdate(
+      { _id: existingBooking._id, status: existingBooking.status },
+      { $set: update },
       { new: true, runValidators: true }
     ).populate("user", "name email").populate("service", "name");
 
-    if ((status === "Cancelled" || status === "Completed") && existingBooking?.professional) {
-      const freedProfessional = await Professional.findByIdAndUpdate(
-        existingBooking.professional._id,
-        { status: "Available" },
-        { new: true }
-      );
-      if (freedProfessional) {
-        reassignWaitingWork(freedProfessional.category).catch((err) =>
-          logger.error({ err: err.message }, "Auto-reassignment error")
-        );
+    if (!booking) {
+      return res.status(409).json({ success: false, message: "This booking was just updated. Please refresh." });
+    }
+
+    if (status === "Cancelled" || status === "Completed") {
+      // Frees exactly this booking's slot — nothing else of the professional's.
+      await SlotReservation.deleteMany({ booking: booking._id });
+      if (status === "Completed" && booking.professional) {
+        await Professional.updateOne({ _id: booking.professional }, { $inc: { completedJobs: 1 } });
       }
+      reassignWaitingWork().catch((err) =>
+        logger.error({ err: err.message }, "Auto-reassignment error")
+      );
     }
 
     res.status(200).json({ success: true, message: `Booking marked as ${status}`, booking });
@@ -411,30 +463,35 @@ const updateEmergencyStatus = async (req, res) => {
       });
     }
 
-    const emergency = await EmergencyRequest.findById(req.params.id);
-    if (!emergency) return res.status(404).json({ success: false, message: "Emergency request not found" });
+    const existing = await EmergencyRequest.findById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: "Emergency request not found" });
 
-    emergency.status = status;
-
-    if (status === "Resolved" || status === "Cancelled") {
-      emergency.resolvedAt = new Date();
-
-      if (emergency.assignedProfessional) {
-        const freedProfessional = await Professional.findByIdAndUpdate(
-          emergency.assignedProfessional,
-          { status: "Available" },
-          { new: true }
-        );
-
-        if (freedProfessional) {
-          reassignWaitingWork(freedProfessional.category).catch((err) =>
-            logger.error({ err: err.message }, "Auto-reassignment error")
-          );
-        }
-      }
+    if (!canTransitionEmergency(existing.status, status)) {
+      return res.status(400).json({
+        success: false,
+        message: existing.status === status
+          ? `Emergency is already ${status}`
+          : `Can't move an emergency from ${existing.status} to ${status}`
+      });
     }
 
-    await emergency.save();
+    const isClosing = status === "Resolved" || status === "Cancelled";
+    const emergency = await EmergencyRequest.findOneAndUpdate(
+      { _id: existing._id, status: existing.status },
+      { $set: { status, ...(isClosing ? { resolvedAt: new Date() } : {}) } },
+      { new: true }
+    );
+    if (!emergency) {
+      return res.status(409).json({ success: false, message: "This emergency was just updated. Please refresh." });
+    }
+
+    if (isClosing && emergency.assignedProfessional) {
+      await Professional.updateOne({ _id: emergency.assignedProfessional, status: "Busy" }, { $set: { status: "Available" } });
+      reassignWaitingWork().catch((err) =>
+        logger.error({ err: err.message }, "Auto-reassignment error")
+      );
+    }
+
     res.status(200).json({ success: true, message: `Emergency status updated to ${status}`, emergency });
   } catch (error) {
     logger.error({ err: error.message }, "Update Emergency Status Error");

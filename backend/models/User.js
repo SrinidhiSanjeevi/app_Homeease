@@ -54,6 +54,12 @@ const userSchema = new mongoose.Schema(
       default: null
     },
 
+    // New authenticator secret awaiting confirmation (authController.setupMfa).
+    mfaPendingSecret: {
+      type: String,
+      default: null
+    },
+
     isMfaEnabled: {
       type: Boolean,
       default: false

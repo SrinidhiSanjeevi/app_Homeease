@@ -168,9 +168,14 @@ const server = app.listen(PORT, () => {
   logger.info({ port: PORT }, `HomeEase Backend started`);
 });
 
+// Unpaid-booking expiry, waiting-work reassignment, refund retries.
+const scheduler = require("./services/scheduler");
+scheduler.start();
+
 // ─── Graceful shutdown ────────────────────────────────────────────────────────
 const shutdown = (signal) => {
   logger.info({ signal }, "Graceful shutdown initiated");
+  scheduler.stop();
   server.close(() => {
     logger.info("HTTP server closed");
     mongoose.connection.close(false).then(() => {
