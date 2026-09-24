@@ -152,9 +152,45 @@ const getServiceReviews = async (req, res) => {
   }
 };
 
+// GET LATEST WRITTEN REVIEWS ACROSS ALL SERVICES (home page)
+const getRecentReviews = async (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 6;
+    const rawReviews = await Booking.find({
+      status: "Completed",
+      userRating: { $gte: 4 },
+      userReview: { $exists: true, $ne: "" },
+      service: { $ne: null }
+    })
+      .select("userRating userReview updatedAt user service")
+      .populate("user", "name")
+      .populate("service", "name category")
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const reviews = rawReviews.map((r) => ({
+      _id: r._id,
+      rating: r.userRating,
+      review: r.userReview,
+      author: toDisplayName(r.user?.name),
+      serviceId: r.service?._id || null,
+      serviceName: r.service?.name || null,
+      category: r.service?.category || null,
+      date: r.updatedAt
+    }));
+
+    return res.status(200).json({ success: true, reviews });
+  } catch (error) {
+    logger.error({ err: error.message }, "Error fetching recent reviews");
+    return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
+  }
+};
+
 module.exports = {
   getServices,
   getProfessionals,
   getServiceById,
-  getServiceReviews
+  getServiceReviews,
+  getRecentReviews
 };

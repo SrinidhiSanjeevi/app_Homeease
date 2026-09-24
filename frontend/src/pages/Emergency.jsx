@@ -1,16 +1,5 @@
 import React, { useState } from "react";
-import {
-  ShieldAlert,
-  PhoneCall,
-  MapPin,
-  Star,
-  Flame,
-  Loader2,
-  AlertTriangle,
-  Clock,
-  XCircle,
-  CheckCircle2
-} from "lucide-react";
+import { ShieldAlert, PhoneCall, MapPin, Star, Flame, Loader2, AlertTriangle, Clock, XCircle, CheckCircle2, Check } from "../components/Icon";
 import LocationCapture from "../components/LocationCapture";
 
 const CATEGORIES = [
@@ -104,9 +93,9 @@ const getEmergencyStatusBadge = (status) => {
     case "Cancelled":
       return { label: "Cancelled", bg: "#fee2e2", color: "#b91c1c" };
     case "Resolved":
-      return { label: "Resolved ✓", bg: "#dcfce7", color: "#15803d" };
+      return { label: "Resolved", bg: "#dcfce7", color: "#15803d" };
     case "Arrived":
-      return { label: "Specialist Arrived", bg: "#e0e7ff", color: "#3730a3" };
+      return { label: "Specialist Arrived", bg: "#e7f2ef", color: "#083a31" };
     case "OnTheWay":
       return { label: "En Route", bg: "#fef3c7", color: "#b45309" };
     default:
@@ -364,7 +353,7 @@ export default function Emergency({
         style={{
           display: "grid",
           gridTemplateColumns:
-            "repeat(auto-fit, minmax(340px, 1fr))",
+            "repeat(auto-fit, minmax(min(360px, 100%), 1fr))",
           gap: "28px"
         }}
       >
@@ -410,7 +399,7 @@ export default function Emergency({
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))",
                   gap: "8px"
                 }}
               >
@@ -434,7 +423,7 @@ export default function Emergency({
 
                       background:
                         category === item.value
-                          ? "rgba(99,102,241,0.1)"
+                          ? "rgba(14, 94, 79,0.1)"
                           : "rgba(0,0,0,0.03)",
 
                       color:
@@ -484,7 +473,7 @@ export default function Emergency({
                 style={{
                   display: "grid",
                   gridTemplateColumns:
-                    "repeat(4, 1fr)",
+                    "repeat(auto-fit, minmax(110px, 1fr))",
                   gap: "8px"
                 }}
               >
@@ -864,7 +853,7 @@ export default function Emergency({
                         <span
                           style={{
                             background:
-                              "rgba(99,102,241,0.1)",
+                              "rgba(14, 94, 79,0.1)",
                             color:
                               "var(--primary)",
                             padding: "4px 12px",
@@ -974,7 +963,7 @@ export default function Emergency({
                                       : "#6b7280"
                                   }}
                                 >
-                                  {isDone ? "✓" : step.num}
+                                  {isDone ? <Check size={16} strokeWidth={3} /> : step.num}
                                 </div>
 
                                 <span
@@ -1008,7 +997,7 @@ export default function Emergency({
                           : isResolved
                             ? "#f0fdf4"
                             : isArrived
-                              ? "#eef2ff"
+                              ? "#e7f2ef"
                               : isOnTheWay
                                 ? "#fffbeb"
                                 : "#f0fdf4",
@@ -1017,7 +1006,7 @@ export default function Emergency({
                           : isResolved
                             ? "1px solid #bbf7d0"
                             : isArrived
-                              ? "1px solid #c7d2fe"
+                              ? "1px solid #c6e0d9"
                               : isOnTheWay
                                 ? "1px solid #fde68a"
                                 : "1px solid #bbf7d0",
@@ -1053,7 +1042,7 @@ export default function Emergency({
                               : isResolved
                                 ? "#15803d"
                                 : isArrived
-                                  ? "#3730a3"
+                                  ? "#083a31"
                                   : isOnTheWay
                                     ? "#b45309"
                                     : "#15803d",

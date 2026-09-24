@@ -1,13 +1,44 @@
-import React, { useState, useEffect } from "react";
-import { X, ChevronRight, ChevronLeft, Star } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import Icon from "./Icon";
 import LocationCapture from "./LocationCapture";
+
+const STEPS = [
+  { step: 1, label: "Schedule" },
+  { step: 2, label: "Customize" },
+  { step: 3, label: "Address" },
+  { step: 4, label: "Payment" },
+];
+
+const TIME_SLOTS = [
+  { value: "09:00 AM - 11:00 AM", label: "Morning", time: "9 – 11 AM" },
+  { value: "12:00 PM - 02:00 PM", label: "Afternoon", time: "12 – 2 PM" },
+  { value: "03:00 PM - 05:00 PM", label: "Evening", time: "3 – 5 PM" },
+  { value: "06:00 PM - 08:00 PM", label: "Night", time: "6 – 8 PM" },
+];
+
+// Values must match Service.category / Professional.category in the DB.
+const CUSTOM_CATEGORIES = [
+  { value: "Spa", label: "Spa & Wellness" },
+  { value: "Electrician", label: "Electrician & Appliances" },
+  { value: "Carpentry", label: "Carpentry & Woodwork" },
+  { value: "Plumbing", label: "Plumbing & Sanitary" },
+  { value: "Security", label: "Security & Smart Locks" },
+  { value: "Repair", label: "General Cleaning & Repair" },
+];
+
+const todayIso = () => {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().split("T")[0];
+};
 
 export default function BookingModal({ service, initialProduct, onClose, onSubmit, onBookingSettled, professionals, user }) {
   const [step, setStep] = useState(1);
+  const [stepError, setStepError] = useState("");
   const [customCategory, setCustomCategory] = useState(service.category || "Spa");
   const [customDescription, setCustomDescription] = useState("");
   const [date, setDate] = useState("");
-  const [timeSlot, setTimeSlot] = useState("09:00 AM - 11:00 AM");
+  const [timeSlot, setTimeSlot] = useState(TIME_SLOTS[0].value);
   const [selectedProfessional, setSelectedProfessional] = useState("");
   const [selectedProduct, setSelectedProduct] = useState(
     initialProduct || (service.products && service.products.length > 0 ? service.products[0] : null)
@@ -19,7 +50,6 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
   const [paymentMethod, setPaymentMethod] = useState("Razorpay");
   const [processingPayment, setProcessingPayment] = useState(false);
   const [razorpayLoaded, setRazorpayLoaded] = useState(false);
-  const [localProfessionals, setLocalProfessionals] = useState([]);
 
   useEffect(() => {
     if (window.Razorpay) {
@@ -39,11 +69,33 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
     document.body.appendChild(script);
   }, []);
 
+  // Close on Escape (unless a payment is in flight)
   useEffect(() => {
-    const activeCategory = service.isCustom ? customCategory : service.category;
-    const filtered = professionals.filter(p => p.category === activeCategory && p.status === "Available");
-    setLocalProfessionals(filtered);
-  }, [professionals, service, customCategory]);
+    const onKey = (e) => {
+      if (e.key === "Escape" && !processingPayment) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, processingPayment]);
+
+  const activeCategory = service.isCustom ? customCategory : service.category;
+
+  // Every pro in this category; busy ones are shown but not selectable.
+  const categoryProfessionals = useMemo(
+    () =>
+      professionals
+        .filter((p) => p.category === activeCategory)
+        .sort((a, b) => (a.status === "Available" ? 0 : 1) - (b.status === "Available" ? 0 : 1) || (b.rating || 0) - (a.rating || 0)),
+    [professionals, activeCategory]
+  );
+  const availableCount = categoryProfessionals.filter((p) => p.status === "Available").length;
+
+  useEffect(() => {
+    // Drop a stale choice if that pro is no longer available / in category
+    if (selectedProfessional && !categoryProfessionals.some((p) => p._id === selectedProfessional && p.status === "Available")) {
+      setSelectedProfessional("");
+    }
+  }, [categoryProfessionals, selectedProfessional]);
 
   const basePrice = service.price;
   const productExtra = (!service.isCustom && selectedProduct) ? selectedProduct.extraPrice : 0;
@@ -52,13 +104,20 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
   const total = subtotal + gst;
 
   const handleNext = () => {
-    if (step === 1 && !date) { alert("Please select a date."); return; }
-    if (step === 2 && service.isCustom && !customDescription) { alert("Please describe your custom service requirements."); return; }
-    if (step === 3 && (!address || !contactNumber)) { alert("Please provide delivery address and contact details."); return; }
+    if (step === 1 && !date) return setStepError("Please pick a date for your visit.");
+    if (step === 2 && service.isCustom && !customDescription.trim()) return setStepError("Please describe what you need done.");
+    if (step === 3) {
+      if (!address.trim()) return setStepError("Please enter the service address.");
+      if (!/^[6-9]\d{9}$/.test(contactNumber.replace(/\D/g, "").slice(-10))) return setStepError("Please enter a valid 10-digit mobile number.");
+    }
+    setStepError("");
     setStep(step + 1);
   };
 
-  const handleBack = () => setStep(step - 1);
+  const handleBack = () => {
+    setStepError("");
+    setStep(step - 1);
+  };
 
   const buildBookingPayload = (paymentMethodValue) => ({
     serviceId: service.isCustom ? null : service._id,
@@ -128,7 +187,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
         amount: orderRes.amount,
         currency: orderRes.currency,
         order_id: orderRes.orderId,
-        name: "ServiceXpress",
+        name: "HomeEase",
         description: service.name || "Service Booking",
         handler: async function (response) {
           const verifyRes = await fetch("/api/payments/verify", {
@@ -156,7 +215,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
             setProcessingPayment(false);
           },
         },
-        theme: { color: "#000000" },
+        theme: { color: "#0E5E4F" },
       });
 
       // FIX: Razorpay does NOT call `handler` on a bank decline — it fires
@@ -205,86 +264,275 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
     }
   };
 
+  const selectedPro = categoryProfessionals.find((p) => p._id === selectedProfessional);
+
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0, 0, 0, 0.4)", backdropFilter: "blur(6px)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000, animation: "fadeIn 0.2s ease-out" }}>
-      <div className="glass-card" style={{ width: "550px", maxWidth: "90%", maxHeight: "85vh", display: "flex", flexDirection: "column", borderRadius: "16px", border: "1px solid var(--border)", animation: "scaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards", overflow: "hidden" }}>
-        <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#ffffff" }}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !processingPayment) onClose();
+      }}
+    >
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="booking-title">
+        <div className="modal-head">
           <div>
-            <h2 style={{ fontSize: "1.25rem", fontWeight: 800 }}>{service.isCustom ? "Custom Request" : "Book Service"}</h2>
-            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{service.isCustom ? "Submit custom requirements" : service.name}</p>
+            <h2 id="booking-title">{service.isCustom ? "Custom request" : service.name}</h2>
+            <p>
+              {service.isCustom
+                ? "Tell us what you need and we'll match an expert"
+                : `${service.category} · ${service.duration || "Flexible"} · from ₹${service.price}`}
+            </p>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: "var(--primary)", width: "32px", height: "32px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <X size={16} color="#ffffff" strokeWidth={2.5} />
+          <button type="button" className="icon-btn" onClick={onClose} disabled={processingPayment} aria-label="Close">
+            <Icon name="close" size={24} />
           </button>
         </div>
-        <div style={{ background: "var(--bg-main)", padding: "12px 24px", display: "flex", gap: "8px" }}>
-          {[
-            { step: 1, label: "Schedule" },
-            { step: 2, label: "Customize" },
-            { step: 3, label: "Details" },
-            { step: 4, label: "Payment" },
-          ].map((bar) => {
-            const isActive = step === bar.step;
-            const isCompleted = step > bar.step;
-            return (
-              <div key={bar.step} style={{ flex: 1, display: "flex", alignItems: "center", gap: "6px", fontSize: "0.75rem", fontWeight: 700, color: isActive ? "var(--primary)" : isCompleted ? "var(--success)" : "var(--text-muted)" }}>
-                <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: isActive ? "var(--primary)" : isCompleted ? "var(--success)" : "#cbd5e1", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem" }}>
-                  {isCompleted ? "✓" : bar.step}
-                </div>
-                <span>{bar.label}</span>
-              </div>
-            );
-          })}
+
+        <div className="stepper">
+          {STEPS.map((s) => (
+            <div key={s.step} className={`stepper-item${step === s.step ? " is-active" : ""}${step > s.step ? " is-done" : ""}`}>
+              <div className="stepper-bar" />
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {step > s.step && <Icon name="check" size={14} />}
+                <span className="stepper-label">{s.label}</span>
+              </span>
+            </div>
+          ))}
         </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px", background: "#ffffff" }}>
+
+        <div className="modal-body">
           {step === 1 && (
             <div style={{ animation: "fadeIn 0.2s ease" }}>
               {service.isCustom && (
-                <div className="form-group" style={{ marginBottom: "20px" }}>
-                  <label>Select Category</label>
-                  <select value={customCategory} onChange={(e) => setCustomCategory(e.target.value)}>
-                    <option value="Spa">Spa & Wellness</option>
-                    <option value="Electrical">Electrician & Appliances</option>
-                    <option value="Carpentry">Carpentry & Woodwork</option>
-                    <option value="Plumbing">Plumbing & Sanitary</option>
-                    <option value="Security">Security & Alarm Systems</option>
-                    <option value="Repair">General Cleaning & Repair</option>
+                <div className="form-group">
+                  <label htmlFor="bm-category">Category</label>
+                  <select id="bm-category" value={customCategory} onChange={(e) => setCustomCategory(e.target.value)}>
+                    {CUSTOM_CATEGORIES.map((c) => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
                   </select>
                 </div>
               )}
+
               <div className="form-group">
-                <label>Select Date</label>
-                <input type="date" min={new Date().toISOString().split("T")[0]} value={date} onChange={(e) => setDate(e.target.value)} />
+                <label htmlFor="bm-date">When should we come?</label>
+                <input id="bm-date" type="date" min={todayIso()} value={date} onChange={(e) => { setDate(e.target.value); setStepError(""); }} />
               </div>
+
               <div className="form-group">
-                <label>Preferred Time Slot</label>
-                <select value={timeSlot} onChange={(e) => setTimeSlot(e.target.value)}>
-                  <option value="09:00 AM - 11:00 AM">09:00 AM - 11:00 AM (Morning)</option>
-                  <option value="12:00 PM - 02:00 PM">12:00 PM - 02:00 PM (Afternoon)</option>
-                  <option value="03:00 PM - 05:00 PM">03:00 PM - 05:00 PM (Evening)</option>
-                  <option value="06:00 PM - 08:00 PM">06:00 PM - 08:00 PM (Night)</option>
-                </select>
+                <span className="field-label">Time slot</span>
+                <div className="slot-grid">
+                  {TIME_SLOTS.map((slot) => (
+                    <button
+                      key={slot.value}
+                      type="button"
+                      className={`slot${timeSlot === slot.value ? " is-active" : ""}`}
+                      onClick={() => setTimeSlot(slot.value)}
+                      aria-pressed={timeSlot === slot.value}
+                    >
+                      <strong>{slot.label}</strong>
+                      <span>{slot.time}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="form-group">
-                <label>Choose Specialist</label>
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "5px" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px", borderRadius: "8px", border: selectedProfessional === "" ? "2px solid var(--primary)" : "1px solid var(--border)", background: selectedProfessional === "" ? "var(--primary-light)" : "white", cursor: "pointer" }}>
-                    <input type="radio" name="professional" value="" checked={selectedProfessional === ""} onChange={() => setSelectedProfessional("")} style={{ width: "auto", marginTop: 0 }} />
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <span className="field-label" style={{ display: "flex", justifyContent: "space-between" }}>
+                  Choose your professional
+                  <span style={{ fontWeight: 600, color: "var(--text-muted)" }}>
+                    {availableCount} of {categoryProfessionals.length} available
+                  </span>
+                </span>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <label className={`option-card${selectedProfessional === "" ? " is-active" : ""}`}>
+                    <input type="radio" name="professional" checked={selectedProfessional === ""} onChange={() => setSelectedProfessional("")} />
+                    <span className="avatar" style={{ background: "var(--brand)", color: "#fff" }}>
+                      <Icon name="bolt" size={20} filled />
+                    </span>
                     <div style={{ flex: 1 }}>
-                      <span style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--text-main)", textTransform: "none" }}>Auto-Assign Best Specialist</span>
-                      <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>System selects the highest-rated free professional instantly.</p>
+                      <strong style={{ fontSize: "0.95rem" }}>Auto-assign best match</strong>
+                      <div className="field-hint">We pick the highest-rated professional who is free — fastest option.</div>
                     </div>
+                    <span className="badge badge-completed">Recommended</span>
                   </label>
-                  {localProfessionals.map((prof) => (
-                    <label key={prof._id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px", borderRadius: "8px", border: selectedProfessional === prof._id ? "2px solid var(--primary)" : "1px solid var(--border)", background: selectedProfessional === prof._id ? "var(--primary-light)" : "white", cursor: "pointer" }}>
-                      <input type="radio" name="professional" value={prof._id} checked={selectedProfessional === prof._id} onChange={() => setSelectedProfessional(prof._id)} style={{ width: "auto", marginTop: 0 }} />
-                      <img src={prof.imageUrl || prof.image} alt={prof.imageAlt || prof.name} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
-                      <div style={{ flex: 1 }}>
-                        <span style={{ fontWeight: 700, fontSize: "0.9rem", textTransform: "none", color: "var(--text-main)" }}>{prof.name}</span>
-                        <div style={{ display: "flex", gap: "10px", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                          <span>{prof.experience} yrs exp</span>
-                          <span style={{ display: "flex", alignItems: "center", gap: "2px" }}><Star size={12} fill="var(--warning)" stroke="var(--warning)" />{prof.rating}</span>
+
+                  {categoryProfessionals.map((prof) => {
+                    const busy = prof.status !== "Available";
+                    const active = selectedProfessional === prof._id;
+                    return (
+                      <label key={prof._id} className={`option-card${active ? " is-active" : ""}${busy ? " is-disabled" : ""}`}>
+                        <input
+                          type="radio"
+                          name="professional"
+                          checked={active}
+                          disabled={busy}
+                          onChange={() => setSelectedProfessional(prof._id)}
+                        />
+                        {prof.imageUrl || prof.image ? (
+                          <img src={prof.imageUrl || prof.image} alt={prof.imageAlt || prof.name} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                        ) : (
+                          <span className="avatar">{prof.name?.[0]}</span>
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <strong style={{ fontSize: "0.95rem" }}>{prof.name}</strong>
+                          <div className="service-card-meta">
+                            <span className="rating-pill" style={{ fontSize: "0.8rem" }}>
+                              <Icon name="star" size={14} filled /> {prof.rating || "New"}
+                            </span>
+                            <span className="dot" />
+                            <span>{prof.experience} yrs experience</span>
+                            {prof.completedJobs > 0 && (
+                              <>
+                                <span className="dot" />
+                                <span>{prof.completedJobs} jobs</span>
+                              </>
+                            )}
+                          </div>
                         </div>
+                        <span className={`badge ${busy ? "badge-pending" : "badge-completed"}`}>{busy ? "Busy" : "Available"}</span>
+                      </label>
+                    );
+                  })}
+
+                  {categoryProfessionals.length > 0 && availableCount === 0 && (
+                    <div className="notice notice-info">
+                      <Icon name="schedule" size={18} />
+                      <span>All {activeCategory} professionals are on jobs right now. Choose auto-assign and we&apos;ll confirm the first one who frees up.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div style={{ animation: "fadeIn 0.2s ease" }}>
+              {service.isCustom ? (
+                <div className="form-group">
+                  <label htmlFor="bm-desc">Describe the job</label>
+                  <textarea
+                    id="bm-desc"
+                    placeholder="What needs to be repaired, installed or serviced? Include sizes, brands or photos you can share on arrival."
+                    value={customDescription}
+                    onChange={(e) => { setCustomDescription(e.target.value); setStepError(""); }}
+                    style={{ minHeight: 140 }}
+                  />
+                </div>
+              ) : (
+                <div className="form-group">
+                  <span className="field-label">Choose a package</span>
+                  {service.products && service.products.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {service.products.map((prod, idx) => {
+                        const active = selectedProduct?.name === prod.name;
+                        return (
+                          <label key={idx} className={`option-card${active ? " is-active" : ""}`}>
+                            <input type="radio" name="product" checked={active} onChange={() => setSelectedProduct(prod)} />
+                            <div style={{ flex: 1 }}>
+                              <strong style={{ fontSize: "0.95rem" }}>{prod.name}</strong>
+                              <div className="field-hint">{prod.brand}</div>
+                            </div>
+                            <strong>{prod.extraPrice === 0 ? "Included" : `+ ₹${prod.extraPrice}`}</strong>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="notice notice-info">
+                      <Icon name="inventory_2" size={18} />
+                      <span>Standard tools and quality materials are included with this service.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label htmlFor="bm-notes">Notes for the professional <span style={{ fontWeight: 500, color: "var(--text-muted)" }}>(optional)</span></label>
+                <textarea
+                  id="bm-notes"
+                  placeholder="Allergies, parking or gate instructions, pets at home…"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div style={{ animation: "fadeIn 0.2s ease" }}>
+              <div className="form-group">
+                <label htmlFor="bm-address">Service address</label>
+                <textarea
+                  id="bm-address"
+                  placeholder="Flat / house no., building, street, area, landmark"
+                  value={address}
+                  onChange={(e) => { setAddress(e.target.value); setStepError(""); }}
+                  style={{ minHeight: 96 }}
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="bm-phone">Mobile number</label>
+                <input
+                  id="bm-phone"
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  placeholder="10-digit mobile number"
+                  value={contactNumber}
+                  onChange={(e) => { setContactNumber(e.target.value); setStepError(""); }}
+                />
+              </div>
+              <LocationCapture onLocationCaptured={setLocation} />
+            </div>
+          )}
+
+          {step === 4 && (
+            <div style={{ animation: "fadeIn 0.2s ease" }}>
+              <div className="summary">
+                <div className="summary-row" style={{ color: "var(--text-main)", fontWeight: 700, marginBottom: 12 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <Icon name="event" size={18} /> {date ? new Date(date + "T00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—"}
+                  </span>
+                  <span>{TIME_SLOTS.find((s) => s.value === timeSlot)?.time}</span>
+                </div>
+                <div className="summary-row">
+                  <span>Professional</span>
+                  <span>{selectedPro ? selectedPro.name : "Auto-assigned"}</span>
+                </div>
+                <div className="summary-row">
+                  <span>Service price</span>
+                  <span>₹{basePrice}</span>
+                </div>
+                {!service.isCustom && selectedProduct && selectedProduct.extraPrice > 0 && (
+                  <div className="summary-row">
+                    <span>{selectedProduct.name} ({selectedProduct.brand})</span>
+                    <span>+ ₹{productExtra}</span>
+                  </div>
+                )}
+                <div className="summary-row">
+                  <span>GST (18%)</span>
+                  <span>₹{gst}</span>
+                </div>
+                <div className="summary-total">
+                  <span>Total</span>
+                  <span>₹{total}</span>
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <span className="field-label">Payment method</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {[
+                    { value: "Razorpay", icon: "credit_card", title: "Pay online", hint: "UPI, cards, net banking · Razorpay test mode" },
+                    { value: "Cash on Delivery", icon: "payments", title: "Pay after service", hint: "Cash or UPI to the professional" },
+                  ].map((m) => (
+                    <label key={m.value} className={`option-card${paymentMethod === m.value ? " is-active" : ""}`}>
+                      <input type="radio" name="payment" checked={paymentMethod === m.value} onChange={() => setPaymentMethod(m.value)} />
+                      <Icon name={m.icon} size={22} color="var(--brand)" />
+                      <div style={{ flex: 1 }}>
+                        <strong style={{ fontSize: "0.95rem" }}>{m.title}</strong>
+                        <div className="field-hint">{m.hint}</div>
                       </div>
                     </label>
                   ))}
@@ -292,104 +540,46 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
               </div>
             </div>
           )}
-          {step === 2 && (
-            <div style={{ animation: "fadeIn 0.2s ease" }}>
-              {service.isCustom ? (
-                <div className="form-group">
-                  <label>Describe Your Custom Job Requirements</label>
-                  <textarea placeholder="Describe exactly what needs to be repaired, installed, or styled..." value={customDescription} onChange={(e) => setCustomDescription(e.target.value)} style={{ minHeight: "120px" }} />
-                </div>
-              ) : (
-                <div className="form-group">
-                  <label>Choose Brand/Product Package</label>
-                  {service.products && service.products.length > 0 ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "5px" }}>
-                      {service.products.map((prod, idx) => (
-                        <label key={idx} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px", borderRadius: "8px", border: selectedProduct?.name === prod.name ? "2px solid var(--primary)" : "1px solid var(--border)", background: selectedProduct?.name === prod.name ? "var(--primary-light)" : "white", cursor: "pointer" }}>
-                          <input type="radio" name="product" checked={selectedProduct?.name === prod.name} onChange={() => setSelectedProduct(prod)} style={{ width: "auto", marginTop: 0 }} />
-                          <div style={{ flex: 1 }}>
-                            <span style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--text-main)", textTransform: "none" }}>{prod.name}</span>
-                            <span style={{ marginLeft: "8px", fontSize: "0.75rem", background: "#eaeaea", padding: "2px 6px", borderRadius: "4px" }}>{prod.brand}</span>
-                          </div>
-                          <span style={{ fontWeight: 800, color: "var(--primary)" }}>{prod.extraPrice === 0 ? "Included" : `+ ₹${prod.extraPrice}`}</span>
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Standard tools and premium materials are included in this service by default.</p>
-                  )}
-                </div>
-              )}
-              <div className="form-group" style={{ marginTop: "20px" }}>
-                <label>Allergies & Special Requests</label>
-                <textarea placeholder="E.g., Allergies to chemicals, specify structural details, entry access etc." value={notes} onChange={(e) => setNotes(e.target.value)} />
-              </div>
-            </div>
-          )}
-          {step === 3 && (
-            <div style={{ animation: "fadeIn 0.2s ease" }}>
-              <div className="form-group">
-                <label>Service Delivery Address</label>
-                <textarea placeholder="Enter house details, building name, street, area, landmark..." value={address} onChange={(e) => setAddress(e.target.value)} style={{ minHeight: "100px" }} />
-              </div>
-              <div className="form-group">
-                <label>Contact Phone Number</label>
-                <input type="tel" placeholder="Enter 10-digit mobile number" value={contactNumber} onChange={(e) => setContactNumber(e.target.value)} />
-              </div>
-              <LocationCapture onLocationCaptured={setLocation} />
-            </div>
-          )}
-          {step === 4 && (
-            <div style={{ animation: "fadeIn 0.2s ease" }}>
-              <div style={{ background: "var(--bg-main)", padding: "16px", borderRadius: "8px", border: "1px solid var(--border)", marginBottom: "20px" }}>
-                <h4 style={{ fontSize: "0.9rem", fontWeight: 700, marginBottom: "10px", textTransform: "uppercase" }}>Summary</h4>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "6px" }}>
-                  <span style={{ color: "var(--text-muted)" }}>Base Service Price</span>
-                  <span>₹{basePrice}</span>
-                </div>
-                {!service.isCustom && selectedProduct && selectedProduct.extraPrice > 0 && (
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "6px" }}>
-                    <span style={{ color: "var(--text-muted)" }}>Product upgrade ({selectedProduct.brand})</span>
-                    <span>+ ₹{productExtra}</span>
-                  </div>
-                )}
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "6px" }}>
-                  <span style={{ color: "var(--text-muted)" }}>GST (18%)</span>
-                  <span>₹{gst}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "1.05rem", fontWeight: 800, marginTop: "10px", paddingTop: "10px", borderTop: "1px solid var(--border)" }}>
-                  <span>Grand Total</span>
-                  <span style={{ color: "var(--primary)" }}>₹{total}</span>
-                </div>
-              </div>
-              <div className="form-group">
-                <label>Select Payment Method</label>
-                <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-                  <option value="Razorpay">Online Payment (Razorpay Test Mode)</option>
-                  <option value="Cash on Delivery">Cash on Delivery (Pay after service)</option>
-                </select>
-              </div>
+
+          {stepError && (
+            <div className="notice notice-warn" role="alert" style={{ marginTop: 16 }}>
+              <Icon name="error" size={18} />
+              <span>{stepError}</span>
             </div>
           )}
         </div>
-        <div style={{ padding: "16px 24px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", background: "var(--bg-main)" }}>
+
+        <div className="modal-foot">
           {step > 1 ? (
-            <button onClick={handleBack} className="btn btn-secondary" disabled={processingPayment}>
-              <ChevronLeft size={16} /> Back
+            <button type="button" onClick={handleBack} className="btn btn-secondary" disabled={processingPayment}>
+              <Icon name="arrow_back" size={18} /> Back
             </button>
-          ) : <div></div>}
+          ) : (
+            <span className="price" style={{ fontSize: "1rem" }}>
+              <small>Estimated total</small>₹{total}
+            </span>
+          )}
           {step < 4 ? (
-            <button onClick={handleNext} className="btn btn-primary">
-              Next <ChevronRight size={16} />
+            <button type="button" onClick={handleNext} className="btn btn-primary" style={{ minWidth: 140 }}>
+              Continue <Icon name="arrow_forward" size={18} />
             </button>
           ) : (
             <button
+              type="button"
               onClick={handlePaymentInitiate}
               className="btn btn-primary"
+              style={{ minWidth: 180 }}
               disabled={processingPayment || (paymentMethod === "Razorpay" && !razorpayLoaded)}
-              style={{ background: "#000000" }}
             >
-              {processingPayment ? "Processing..." : `Checkout (₹${total})`}
+              {processingPayment ? (
+                <>
+                  <Icon name="progress_activity" size={18} spin /> Processing…
+                </>
+              ) : paymentMethod === "Razorpay" ? (
+                `Pay ₹${total}`
+              ) : (
+                `Confirm booking · ₹${total}`
+              )}
             </button>
           )}
         </div>

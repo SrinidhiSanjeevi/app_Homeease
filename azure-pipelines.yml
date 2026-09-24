@@ -235,9 +235,20 @@ stages:
               git fetch --no-tags origin "$(System.PullRequest.TargetBranch)"
               RANGE="${BASE}...HEAD"
             else
-              # On main, diff against the previous commit. If this is the
-              # first commit, fall back to "everything changed".
-              if git rev-parse HEAD~1 >/dev/null 2>&1; then
+              # On main, diff against the commit of the last SUCCESSFUL
+              # main build — not HEAD~1. A push of several commits (or a
+              # previously failed run) would otherwise hide changes made
+              # in the earlier commits. Falls back to HEAD~1, then to
+              # "everything changed" on the very first run.
+              LAST_GOOD=$(curl -fsS -H "Authorization: Bearer ${SYSTEM_ACCESSTOKEN}" \
+                "$(System.CollectionUri)$(System.TeamProject)/_apis/build/builds?definitions=$(System.DefinitionId)&branchName=refs/heads/main&resultFilter=succeeded&statusFilter=completed&queryOrder=finishTimeDescending&\$top=1&api-version=7.1" \
+                | jq -r '.value[0].sourceVersion // empty' 2>/dev/null || true)
+
+              if [ -n "$LAST_GOOD" ] && git cat-file -e "${LAST_GOOD}^{commit}" 2>/dev/null; then
+                echo "Diffing against last successful main build: ${LAST_GOOD}"
+                RANGE="${LAST_GOOD}..HEAD"
+              elif git rev-parse HEAD~1 >/dev/null 2>&1; then
+                echo "No usable last successful build — diffing against HEAD~1"
                 RANGE="HEAD~1..HEAD"
               else
                 RANGE=""
@@ -251,15 +262,14 @@ stages:
             fi
             echo "Changed files:"; echo "$CHANGED"
 
-            # Run full CI pipeline (uncommented for full testing):
-            FORCE_ALL=true
-
-            # Specific changes detected pipeline run (commented out):
-            # if echo "$CHANGED" | grep -qE '^(azure-pipelines\.yml|\.azuredevops/)' || [ "$CHANGED" = "ALL" ]; then
-            #   FORCE_ALL=true
-            # else
-            #   FORCE_ALL=false
-            # fi
+            # Only changed services are validated, packaged and promoted.
+            # A pipeline/template change, the first run, or a manual
+            # "Run pipeline" rebuilds everything.
+            if echo "$CHANGED" | grep -qE '^(azure-pipelines\.yml|\.azuredevops/)' || [ "$CHANGED" = "ALL" ] || [ "$(Build.Reason)" = "Manual" ]; then
+              FORCE_ALL=true
+            else
+              FORCE_ALL=false
+            fi
 
             for svc in backend admin-backend frontend admin-frontend payment-service; do
               VAR="changed_$(echo $svc | tr '-' '_')"
@@ -279,6 +289,8 @@ stages:
             echo "Image tag for this run: ${SHA}"
           name: detect
           displayName: 'Detect changed services + compute image tag'
+          env:
+            SYSTEM_ACCESSTOKEN: $(System.AccessToken)
 
         - publish: '$(Build.ArtifactStagingDirectory)'
           artifact: 'static-analysis-reports'
@@ -301,11 +313,8 @@ stages:
         - job: Validate_${{ replace(service.name, '-', '_') }}
           displayName: 'Validate ${{ service.name }}'
           timeoutInMinutes: 15
-          # Run full CI pipeline (uncommented):
-          # Runs for all services to verify entire pipeline health
-          #
-          # Specific changes detected pipeline run (commented out):
-          # condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
+          # Skipped when this service did not change (see Static › detect).
+          condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
           steps:
             - template: .azuredevops/templates/validate-service.yml
               parameters:
@@ -335,11 +344,8 @@ stages:
         - job: Package_${{ replace(service.name, '-', '_') }}
           displayName: 'Package ${{ service.name }}'
           timeoutInMinutes: 25
-          # Run full CI pipeline (uncommented):
-          # Packages all services to verify end-to-end build, scan, SBOM, and push
-          #
-          # Specific changes detected pipeline run (commented out):
-          # condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
+          # Skipped when this service did not change (see Static › detect).
+          condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
           variables:
             imageTag: $[ stageDependencies.Static.Changes.outputs['detect.imageTag'] ]
             commitCreated: $[ stageDependencies.Static.Changes.outputs['detect.commitCreated'] ]

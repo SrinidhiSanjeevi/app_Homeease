@@ -11,7 +11,7 @@ import {
   Share2,
   MessageSquare,
   AlertCircle,
-} from "lucide-react";
+} from "../components/Icon";
 import { FALLBACK_IMAGE } from "../components/ServiceCard";
 
 const formatDate = (value) =>

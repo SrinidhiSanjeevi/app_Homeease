@@ -1,21 +1,34 @@
 import React, { useState } from "react";
-import { MapPin, CheckCircle2, AlertTriangle } from "lucide-react";
+import Icon from "./Icon";
 
 // Optional "Use my current location" capture.
 //
 // Only requests a fix when the button is explicitly clicked — this
 // component never calls watchPosition, so there is no continuous
-// tracking. Permission denied / location unavailable are both handled
-// gracefully: the caller can always continue without a location.
+// tracking. Every failure mode is handled gracefully: the caller can
+// always continue without a location.
+//
+// NOTE: browsers only expose geolocation on secure origins (HTTPS or
+// localhost). On a plain-http URL the browser rejects the request
+// without even prompting, which looks like "permission denied".
 export default function LocationCapture({ onLocationCaptured }) {
   const [status, setStatus] = useState("idle"); // idle | requesting | success | error
   const [location, setLocation] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
 
+  const fail = (message) => {
+    setStatus("error");
+    setErrorMessage(message);
+    if (typeof onLocationCaptured === "function") onLocationCaptured(null);
+  };
+
   const handleUseLocation = () => {
+    if (!window.isSecureContext) {
+      fail("Location needs a secure (https://) connection, and this site is currently served over http. Please type your address above instead.");
+      return;
+    }
     if (!navigator.geolocation) {
-      setStatus("error");
-      setErrorMessage("Location is not supported on this browser. You can continue without it.");
+      fail("Location isn't supported on this browser. You can continue without it.");
       return;
     }
 
@@ -27,20 +40,20 @@ export default function LocationCapture({ onLocationCaptured }) {
         const captured = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy
+          accuracy: position.coords.accuracy,
         };
         setLocation(captured);
         setStatus("success");
         if (typeof onLocationCaptured === "function") onLocationCaptured(captured);
       },
       (error) => {
-        setStatus("error");
-        setErrorMessage(
-          error.code === error.PERMISSION_DENIED
-            ? "Location permission denied. You can still continue without it."
-            : "Could not detect your location. You can still continue without it."
-        );
-        if (typeof onLocationCaptured === "function") onLocationCaptured(null);
+        if (error.code === error.PERMISSION_DENIED) {
+          fail("Location access is blocked. Allow it from the lock icon in your address bar, or continue without it.");
+        } else if (error.code === error.TIMEOUT) {
+          fail("Finding your location took too long. Try again or continue without it.");
+        } else {
+          fail("We couldn't detect your location. You can continue without it.");
+        }
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
@@ -48,64 +61,51 @@ export default function LocationCapture({ onLocationCaptured }) {
 
   return (
     <div className="form-group">
-      <label>Location (optional)</label>
+      <span className="field-label">Precise location (optional)</span>
 
-      {status !== "success" && (
+      {status === "success" && location ? (
+        <div className="notice notice-ok">
+          <Icon name="my_location" size={20} />
+          <div style={{ flex: 1 }}>
+            <strong>Location added</strong>
+            <div style={{ fontSize: "0.8rem" }}>
+              {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)} · accurate to ~{Math.round(location.accuracy)} m
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ minHeight: 34, padding: "0 10px", fontSize: "0.82rem" }}
+            onClick={() => {
+              setLocation(null);
+              setStatus("idle");
+              if (typeof onLocationCaptured === "function") onLocationCaptured(null);
+            }}
+          >
+            Remove
+          </button>
+        </div>
+      ) : (
         <button
           type="button"
           onClick={handleUseLocation}
           className="btn btn-secondary"
           disabled={status === "requesting"}
-          style={{ display: "flex", alignItems: "center", gap: "6px", width: "fit-content" }}
+          style={{ width: "fit-content" }}
         >
-          <MapPin size={15} />
-          {status === "requesting" ? "Detecting location..." : "Use my current location"}
+          <Icon name={status === "requesting" ? "progress_activity" : "my_location"} size={18} spin={status === "requesting"} />
+          {status === "requesting" ? "Detecting location…" : "Use my current location"}
         </button>
       )}
 
-      {status === "success" && location && (
-        <div
-          style={{
-            background: "#f0fdf4",
-            border: "1px solid #bbf7d0",
-            borderRadius: "10px",
-            padding: "10px 14px",
-            fontSize: "0.82rem",
-            color: "#15803d"
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700, marginBottom: "4px" }}>
-            <CheckCircle2 size={15} /> Location detected
-          </div>
-          <div>Latitude: {location.latitude.toFixed(6)}</div>
-          <div>Longitude: {location.longitude.toFixed(6)}</div>
-          <div>Accuracy: ~{Math.round(location.accuracy)} meters</div>
-        </div>
-      )}
-
       {status === "error" && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "6px",
-            background: "#fff7ed",
-            border: "1px solid #fed7aa",
-            borderRadius: "10px",
-            padding: "10px 14px",
-            fontSize: "0.8rem",
-            color: "#9a3412",
-            marginTop: "6px"
-          }}
-        >
-          <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: "1px" }} />
+        <div className="notice notice-warn">
+          <Icon name="info" size={18} />
           <span>{errorMessage}</span>
         </div>
       )}
 
-      <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "6px" }}>
-        Optional — only used to find the nearest available professional. Captured once, only when you tap the button above.
-      </p>
+      <span className="field-hint">Helps us send the nearest available professional. Captured once, only when you tap the button.</span>
     </div>
   );
 }

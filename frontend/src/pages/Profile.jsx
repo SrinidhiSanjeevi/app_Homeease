@@ -1,5 +1,5 @@
 import React from "react";
-import { User, Mail, ShieldCheck, DollarSign, CalendarCheck, Sparkles } from "lucide-react";
+import { User, Mail, ShieldCheck, DollarSign, CalendarCheck, Sparkles } from "../components/Icon";
 
 export default function Profile({ user, bookings, onLogout }) {
   // Stats calculations

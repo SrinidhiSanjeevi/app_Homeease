@@ -38,7 +38,8 @@ const CATEGORIES = [
   "Carpentry",
   "Plumbing",
   "Security",
-  "Repair"
+  "Repair",
+  "Cleaning"
 ];
 
 // ── Reusable Modal Shell ──────────────────────────────────────

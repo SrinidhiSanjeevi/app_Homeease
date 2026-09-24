@@ -10,6 +10,7 @@ const {
   processCompletionEmailNotification
 } = require("../services/simulationService");
 const { refundPayment } = require("../services/payment/paymentService");
+const { generateImageUrl } = require("../services/blobStorage");
 const metrics = require("../metrics");
 const logger = require("../utils/logger");
 
@@ -20,6 +21,18 @@ const DEFAULT_BOOKING_AMOUNT = 500;
 // ============================================================
 async function claimAvailableProfessional(filter = {}, session = null) {
   return claimProfessional(filter, { session });
+}
+
+// Populated services only carry imageKey; attach the signed imageUrl so
+// each booking card shows its own service image instead of a placeholder.
+async function withServiceImageUrl(service) {
+  if (!service || !service.imageKey) return service;
+  try {
+    return { ...service, imageUrl: await generateImageUrl(service.imageKey) };
+  } catch (error) {
+    logger.error({ err: error.message }, "BOOKING SERVICE IMAGE URL ERROR");
+    return service;
+  }
 }
 
 // ============================================================
@@ -254,7 +267,8 @@ const getUserBookings = async (req, res) => {
             Payment.find({ booking: booking._id }).sort({ createdAt: -1 }).lean(),
             Notification.find({ booking: booking._id }).sort({ createdAt: -1 }).lean()
           ]);
-          return { ...booking, payments: payments || [], notifications: notifications || [] };
+          const service = await withServiceImageUrl(booking.service);
+          return { ...booking, service, payments: payments || [], notifications: notifications || [] };
         } catch (error) {
           logger.error({ err: error.message }, "BOOKING HISTORY ENRICHMENT ERROR");
           return { ...booking, payments: [], notifications: [] };
@@ -298,7 +312,8 @@ const getProfessionalBookings = async (req, res) => {
             Payment.find({ booking: booking._id }).lean(),
             Notification.find({ booking: booking._id }).lean()
           ]);
-          return { ...booking, payments: payments || [], notifications: notifications || [] };
+          const service = await withServiceImageUrl(booking.service);
+          return { ...booking, service, payments: payments || [], notifications: notifications || [] };
         } catch (error) {
           logger.error({ err: error.message }, "PROFESSIONAL BOOKING ENRICHMENT ERROR");
           return { ...booking, payments: [], notifications: [] };
@@ -369,29 +384,20 @@ const completeBooking = async (req, res) => {
       return res.status(401).json({ success: false, message: "User not authenticated" });
     }
 
+    // Completion is an admin-only action (done from the admin dashboard);
+    // customers and professionals can't mark a service completed.
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only an admin can mark a service as completed"
+      });
+    }
+
     const { id } = req.params;
     const booking = await Booking.findById(id);
 
     if (!booking) {
       return res.status(404).json({ success: false, message: "Booking not found" });
-    }
-
-    const isOwner = booking.user.toString() === req.user._id.toString();
-    let isAssignedProfessional = false;
-
-    if (booking.professional) {
-      const professional = await Professional.findOne({
-        _id: booking.professional,
-        user: req.user._id
-      });
-      isAssignedProfessional = !!professional;
-    }
-
-    if (!isOwner && !isAssignedProfessional) {
-      return res.status(403).json({
-        success: false,
-        message: "You are not authorized to complete this booking"
-      });
     }
 
     if (!canTransition(booking.status, "Completed")) {

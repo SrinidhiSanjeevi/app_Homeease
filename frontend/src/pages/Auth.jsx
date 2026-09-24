@@ -1,20 +1,39 @@
-import React, { useState } from "react";
-import {
-  Lock,
-  Mail,
-  User,
-  Sparkles,
-  Home,
-  ShieldCheck,
-  KeyRound,
-  ArrowLeft
-} from "lucide-react";
+import React, { useMemo, useState } from "react";
+import Icon from "../components/Icon";
+import { BrandMark } from "../components/Navbar";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Keep in sync with backend/validators/authValidators.js (signupRules).
+const PASSWORD_RULES = [
+  { id: "length", label: "At least 8 characters", test: (p) => p.length >= 8 },
+  { id: "upper", label: "One uppercase letter", test: (p) => /[A-Z]/.test(p) },
+  { id: "lower", label: "One lowercase letter", test: (p) => /[a-z]/.test(p) },
+  { id: "number", label: "One number", test: (p) => /\d/.test(p) },
+];
+
+const STRENGTH = [
+  { label: "Too weak", color: "#d6334a" },
+  { label: "Weak", color: "#e8743b" },
+  { label: "Fair", color: "#f2a93b" },
+  { label: "Good", color: "#4f9d69" },
+  { label: "Strong", color: "#15703a" },
+];
+
+function scorePassword(p) {
+  if (!p) return 0;
+  let score = PASSWORD_RULES.filter((r) => r.test(p)).length; // 0–4
+  if (p.length >= 12 && /[^A-Za-z0-9]/.test(p)) score += 1;
+  return Math.min(4, Math.max(0, score - (p.length < 8 ? 1 : 0)));
+}
 
 export default function Auth({ onLoginSuccess, showToast }) {
   const [tab, setTab] = useState("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -24,86 +43,71 @@ export default function Auth({ onLoginSuccess, showToast }) {
   const [mfaCode, setMfaCode] = useState("");
   const [mfaEmail, setMfaEmail] = useState("");
 
+  const isSignup = tab === "signup";
+  const ruleResults = useMemo(() => PASSWORD_RULES.map((r) => ({ ...r, met: r.test(password) })), [password]);
+  const strength = scorePassword(password);
+
+  const switchTab = (next) => {
+    setTab(next);
+    setErrors({});
+    setPassword("");
+    setConfirmPassword("");
+  };
+
+  const clearError = (field) => {
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
   // ── FORM VALIDATION ─────────────────────────────────────────
   const validateForm = () => {
-    const newErrors = {};
-
-    // Correct email regex
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
+    const next = {};
     const trimmedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
 
-    if (tab === "signup") {
-      if (!trimmedName) {
-        newErrors.name = "Full name is required";
-      } else if (trimmedName.length < 3) {
-        newErrors.name =
-          "Name must be at least 3 characters";
-      }
+    if (isSignup) {
+      if (!trimmedName) next.name = "Full name is required";
+      else if (trimmedName.length < 3) next.name = "Name must be at least 3 characters";
     }
 
-    if (!normalizedEmail) {
-      newErrors.email = "Email is required";
-    } else if (!emailRegex.test(normalizedEmail)) {
-      newErrors.email =
-        "Please enter a valid email address";
-    }
+    if (!normalizedEmail) next.email = "Email is required";
+    else if (!EMAIL_RE.test(normalizedEmail)) next.email = "Please enter a valid email address";
 
     if (!password) {
-      newErrors.password =
-        "Password is required";
-    } else if (password.length < 6) {
-      newErrors.password =
-        "Password must be at least 6 characters";
+      next.password = "Password is required";
+    } else if (isSignup) {
+      const unmet = ruleResults.find((r) => !r.met);
+      if (unmet) next.password = `Password needs: ${unmet.label.toLowerCase()}`;
+      if (confirmPassword !== password) next.confirmPassword = "Passwords do not match";
     }
 
-    setErrors(newErrors);
-
-    return Object.keys(newErrors).length === 0;
+    setErrors(next);
+    return Object.keys(next).length === 0;
   };
 
   // ── SUBMIT LOGIN / SIGNUP ────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (!validateForm()) {
-      return;
-    }
+    if (!validateForm()) return;
 
     setLoading(true);
-
-    const normalizedEmail =
-      email.trim().toLowerCase();
-
-    const endpoint =
-      tab === "login"
-        ? "/api/auth/login"
-        : "/api/auth/signup";
-
-    const body =
-      tab === "login"
-        ? {
-            email: normalizedEmail,
-            password
-          }
-        : {
-            name: name.trim(),
-            email: normalizedEmail,
-            password
-          };
+    const normalizedEmail = email.trim().toLowerCase();
+    const endpoint = isSignup ? "/api/auth/signup" : "/api/auth/login";
+    const body = isSignup
+      ? { name: name.trim(), email: normalizedEmail, password }
+      : { email: normalizedEmail, password };
 
     try {
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
 
       let data = {};
-
       try {
         data = await response.json();
       } catch {
@@ -111,8 +115,8 @@ export default function Auth({ onLoginSuccess, showToast }) {
       }
 
       if (response.ok && data.success) {
-        if (tab === "login") {
-          // Check if Two-Factor Authentication is required for Admin
+        if (!isSignup) {
+          // Two-Factor Authentication required (admin accounts)
           if (data.mfaRequired && data.tempToken) {
             setTempToken(data.tempToken);
             setMfaEmail(data.email || normalizedEmail);
@@ -123,60 +127,23 @@ export default function Auth({ onLoginSuccess, showToast }) {
             return;
           }
 
-          localStorage.setItem(
-            "token",
-            data.token
-          );
+          localStorage.setItem("token", data.token);
+          if (data.refreshToken) localStorage.setItem("refreshToken", data.refreshToken);
+          localStorage.setItem("user", JSON.stringify(data.user));
 
-          if (data.refreshToken) {
-            localStorage.setItem(
-              "refreshToken",
-              data.refreshToken
-            );
-          }
-
-          localStorage.setItem(
-            "user",
-            JSON.stringify(data.user)
-          );
-
-          showToast(
-            "Welcome back!",
-            "success"
-          );
-
-          onLoginSuccess(
-            data.user,
-            data.token
-          );
+          showToast("Welcome back!", "success");
+          onLoginSuccess(data.user, data.token);
         } else {
-          showToast(
-            "Registration successful! Please login.",
-            "success"
-          );
-
-          setTab("login");
+          showToast("Account created. Please sign in.", "success");
+          switchTab("login");
           setName("");
-          setPassword("");
-          setErrors({});
         }
       } else {
-        showToast(
-          data.message ||
-            "Something went wrong",
-          "error"
-        );
+        showToast(data.message || "Something went wrong", "error");
       }
     } catch (error) {
-      console.error(
-        "Authentication error:",
-        error
-      );
-
-      showToast(
-        "Server connection failed",
-        "error"
-      );
+      console.error("Authentication error:", error);
+      showToast("Server connection failed", "error");
     } finally {
       setLoading(false);
     }
@@ -193,28 +160,18 @@ export default function Auth({ onLoginSuccess, showToast }) {
     }
 
     setLoading(true);
-
     try {
       const response = await fetch("/api/auth/mfa/verify", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          tempToken,
-          code: cleanCode
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tempToken, code: cleanCode }),
       });
-
       const data = await response.json().catch(() => ({}));
 
       if (response.ok && data.success) {
         localStorage.setItem("token", data.token);
-        if (data.refreshToken) {
-          localStorage.setItem("refreshToken", data.refreshToken);
-        }
+        if (data.refreshToken) localStorage.setItem("refreshToken", data.refreshToken);
         localStorage.setItem("user", JSON.stringify(data.user));
-
         showToast("Two-Factor Authentication verified!", "success");
         onLoginSuccess(data.user, data.token);
       } else {
@@ -229,814 +186,251 @@ export default function Auth({ onLoginSuccess, showToast }) {
     }
   };
 
-  // ── CLEAR FIELD ERROR ───────────────────────────────────────
-  const clearError = (field) => {
-    setErrors((previous) => {
-      const updated = {
-        ...previous
-      };
-
-      delete updated[field];
-
-      return updated;
-    });
-  };
-
-  const features = [
-    "Expert professionals, background-verified",
-    "Same-day service availability",
-    "Transparent pricing, no hidden fees"
-  ];
-
   return (
-    <div
-      style={{
-        display: "flex",
-        height: "100vh",
-        overflow: "hidden",
-        backgroundColor: "#fff"
-      }}
-    >
-      {/* =========================================================
-          LEFT PANEL
-      ========================================================= */}
-      <div
+    <div className="auth">
+      {/* ================= VISUAL PANEL ================= */}
+      <aside
+        className="auth-visual"
         style={{
-          flex: "0 0 48%",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          padding: "40px 48px",
-          color: "white",
-          position: "relative",
-          overflow: "hidden",
           backgroundImage:
-            'url("https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1920&q=80")',
-          backgroundSize: "cover",
-          backgroundPosition: "center"
+            'url("https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1600&q=70")',
         }}
       >
-        {/* Dark overlay */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            background:
-              "linear-gradient(135deg, rgba(15,23,42,0.82) 0%, rgba(30,41,59,0.7) 100%)"
-          }}
-        />
-
-        {/* Logo */}
-        <div
-          style={{
-            position: "relative",
-            zIndex: 1,
-            display: "flex",
-            alignItems: "center",
-            gap: "12px"
-          }}
-        >
-          <div
-            style={{
-              background:
-                "linear-gradient(135deg, #6366f1, #8b5cf6)",
-              padding: "10px 12px",
-              borderRadius: "14px",
-              display: "flex",
-              alignItems: "center",
-              boxShadow:
-                "0 4px 20px rgba(99,102,241,0.5)"
-            }}
-          >
-            <Home
-              size={22}
-              color="white"
-            />
-          </div>
-
-          <span
-            style={{
-              fontSize: "1.6rem",
-              fontWeight: 800,
-              letterSpacing: "-0.5px"
-            }}
-          >
-            HomeEase
-          </span>
+        <div className="brand">
+          <BrandMark />
+          <span>HomeEase</span>
         </div>
 
-        {/* Bottom text */}
-        <div
-          style={{
-            position: "relative",
-            zIndex: 1
-          }}
-        >
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-              background:
-                "rgba(99,102,241,0.3)",
-              border:
-                "1px solid rgba(99,102,241,0.5)",
-              borderRadius: "100px",
-              padding: "6px 14px",
-              fontSize: "0.8rem",
-              fontWeight: 600,
-              letterSpacing: "0.5px",
-              marginBottom: "20px"
-            }}
-          >
-            <Sparkles size={14} />
-            TRUSTED BY 50,000+ CUSTOMERS
-          </div>
-
-          <h1
-            style={{
-              fontSize: "2.6rem",
-              fontWeight: 800,
-              lineHeight: 1.15,
-              marginBottom: "16px",
-              letterSpacing: "-0.5px"
-            }}
-          >
-            Transform your
-            <br />
-            home today.
-          </h1>
-
-          <p
-            style={{
-              fontSize: "1rem",
-              color:
-                "rgba(255,255,255,0.75)",
-              marginBottom: "28px",
-              lineHeight: 1.6
-            }}
-          >
-            Book trusted home service
-            professionals in minutes,
-            not hours.
-          </p>
-
-          {/* Feature list */}
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "12px"
-            }}
-          >
-            {features.map((feature, index) => (
-              <div
-                key={index}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px"
-                }}
-              >
-                <div
-                  style={{
-                    width: "20px",
-                    height: "20px",
-                    borderRadius: "50%",
-                    background:
-                      "rgba(99,102,241,0.4)",
-                    border:
-                      "1px solid rgba(99,102,241,0.7)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "11px",
-                    flexShrink: 0
-                  }}
-                >
-                  ✓
-                </div>
-
-                <span
-                  style={{
-                    fontSize: "0.9rem",
-                    color:
-                      "rgba(255,255,255,0.85)"
-                  }}
-                >
-                  {feature}
-                </span>
-              </div>
-            ))}
-          </div>
+        <div>
+          <h1>Home services, done right.</h1>
+          <p>Book verified electricians, plumbers, carpenters and spa experts in under a minute.</p>
+          <ul className="auth-points">
+            <li><Icon name="verified_user" size={22} filled /> Background-verified professionals</li>
+            <li><Icon name="bolt" size={22} filled /> Same-day slots in most areas</li>
+            <li><Icon name="receipt_long" size={22} filled /> Upfront prices, no hidden fees</li>
+          </ul>
         </div>
-      </div>
 
-      {/* =========================================================
-          RIGHT PANEL
-      ========================================================= */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: "40px 48px",
-          background: "#f8fafc",
-          overflowY: "auto"
-        }}
-      >
-        <div
-          style={{
-            width: "100%",
-            maxWidth: "400px"
-          }}
-        >
+        <span style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.6)" }}>© {new Date().getFullYear()} homeease.com</span>
+      </aside>
+
+      {/* ================= FORM PANEL ================= */}
+      <main className="auth-form-wrap">
+        <div className="auth-form">
           {mfaStep ? (
-            /* =========================================================
-               2FA VERIFICATION STEP
-            ========================================================= */
-            <div>
+            <form onSubmit={handleMfaSubmit} noValidate>
               <button
                 type="button"
+                className="btn btn-ghost"
+                style={{ paddingLeft: 8, marginBottom: 16 }}
                 onClick={() => {
                   setMfaStep(false);
                   setMfaCode("");
                   setErrors({});
                 }}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  background: "transparent",
-                  border: "none",
-                  color: "#6366f1",
-                  fontWeight: 600,
-                  fontSize: "0.9rem",
-                  cursor: "pointer",
-                  marginBottom: "20px",
-                  padding: 0
-                }}
               >
-                <ArrowLeft size={16} /> Back to Sign In
+                <Icon name="arrow_back" size={18} /> Back to sign in
               </button>
 
-              <div style={{ marginBottom: "28px" }}>
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    background: "rgba(99,102,241,0.1)",
-                    color: "#6366f1",
-                    padding: "6px 12px",
-                    borderRadius: "100px",
-                    fontSize: "0.82rem",
-                    fontWeight: 700,
-                    marginBottom: "14px"
-                  }}
-                >
-                  <ShieldCheck size={16} /> TWO-STEP VERIFICATION
-                </div>
+              <h2>Two-step verification</h2>
+              <p className="lead">
+                Enter the 6-digit code from your authenticator app for <strong>{mfaEmail}</strong>.
+              </p>
 
-                <h2
-                  style={{
-                    fontSize: "1.8rem",
-                    fontWeight: 800,
-                    color: "#0f172a",
-                    marginBottom: "8px",
-                    letterSpacing: "-0.5px"
-                  }}
-                >
-                  Enter Authenticator Code
-                </h2>
-
-                <p
-                  style={{
-                    color: "#64748b",
-                    fontSize: "0.92rem",
-                    lineHeight: 1.5
-                  }}
-                >
-                  An admin account was detected for <strong>{mfaEmail}</strong>. Enter the 6-digit code from Google Authenticator or your authenticator app.
-                </p>
-              </div>
-
-              <form
-                onSubmit={handleMfaSubmit}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "18px"
-                }}
-              >
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontWeight: 600,
-                      marginBottom: "8px",
-                      color: "#334155",
-                      fontSize: "0.88rem"
+              <div className="form-group">
+                <label htmlFor="mfa">Authentication code</label>
+                <div className="input-icon">
+                  <Icon name="key" size={20} />
+                  <input
+                    id="mfa"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    placeholder="123456"
+                    value={mfaCode}
+                    className={errors.mfaCode ? "input-error" : ""}
+                    style={{ letterSpacing: "0.3em", fontWeight: 700 }}
+                    onChange={(e) => {
+                      setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                      if (errors.mfaCode) clearError("mfaCode");
                     }}
-                  >
-                    6-DIGIT SECURITY CODE
-                  </label>
-
-                  <div style={{ position: "relative" }}>
-                    <KeyRound
-                      size={18}
-                      style={{
-                        position: "absolute",
-                        left: "14px",
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        color: "#94a3b8"
-                      }}
-                    />
-
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      autoFocus
-                      placeholder="e.g., 123456"
-                      value={mfaCode}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/\D/g, "");
-                        setMfaCode(val);
-                        if (errors.mfaCode) clearError("mfaCode");
-                      }}
-                      style={{
-                        width: "100%",
-                        boxSizing: "border-box",
-                        padding: "14px 14px 14px 44px",
-                        letterSpacing: "4px",
-                        fontSize: "1.3rem",
-                        fontWeight: 700,
-                        textAlign: "left",
-                        border: `1.5px solid ${errors.mfaCode ? "#ef4444" : "#e2e8f0"}`,
-                        borderRadius: "12px",
-                        outline: "none",
-                        background: "white"
-                      }}
-                    />
-                  </div>
-
-                  {errors.mfaCode && (
-                    <span
-                      style={{
-                        color: "#ef4444",
-                        fontSize: "0.82rem",
-                        marginTop: "6px",
-                        display: "block"
-                      }}
-                    >
-                      {errors.mfaCode}
-                    </span>
-                  )}
+                  />
                 </div>
+                {errors.mfaCode && <span className="field-error">{errors.mfaCode}</span>}
+              </div>
 
-                <button
-                  type="submit"
-                  disabled={loading || mfaCode.length !== 6}
-                  style={{
-                    width: "100%",
-                    padding: "14px",
-                    background:
-                      loading || mfaCode.length !== 6
-                        ? "#a5b4fc"
-                        : "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "12px",
-                    fontSize: "1rem",
-                    fontWeight: 700,
-                    cursor: loading || mfaCode.length !== 6 ? "not-allowed" : "pointer",
-                    boxShadow: "0 4px 16px rgba(99,102,241,0.45)",
-                    transition: "all 0.2s ease",
-                    marginTop: "8px"
-                  }}
-                >
-                  {loading ? "Verifying..." : "Verify & Enter Admin Console →"}
-                </button>
-              </form>
-            </div>
+              <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={loading || mfaCode.length !== 6}>
+                {loading ? <Icon name="progress_activity" size={20} spin /> : "Verify and continue"}
+              </button>
+            </form>
           ) : (
-            /* =========================================================
-               STANDARD LOGIN / SIGNUP VIEW
-            ========================================================= */
-            <div>
-              {/* Heading */}
-              <div
-                style={{
-                  marginBottom: "28px"
-                }}
-              >
-                <h2
-                  style={{
-                    fontSize: "1.9rem",
-                    fontWeight: 800,
-                    color: "#0f172a",
-                    marginBottom: "6px",
-                    letterSpacing: "-0.5px"
-                  }}
-                >
-                  {tab === "login"
-                    ? "Welcome back 👋"
-                    : "Create account"}
-                </h2>
+            <>
+              <h2>{isSignup ? "Create your account" : "Welcome back"}</h2>
+              <p className="lead">
+                {isSignup ? "It takes less than a minute." : "Sign in to book and track your services."}
+              </p>
 
-                <p
-                  style={{
-                    color: "#64748b",
-                    fontSize: "0.95rem"
-                  }}
-                >
-                  {tab === "login"
-                    ? "Enter your credentials to access your account."
-                    : "Sign up to start booking premium home services."}
-                </p>
+              <div className="segmented" role="tablist">
+                {[
+                  { id: "login", label: "Sign in" },
+                  { id: "signup", label: "Sign up" },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t.id}
+                    className={tab === t.id ? "is-active" : ""}
+                    onClick={() => switchTab(t.id)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
               </div>
 
-              {/* Tab Toggle */}
-              <div
-                style={{
-                  display: "flex",
-                  background: "#e2e8f0",
-                  padding: "4px",
-                  borderRadius: "14px",
-                  marginBottom: "28px"
-                }}
-              >
-                {["login", "signup"].map(
-                  (currentTab) => (
-                    <button
-                      key={currentTab}
-                      type="button"
-                      onClick={() => {
-                        setTab(currentTab);
-                        setErrors({});
-                      }}
-                      style={{
-                        flex: 1,
-                        padding: "11px",
-                        borderRadius: "10px",
-                        border: "none",
-                        cursor: "pointer",
-                        background:
-                          tab === currentTab
-                            ? "white"
-                            : "transparent",
-                        color:
-                          tab === currentTab
-                            ? "#6366f1"
-                            : "#94a3b8",
-                        boxShadow:
-                          tab === currentTab
-                            ? "0 1px 4px rgba(0,0,0,0.12)"
-                            : "none",
-                        fontSize: "0.92rem",
-                        fontWeight: 700,
-                        transition:
-                          "all 0.2s ease"
-                      }}
-                    >
-                      {currentTab === "login"
-                        ? "Sign In"
-                        : "Sign Up"}
-                    </button>
-                  )
-                )}
-              </div>
-
-              {/* Form */}
-              <form
-                onSubmit={handleSubmit}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "18px"
-                }}
-              >
-                {/* Name */}
-                {tab === "signup" && (
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        fontWeight: 600,
-                        marginBottom: "7px",
-                        color: "#334155",
-                        fontSize: "0.88rem"
-                      }}
-                    >
-                      FULL NAME
-                    </label>
-
-                    <div
-                      style={{
-                        position: "relative"
-                      }}
-                    >
-                      <User
-                        size={17}
-                        style={{
-                          position:
-                            "absolute",
-                          left: "14px",
-                          top: "50%",
-                          transform:
-                            "translateY(-50%)",
-                          color: "#94a3b8"
-                        }}
-                      />
-
+              <form onSubmit={handleSubmit} noValidate>
+                {isSignup && (
+                  <div className="form-group">
+                    <label htmlFor="name">Full name</label>
+                    <div className="input-icon">
+                      <Icon name="person" size={20} />
                       <input
+                        id="name"
                         type="text"
-                        placeholder="e.g., John Doe"
-                        value={name}
                         autoComplete="name"
+                        placeholder="e.g. Priya Sharma"
+                        value={name}
+                        className={errors.name ? "input-error" : ""}
                         onChange={(e) => {
-                          setName(
-                            e.target.value
-                          );
-
-                          if (errors.name) {
-                            clearError("name");
-                          }
-                        }}
-                        style={{
-                          width: "100%",
-                          boxSizing:
-                            "border-box",
-                          padding:
-                            "13px 14px 13px 42px",
-                          border: `1.5px solid ${
-                            errors.name
-                              ? "#ef4444"
-                              : "#e2e8f0"
-                          }`,
-                          borderRadius:
-                            "12px",
-                          fontSize: "0.95rem",
-                          outline: "none",
-                          background: "white",
-                          transition:
-                            "border-color 0.2s"
+                          setName(e.target.value);
+                          clearError("name");
                         }}
                       />
                     </div>
-
-                    {errors.name && (
-                      <span
-                        style={{
-                          color: "#ef4444",
-                          fontSize: "0.8rem",
-                          marginTop: "4px",
-                          display: "block"
-                        }}
-                      >
-                        {errors.name}
-                      </span>
-                    )}
+                    {errors.name && <span className="field-error">{errors.name}</span>}
                   </div>
                 )}
 
-                {/* Email */}
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontWeight: 600,
-                      marginBottom: "7px",
-                      color: "#334155",
-                      fontSize: "0.88rem"
-                    }}
-                  >
-                    EMAIL ADDRESS
-                  </label>
-
-                  <div
-                    style={{
-                      position: "relative"
-                    }}
-                  >
-                    <Mail
-                      size={17}
-                      style={{
-                        position: "absolute",
-                        left: "14px",
-                        top: "50%",
-                        transform:
-                          "translateY(-50%)",
-                        color: "#94a3b8"
-                      }}
-                    />
-
+                <div className="form-group">
+                  <label htmlFor="email">Email</label>
+                  <div className="input-icon">
+                    <Icon name="mail" size={20} />
                     <input
+                      id="email"
                       type="email"
+                      autoComplete="email"
                       placeholder="name@example.com"
                       value={email}
-                      autoComplete="email"
+                      className={errors.email ? "input-error" : ""}
                       onChange={(e) => {
-                        setEmail(
-                          e.target.value
-                        );
-
-                        if (errors.email) {
-                          clearError("email");
-                        }
-                      }}
-                      style={{
-                        width: "100%",
-                        boxSizing:
-                          "border-box",
-                        padding:
-                          "13px 14px 13px 42px",
-                        border: `1.5px solid ${
-                          errors.email
-                            ? "#ef4444"
-                            : "#e2e8f0"
-                        }`,
-                        borderRadius: "12px",
-                        fontSize: "0.95rem",
-                        outline: "none",
-                        background: "white",
-                        transition:
-                          "border-color 0.2s"
+                        setEmail(e.target.value);
+                        clearError("email");
                       }}
                     />
                   </div>
-
-                  {errors.email && (
-                    <span
-                      style={{
-                        color: "#ef4444",
-                        fontSize: "0.8rem",
-                        marginTop: "4px",
-                        display: "block"
-                      }}
-                    >
-                      {errors.email}
-                    </span>
-                  )}
+                  {errors.email && <span className="field-error">{errors.email}</span>}
                 </div>
 
-                {/* Password */}
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontWeight: 600,
-                      marginBottom: "7px",
-                      color: "#334155",
-                      fontSize: "0.88rem"
-                    }}
-                  >
-                    PASSWORD
-                  </label>
-
-                  <div
-                    style={{
-                      position: "relative"
-                    }}
-                  >
-                    <Lock
-                      size={17}
-                      style={{
-                        position: "absolute",
-                        left: "14px",
-                        top: "50%",
-                        transform:
-                          "translateY(-50%)",
-                        color: "#94a3b8"
-                      }}
-                    />
-
+                <div className="form-group">
+                  <label htmlFor="password">Password</label>
+                  <div className="input-icon">
+                    <Icon name="lock" size={20} />
                     <input
-                      type="password"
-                      placeholder="Min. 8 characters"
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete={isSignup ? "new-password" : "current-password"}
+                      placeholder={isSignup ? "Create a strong password" : "Your password"}
                       value={password}
-                      autoComplete={
-                        tab === "login"
-                          ? "current-password"
-                          : "new-password"
-                      }
+                      className={`has-trailing${errors.password ? " input-error" : ""}`}
                       onChange={(e) => {
-                        setPassword(
-                          e.target.value
-                        );
-
-                        if (errors.password) {
-                          clearError("password");
-                        }
-                      }}
-                      style={{
-                        width: "100%",
-                        boxSizing:
-                          "border-box",
-                        padding:
-                          "13px 14px 13px 42px",
-                        border: `1.5px solid ${
-                          errors.password
-                            ? "#ef4444"
-                            : "#e2e8f0"
-                        }`,
-                        borderRadius: "12px",
-                        fontSize: "0.95rem",
-                        outline: "none",
-                        background: "white",
-                        transition:
-                          "border-color 0.2s"
+                        setPassword(e.target.value);
+                        clearError("password");
                       }}
                     />
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      <Icon name={showPassword ? "visibility_off" : "visibility"} size={20} />
+                    </button>
                   </div>
 
-                  {errors.password && (
-                    <span
-                      style={{
-                        color: "#ef4444",
-                        fontSize: "0.8rem",
-                        marginTop: "4px",
-                        display: "block"
-                      }}
-                    >
-                      {errors.password}
-                    </span>
+                  {isSignup && password && (
+                    <>
+                      <div className="pw-meter" aria-hidden="true">
+                        {[0, 1, 2, 3].map((i) => (
+                          <span key={i} style={{ background: i < strength ? STRENGTH[strength].color : undefined }} />
+                        ))}
+                      </div>
+                      <span className="field-hint" style={{ color: STRENGTH[strength].color, fontWeight: 700 }}>
+                        {STRENGTH[strength].label}
+                      </span>
+                    </>
                   )}
+
+                  {isSignup && (
+                    <ul className="pw-rules">
+                      {ruleResults.map((r) => (
+                        <li key={r.id} className={r.met ? "is-met" : ""}>
+                          <Icon name={r.met ? "check_circle" : "radio_button_unchecked"} size={15} filled={r.met} />
+                          {r.label}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {errors.password && <span className="field-error">{errors.password}</span>}
                 </div>
 
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  style={{
-                    width: "100%",
-                    padding: "14px",
-                    background: loading
-                      ? "#a5b4fc"
-                      : "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "12px",
-                    fontSize: "1rem",
-                    fontWeight: 700,
-                    cursor: loading
-                      ? "not-allowed"
-                      : "pointer",
-                    boxShadow:
-                      "0 4px 16px rgba(99,102,241,0.45)",
-                    transition:
-                      "all 0.2s ease",
-                    marginTop: "4px"
-                  }}
-                >
-                  {loading
-                    ? "Please wait..."
-                    : tab === "login"
-                      ? "Sign In →"
-                      : "Create Account →"}
+                {isSignup && (
+                  <div className="form-group">
+                    <label htmlFor="confirm">Confirm password</label>
+                    <div className="input-icon">
+                      <Icon name="lock_reset" size={20} />
+                      <input
+                        id="confirm"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        placeholder="Re-enter password"
+                        value={confirmPassword}
+                        className={errors.confirmPassword ? "input-error" : ""}
+                        onChange={(e) => {
+                          setConfirmPassword(e.target.value);
+                          clearError("confirmPassword");
+                        }}
+                      />
+                    </div>
+                    {errors.confirmPassword && <span className="field-error">{errors.confirmPassword}</span>}
+                  </div>
+                )}
+
+                <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={loading} style={{ marginTop: 4 }}>
+                  {loading ? (
+                    <Icon name="progress_activity" size={20} spin />
+                  ) : isSignup ? (
+                    "Create account"
+                  ) : (
+                    "Sign in"
+                  )}
                 </button>
               </form>
 
-              {/* Footer note */}
-              <p
-                style={{
-                  textAlign: "center",
-                  marginTop: "20px",
-                  fontSize: "0.82rem",
-                  color: "#94a3b8"
-                }}
-              >
-                {tab === "login"
-                  ? "Don't have an account? "
-                  : "Already have an account? "}
-
-                <span
-                  onClick={() => {
-                    setTab(
-                      tab === "login"
-                        ? "signup"
-                        : "login"
-                    );
-                    setErrors({});
-                  }}
-                  style={{
-                    color: "#6366f1",
-                    fontWeight: 600,
-                    cursor: "pointer"
-                  }}
+              <p style={{ textAlign: "center", marginTop: 20, fontSize: "0.88rem", color: "var(--text-muted)" }}>
+                {isSignup ? "Already have an account? " : "New to HomeEase? "}
+                <button
+                  type="button"
+                  onClick={() => switchTab(isSignup ? "login" : "signup")}
+                  style={{ color: "var(--brand)", fontWeight: 700, fontSize: "inherit", display: "inline" }}
                 >
-                  {tab === "login"
-                    ? "Sign Up"
-                    : "Sign In"}
-                </span>
+                  {isSignup ? "Sign in" : "Create an account"}
+                </button>
               </p>
-            </div>
+            </>
           )}
         </div>
-      </div>
+      </main>
     </div>
   );
 }
