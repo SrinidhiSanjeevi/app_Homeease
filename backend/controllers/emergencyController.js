@@ -7,7 +7,8 @@ const {
   CATEGORY_DEFAULT_SEVERITY,
   VALID_EMERGENCY_CATEGORIES
 } = require("../services/customerCore/emergencyConfig");
-const { claimProfessional, claimNearestProfessional, reassignWaitingWork } = require("../services/customerCore");
+const { claimNearestProfessional, reassignWaitingWork } = require("../services/customerCore");
+const { checkCustomerLocation } = require("../services/serviceArea");
 
 // DISPATCH EMERGENCY SERVICE
 const dispatchEmergency = async (req, res) => {
@@ -15,14 +16,14 @@ const dispatchEmergency = async (req, res) => {
     const { category, severity, description, contactNumber, address, latitude, longitude, accuracy } = req.body;
     const userId = req.user._id;
 
-    // Optional — only present when the customer explicitly shared their
-    // location. Same validation/shape as bookingController.js.
-    const lat = Number(latitude);
-    const lng = Number(longitude);
-    const hasCoordinates =
-      Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
-      Number.isFinite(lng) && lng >= -180 && lng <= 180;
-    const coordinates = hasCoordinates ? [lng, lat] : null;
+    // Location is required and must be inside the service area.
+    const locationCheck = checkCustomerLocation(latitude, longitude);
+    if (!locationCheck.ok) {
+      return res.status(locationCheck.status).json({ success: false, message: locationCheck.message });
+    }
+    const lat = locationCheck.latitude;
+    const lng = locationCheck.longitude;
+    const coordinates = [lng, lat];
 
     if (!category || !VALID_EMERGENCY_CATEGORIES.includes(category)) {
       return res.status(400).json({
@@ -42,19 +43,9 @@ const dispatchEmergency = async (req, res) => {
 
     const severityConfig = SEVERITY_CONFIG[resolvedSeverity];
 
-    // Nearest-provider matching when the customer shared their location;
-    // falls back to the existing best-rated matching whenever no
-    // registered responder has a location set (or none is available).
-    let professional = null;
-    let distanceKm = null;
-    if (coordinates) {
-      const nearest = await claimNearestProfessional(category, coordinates);
-      professional = nearest.professional;
-      distanceKm = nearest.distanceKm;
-    }
-    if (!professional) {
-      professional = await claimProfessional(category);
-    }
+    // Nearest available responder within the service radius. No match →
+    // the emergency waits and reassignWaitingWork() picks it up.
+    const { professional, distanceKm } = await claimNearestProfessional(category, coordinates);
 
     const emergency = await EmergencyRequest.create({
       user: userId,
@@ -69,9 +60,7 @@ const dispatchEmergency = async (req, res) => {
       fireEngineNumber: severityConfig.fireEngineNumber,
       emergencyServiceNumber: severityConfig.emergencyServiceNumber,
       estimatedArrivalMinutes: severityConfig.estimatedArrivalMinutes,
-      location: coordinates
-        ? { latitude: lat, longitude: lng, accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null }
-        : undefined,
+      location: { latitude: lat, longitude: lng, accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null },
       assignedDistanceKm: distanceKm
     });
 

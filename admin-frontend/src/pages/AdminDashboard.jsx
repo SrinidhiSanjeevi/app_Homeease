@@ -464,13 +464,14 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
 }
 
 // ── PROFESSIONAL FORM ─────────────────────────────────────────
-function ProfessionalForm({ initial, onSave, onClose, loading }) {
+function ProfessionalForm({ initial, onSave, onClose, loading, localities = [] }) {
   const blank = {
     name: "",
     category: "Spa",
     experience: "",
     image: "",
-    status: "Available"
+    status: "Available",
+    locality: ""
   };
 
   // Normalize: the DB record stores `imageKey`; the API response adds `imageUrl`.
@@ -480,11 +481,13 @@ function ProfessionalForm({ initial, onSave, onClose, loading }) {
     if (!src) return blank;
     return {
       ...src,
-      image: src.image || src.imageUrl || src.imageKey || ""
+      image: src.image || src.imageUrl || src.imageKey || "",
+      locality: src.locality || ""
     };
   };
 
   const [form, setForm] = useState(normalizeInitial(initial));
+  const [localityError, setLocalityError] = useState("");
 
   const set = (k, v) =>
     setForm((f) => ({
@@ -546,6 +549,27 @@ function ProfessionalForm({ initial, onSave, onClose, loading }) {
         </Field>
       </div>
 
+      <Field label="Service Locality *">
+        <select
+          style={{ ...sel, borderColor: localityError ? "#ef4444" : undefined }}
+          value={form.locality}
+          onChange={(e) => {
+            set("locality", e.target.value);
+            setLocalityError("");
+          }}
+        >
+          <option value="">Select base area (Gachibowli, Hyderabad)</option>
+          {localities.map((l) => (
+            <option key={l.name} value={l.name}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+        <div style={{ fontSize: "0.74rem", color: localityError ? "#dc2626" : "#6b7280", marginTop: "4px" }}>
+          {localityError || "Jobs are assigned to the nearest available professional within the service area."}
+        </div>
+      </Field>
+
       <Field label="Profile Image">
         <ImageUploader
           currentUrl={form.imageUrl || form.image}
@@ -580,7 +604,13 @@ function ProfessionalForm({ initial, onSave, onClose, loading }) {
         </button>
 
         <button
-          onClick={() => onSave(form)}
+          onClick={() => {
+            if (!form.locality) {
+              setLocalityError("Choose a service locality — without one this professional never receives jobs.");
+              return;
+            }
+            onSave(form);
+          }}
           disabled={loading}
           style={{
             flex: 2,
@@ -623,6 +653,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   const [serviceModal, setServiceModal] = useState(null);
   const [profModal, setProfModal] = useState(null);
+  const [localities, setLocalities] = useState([]);
 
   const headers = {
     Authorization: `Bearer ${token}`
@@ -712,6 +743,19 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
+  const fetchServiceArea = async () => {
+    try {
+      const r = await fetch(`${BASE}/service-area`, { headers });
+      const d = await r.json();
+
+      if (d.success) {
+        setLocalities(d.serviceArea?.localities || []);
+      }
+    } catch (error) {
+      console.error("FETCH SERVICE AREA ERROR:", error);
+    }
+  };
+
   const fetchEmergencies = async () => {
     try {
       const r = await fetch(`${BASE}/emergencies`, { headers });
@@ -735,7 +779,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
       fetchBookings(),
       fetchServices(),
       fetchProfessionals(),
-      fetchEmergencies()
+      fetchEmergencies(),
+      fetchServiceArea()
     ]);
 
     setLoading(false);
@@ -2722,6 +2767,17 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       {p.experience} yrs
                     </div>
 
+                    <div
+                      style={{
+                        fontSize: "0.76rem",
+                        fontWeight: 600,
+                        marginBottom: "8px",
+                        color: p.locality ? "#0e5e4f" : "#b45309"
+                      }}
+                    >
+                      {p.locality ? `📍 ${p.locality}` : "⚠ No service locality — edit to assign"}
+                    </div>
+
                     <button
                       onClick={() => handleToggleProfStatus(p)}
                       title="Click to toggle Available / Busy"
@@ -3350,6 +3406,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
               setProfModal(null)
             }
             loading={formLoading}
+            localities={localities}
           />
         </Modal>
       )}

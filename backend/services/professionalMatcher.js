@@ -5,6 +5,7 @@ const Professional = require("../models/Professional");
 const metrics = require("../metrics");
 const logger = require("../utils/logger");
 const { processNotificationSimulation } = require("./simulationService");
+const { MATCH_RADIUS_KM } = require("./serviceArea");
 
 // Categories with no dedicated professional roster — same exception
 // used in emergencyController.js. Fire/Medical emergencies match ANY
@@ -72,7 +73,9 @@ async function claimNearestProfessional(category, coordinates, options = {}) {
     active: true,
     location: {
       $near: {
-        $geometry: { type: "Point", coordinates: safeCoords }
+        $geometry: { type: "Point", coordinates: safeCoords },
+        // Only professionals within the service radius of the customer.
+        $maxDistance: (options.maxDistanceKm || MATCH_RADIUS_KM) * 1000
       }
     }
   };
@@ -138,6 +141,14 @@ async function claimProfessional(categoryOrFilter, options = {}) {
   );
 }
 
+// { latitude, longitude } stored on a booking/emergency → GeoJSON [lng, lat].
+function locationToCoordinates(location) {
+  const lat = Number(location?.latitude);
+  const lng = Number(location?.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return [lng, lat];
+}
+
 // Reassigns any bookings still waiting for a professional in this category.
 async function reassignWaitingBookings(category, options = {}) {
   if (!category) return;
@@ -168,15 +179,21 @@ async function reassignWaitingBookings(category, options = {}) {
 
     if (bookingCategory !== category) continue;
 
+    // Only bookings with a customer location can be matched — assignment
+    // is always "nearest professional within the service radius".
+    const coords = locationToCoordinates(booking.location);
+    if (!coords) continue;
+
     const matchStart = Date.now();
-    const professional = await claimProfessional(category, options);
-    if (!professional) break;
+    const { professional, distanceKm } = await claimNearestProfessional(category, coords, options);
+    if (!professional) continue;
     if (metrics && metrics.professionalAssignmentTime) {
       metrics.professionalAssignmentTime.observe((Date.now() - matchStart) / 1000);
     }
 
     booking.professional = professional._id;
     booking.status = "Confirmed";
+    booking.assignedDistanceKm = distanceKm;
     await booking.save();
 
     if (typeof onReassigned === "function") {
@@ -208,10 +225,14 @@ async function reassignWaitingEmergencies(category, options = {}) {
 
     if (!matchesCategory) continue;
 
-    const professional = await claimProfessional(category, options);
-    if (!professional) break;
+    const coords = locationToCoordinates(emergency.location);
+    if (!coords) continue;
+
+    const { professional, distanceKm } = await claimNearestProfessional(category, coords, options);
+    if (!professional) continue;
 
     emergency.assignedProfessional = professional._id;
+    emergency.assignedDistanceKm = distanceKm;
     await emergency.save();
 
     logger.info({ professionalName: professional.name, emergencyId: emergency._id }, `${logPrefix} Auto-assigned professional to emergency`);

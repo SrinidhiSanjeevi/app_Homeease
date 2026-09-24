@@ -7,8 +7,8 @@ const EmergencyRequest = require("../models/EmergencyRequest");
 const AuditLog = require("../models/AuditLog");
 const { reassignWaitingWork } = require("../services/professionalMatcher");
 const { canTransition } = require("../services/booking/bookingStateMachine");
-const { getScheduledStart, hasScheduledTimeStarted } = require("../services/booking/bookingSchedule");
 const logger = require("../utils/logger");
+const { findLocality, publicServiceArea } = require("../services/serviceArea");
 const { parsePagination, formatPaginationResult } = require("../utils/pagination");
 const { attachImageUrls } = require("../services/blobStorage");
 
@@ -20,6 +20,20 @@ const toImageKey = (value) => {
   const trimmed = value.trim();
   if (!trimmed || /^https?:\/\//i.test(trimmed)) return undefined;
   return trimmed;
+};
+
+// Locality name → { locality, location } for a Professional document.
+const localityFields = (name) => {
+  const locality = findLocality(name);
+  if (!locality) return null;
+  return {
+    locality: locality.name,
+    location: { type: "Point", coordinates: [locality.longitude, locality.latitude] }
+  };
+};
+
+const getServiceArea = (req, res) => {
+  res.status(200).json({ success: true, serviceArea: publicServiceArea() });
 };
 
 const getStats = async (req, res) => {
@@ -225,15 +239,7 @@ const updateBookingStatus = async (req, res) => {
       });
     }
 
-    // A service can't be completed before its booked slot has even started.
-    if (status === "Completed" && existingBooking.status !== "Completed" && !hasScheduledTimeStarted(existingBooking)) {
-      const start = getScheduledStart(existingBooking);
-      return res.status(400).json({
-        success: false,
-        message: `Cannot complete this booking before its scheduled time (${start.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })})`
-      });
-    }
-
+    // Admins may complete a booking at any time, regardless of its slot.
     const booking = await Booking.findByIdAndUpdate(
       req.params.id,
       { status },
@@ -323,7 +329,7 @@ const getAllProfessionals = async (req, res) => {
     const [total, professionals] = await Promise.all([
       Professional.countDocuments(filter),
       Professional.find(filter)
-        .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs createdAt")
+        .select("name category description rating ratingCount experience imageKey imageAlt status active locality location completedJobs createdAt")
         .sort({ name: 1 })
         .skip(skip)
         .limit(limit)
@@ -520,7 +526,7 @@ const deleteService = async (req, res) => {
 
 const createProfessional = async (req, res) => {
   try {
-    const { name, category, experience, imageKey, imageAlt, image, description, status } = req.body;
+    const { name, category, experience, imageKey, imageAlt, image, description, status, locality } = req.body;
     const finalImageKey = toImageKey(imageKey) || toImageKey(image);
     const finalImageAlt = imageAlt || (name ? `${name} - ${category} professional` : "HomeEase professional");
 
@@ -531,7 +537,17 @@ const createProfessional = async (req, res) => {
       });
     }
 
+    // Professionals only receive jobs near their base locality, so it's required.
+    const area = localityFields(locality);
+    if (!area) {
+      return res.status(400).json({
+        success: false,
+        message: "Please choose the professional's service locality (Gachibowli area)"
+      });
+    }
+
     const professional = await Professional.create({
+      ...area,
       name: name.trim(),
       category: category.trim(),
       experience: Number(experience),
@@ -551,9 +567,16 @@ const createProfessional = async (req, res) => {
 
 const updateProfessional = async (req, res) => {
   try {
-    const { name, category, experience, imageKey, imageAlt, image, description, status } = req.body;
+    const { name, category, experience, imageKey, imageAlt, image, description, status, locality } = req.body;
 
     const updateData = {};
+    if (locality !== undefined && locality !== null && locality !== "") {
+      const area = localityFields(locality);
+      if (!area) {
+        return res.status(400).json({ success: false, message: "Unknown service locality" });
+      }
+      Object.assign(updateData, area);
+    }
     if (name !== undefined) updateData.name = name;
     if (category !== undefined) updateData.category = category;
     if (experience !== undefined) updateData.experience = experience;
@@ -570,7 +593,7 @@ const updateProfessional = async (req, res) => {
     const professional = await Professional.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
     if (!professional) return res.status(404).json({ success: false, message: "Professional not found" });
 
-    if (updateData.status === "Available") {
+    if (professional.status === "Available" && (updateData.status === "Available" || updateData.location)) {
       reassignWaitingWork(professional.category).catch((err) =>
         logger.error({ err: err.message }, "Auto-reassignment error")
       );
@@ -653,6 +676,7 @@ module.exports = {
   createService,
   updateService,
   deleteService,
+  getServiceArea,
   getAllProfessionals,
   createProfessional,
   updateProfessional,
