@@ -109,9 +109,12 @@ app.use((req, res, next) => {
 });
 
 // ─── Health probes ────────────────────────────────────────────────────────────
-// Liveness: always 200 — if this returns, the process is alive
+// Liveness: always 200 — if this returns, the process is alive.
+// `version` is the image tag (git SHA), injected by the Helm chart as
+// APP_VERSION — the pipeline's Verify DEV stage polls this to confirm the
+// NEW image is serving, not just that some old pod is still healthy.
 app.get("/health/live", (req, res) => {
-  res.status(200).json({ status: "ok", service: "homeease-backend" });
+  res.status(200).json({ status: "ok", service: "homeease-backend", version: process.env.APP_VERSION || "unknown" });
 });
 
 // Readiness: 200 only when MongoDB is connected
