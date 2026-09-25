@@ -14,6 +14,7 @@ const {
   createService,
   updateService,
   deleteService,
+  getAreas,
   getAllProfessionals,
   createProfessional,
   updateProfessional,
@@ -49,6 +50,9 @@ router.get("/services",                 ...guard, requirePermission("services:re
 router.post("/services",                ...guard, requirePermission("services:manage"), auditAction("SERVICE_CREATED", "Service"), createService);
 router.put("/services/:id",             ...guard, requirePermission("services:manage"), auditAction("SERVICE_UPDATED", "Service"), updateService);
 router.delete("/services/:id",          ...guard, requirePermission("services:manage"), auditAction("SERVICE_DELETED", "Service"), deleteService);
+
+// Service areas (home area of each professional)
+router.get("/areas",                    ...guard, getAreas);
 
 // Professionals (full CRUD)
 router.get("/professionals",            ...guard, requirePermission("professionals:read"), getAllProfessionals);

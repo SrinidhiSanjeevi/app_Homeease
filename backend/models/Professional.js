@@ -76,8 +76,9 @@ const professionalSchema = new mongoose.Schema(
       min: 0
     },
 
-    // Legacy fields from the removed location feature. No longer read or
-    // written; kept so existing documents stay valid.
+    // Home service area (services/areas.js); assignment prefers the
+    // professional whose area is nearest the customer's. `location` is a
+    // legacy field, no longer used.
     locality: { type: String, trim: true, default: null },
     location: {
       type: {

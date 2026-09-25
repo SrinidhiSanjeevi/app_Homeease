@@ -1291,3 +1291,27 @@ input[type="date"] {
   .services-grid { grid-template-columns: 1fr; }
   table { min-width: 560px; }
 }
+
+/* ---------- Service area picker ---------- */
+.area-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px 0 10px; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: #fff; color: var(--text-main); font-weight: 700; font-size: .88rem; cursor: pointer; }
+.area-chip .material-symbols-rounded:first-child { color: var(--primary); }
+.area-chip:hover { border-color: var(--primary); }
+.area-chip.is-empty { border-color: var(--accent); color: var(--accent); }
+.area-chip.is-empty .material-symbols-rounded:first-child { color: var(--accent); }
+.area-chip.is-compact .area-chip-text { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.area-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; font-size: .9rem; color: var(--text-body); font-weight: 600; }
+.area-modal { max-width: 640px; }
+.area-body { padding: 4px 24px 24px; display: grid; gap: 14px; }
+.area-detect { width: fit-content; }
+.area-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.area-option { display: flex; gap: 10px; align-items: center; text-align: left; padding: 12px; border-radius: 12px; cursor: pointer;
+  border: 1.5px solid var(--border); background: #fff; color: var(--text-main); transition: var(--transition-fast); }
+.area-option .material-symbols-rounded { color: var(--primary); flex-shrink: 0; }
+.area-option strong { display: block; font-size: .9rem; }
+.area-option small { font-size: .74rem; color: var(--text-muted); }
+.area-option:hover { border-color: var(--primary); }
+.area-option.is-active { border-color: var(--primary); background: var(--brand-soft); }
+.auth-overlay { position: fixed; inset: 0; z-index: 90; overflow-y: auto; background: var(--bg-main); }
+.auth-overlay-close { position: fixed; top: 16px; right: 16px; z-index: 91; }
+@media (max-width: 720px) { .nav-area { display: none; } }

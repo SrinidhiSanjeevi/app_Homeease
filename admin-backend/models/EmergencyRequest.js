@@ -21,6 +21,7 @@ const emergencyRequestSchema = new mongoose.Schema(
       longitude: Number,
       accuracy: Number
     },
+    area: { type: String, default: null },
     assignedDistanceKm: { type: Number }
   },
   { timestamps: true }

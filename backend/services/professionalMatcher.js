@@ -6,8 +6,9 @@ const metrics = require("../metrics");
 const logger = require("../utils/logger");
 const { processNotificationSimulation } = require("./simulationService");
 const { localToday, currentSlot, hasScheduledTimeStarted } = require("./booking/bookingSchedule");
+const { areaDistanceKm } = require("./areas");
 
-// How many of the best-rated professionals to try before giving up.
+// How many professionals to try (nearest area first) before giving up.
 const CANDIDATE_LIMIT = 15;
 
 // Emergency types use different names from professional categories.
@@ -22,9 +23,10 @@ function professionalCategoryFor(category) {
   return EMERGENCY_TO_PROFESSIONAL_CATEGORY[safe] || safe;
 }
 
-// Best available professionals in a category: highest rated first,
-// then most experienced. Location is not used.
-async function findCandidates(category, excludeIds = []) {
+// Available professionals in a category, ordered by how close their home
+// area is to the customer's area, then by rating and experience.
+// Professionals with no area yet come last.
+async function findCandidates(category, excludeIds = [], customerArea = null) {
   const filter = {
     status: "Available",
     active: true,
@@ -32,29 +34,39 @@ async function findCandidates(category, excludeIds = []) {
   };
   if (excludeIds.length) filter._id = { $nin: excludeIds };
 
-  return Professional.find(filter)
-    .select("_id")
-    .sort({ rating: -1, completedJobs: -1, experience: -1 })
-    .limit(CANDIDATE_LIMIT)
+  const pros = await Professional.find(filter)
+    .select("_id locality rating completedJobs experience")
     .lean();
+
+  return pros
+    .map((p) => ({ ...p, distanceKm: areaDistanceKm(customerArea, p.locality) }))
+    .sort((a, b) =>
+      a.distanceKm - b.distanceKm ||
+      (b.rating || 0) - (a.rating || 0) ||
+      (b.completedJobs || 0) - (a.completedJobs || 0) ||
+      (b.experience || 0) - (a.experience || 0)
+    )
+    .slice(0, CANDIDATE_LIMIT);
 }
+
+const finiteKm = (km) => (Number.isFinite(km) ? km : null);
 
 // ------------------------------------------------------------------
 // Scheduled bookings: reserve a professional for one date + time slot
 // ------------------------------------------------------------------
 
 /**
- * Reserves the best-rated professional who is free for this slot.
+ * Reserves the nearest (by area) professional who is free for this slot.
  * A professional the customer picked is tried first.
- * Returns { professional } — professional null when nobody is free.
+ * Returns { professional, distanceKm } — professional null when nobody is free.
  */
-async function reserveProfessional({ category, date, timeSlot, bookingId, preferredProfessionalId = null }) {
+async function reserveProfessional({ category, area = null, date, timeSlot, bookingId, preferredProfessionalId = null }) {
   if (!category || !date || !timeSlot || !bookingId) {
-    return { professional: null };
+    return { professional: null, distanceKm: null };
   }
 
   const taken = await SlotReservation.find({ date, timeSlot }).distinct("professional");
-  const candidates = await findCandidates(category, taken);
+  const candidates = await findCandidates(category, taken, area);
 
   if (preferredProfessionalId) {
     const index = candidates.findIndex((c) => c._id.toString() === String(preferredProfessionalId));
@@ -68,10 +80,10 @@ async function reserveProfessional({ category, date, timeSlot, bookingId, prefer
       if (error && error.code === 11000) continue; // someone else just took this slot
       throw error;
     }
-    return { professional: await Professional.findById(candidate._id) };
+    return { professional: await Professional.findById(candidate._id), distanceKm: finiteKm(candidate.distanceKm) };
   }
 
-  return { professional: null };
+  return { professional: null, distanceKm: null };
 }
 
 async function releaseBookingReservation(bookingId) {
@@ -87,18 +99,18 @@ async function professionalsInCurrentSlot(now = new Date()) {
 }
 
 // ------------------------------------------------------------------
-// Emergencies: claim the best on-duty professional right now
+// Emergencies: claim the nearest on-duty professional right now
 // ------------------------------------------------------------------
 
 /**
- * Claims (marks Busy) the best available professional for an emergency,
- * skipping anyone in the middle of a scheduled job.
+ * Claims (marks Busy) the nearest available professional for an
+ * emergency, skipping anyone in the middle of a scheduled job.
  */
-async function claimProfessional(category) {
-  if (!category) return { professional: null };
+async function claimProfessional(category, area = null) {
+  if (!category) return { professional: null, distanceKm: null };
 
   const busyNow = await professionalsInCurrentSlot();
-  const candidates = await findCandidates(category, busyNow);
+  const candidates = await findCandidates(category, busyNow, area);
 
   for (const candidate of candidates) {
     const professional = await Professional.findOneAndUpdate(
@@ -106,10 +118,10 @@ async function claimProfessional(category) {
       { $set: { status: "Busy" } },
       { new: true }
     );
-    if (professional) return { professional };
+    if (professional) return { professional, distanceKm: finiteKm(candidate.distanceKm) };
   }
 
-  return { professional: null };
+  return { professional: null, distanceKm: null };
 }
 
 // ------------------------------------------------------------------
@@ -124,8 +136,9 @@ async function assignWaitingBooking(booking) {
   const category = bookingCategory(booking);
   if (!category) return false;
 
-  const { professional } = await reserveProfessional({
+  const { professional, distanceKm } = await reserveProfessional({
     category,
+    area: booking.area,
     date: booking.date,
     timeSlot: booking.timeSlot,
     bookingId: booking._id
@@ -134,7 +147,7 @@ async function assignWaitingBooking(booking) {
 
   const updated = await Booking.findOneAndUpdate(
     { _id: booking._id, professional: null, status: "Assigned" },
-    { $set: { professional: professional._id, status: "Confirmed" } },
+    { $set: { professional: professional._id, status: "Confirmed", assignedDistanceKm: distanceKm } },
     { new: true }
   );
 
@@ -170,12 +183,12 @@ async function reassignWaitingEmergencies() {
     .limit(20);
 
   for (const emergency of pendingEmergencies) {
-    const { professional } = await claimProfessional(emergency.category);
+    const { professional, distanceKm } = await claimProfessional(emergency.category, emergency.area);
     if (!professional) continue;
 
     const updated = await EmergencyRequest.findOneAndUpdate(
       { _id: emergency._id, assignedProfessional: null, status: "Dispatched" },
-      { $set: { assignedProfessional: professional._id } },
+      { $set: { assignedProfessional: professional._id, assignedDistanceKm: distanceKm } },
       { new: true }
     );
     if (!updated) {

@@ -1,5 +1,5 @@
 const { body, param } = require("express-validator");
-const { mobileNumber, serviceAddress } = require("./common");
+const { mobileNumber, serviceAddress, serviceArea } = require("./common");
 
 const dispatchEmergencyRules = [
   body("category")
@@ -10,6 +10,7 @@ const dispatchEmergencyRules = [
     .withMessage("Category must be one of: Electrical, Plumbing, Security, Fire, Medical"),
   serviceAddress("address"),
   mobileNumber("contactNumber"),
+  serviceArea("area"),
   body("description").trim().isLength({ min: 3, max: 1000 }).withMessage("Please describe the emergency (3–1000 characters)"),
   body("severity")
     .optional()

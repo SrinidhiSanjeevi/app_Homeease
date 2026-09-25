@@ -16,7 +16,7 @@ const ACTIVE_EMERGENCY_STATUSES = ["Dispatched", "OnTheWay", "Arrived"];
 // DISPATCH EMERGENCY SERVICE
 const dispatchEmergency = async (req, res) => {
   try {
-    const { category, severity, description, contactNumber, address } = req.body;
+    const { category, severity, description, contactNumber, address, area } = req.body;
     const userId = req.user._id;
 
     // Fire / medical: HomeEase is not an emergency service — send the
@@ -50,9 +50,10 @@ const dispatchEmergency = async (req, res) => {
     const resolvedSeverity = SEVERITY_CONFIG[severity] ? severity : (CATEGORY_DEFAULT_SEVERITY[category] || "Medium");
     const severityConfig = SEVERITY_CONFIG[resolvedSeverity];
 
-    // Best on-duty specialist who isn't in the middle of a scheduled job.
+    // Nearest (by area) on-duty specialist who isn't mid-way through a
+    // scheduled job.
     // No match → the emergency waits and the scheduler retries every minute.
-    const { professional } = await claimProfessional(category);
+    const { professional, distanceKm } = await claimProfessional(category, area);
 
     const emergency = await EmergencyRequest.create({
       user: userId,
@@ -66,13 +67,15 @@ const dispatchEmergency = async (req, res) => {
       fireEngineDispatched: false,
       fireEngineNumber: null,
       emergencyServiceNumber: null,
-      estimatedArrivalMinutes: severityConfig.estimatedArrivalMinutes
+      estimatedArrivalMinutes: severityConfig.estimatedArrivalMinutes,
+      area,
+      assignedDistanceKm: distanceKm
     });
 
     const populatedEmergency = await EmergencyRequest.findById(emergency._id).populate("assignedProfessional");
 
     let message = professional
-      ? `Emergency dispatched! ${professional.name} is on the way.`
+      ? `Emergency dispatched! ${professional.name}${professional.locality ? ` from ${professional.locality}` : ""} is on the way.`
       : "Emergency received. No specialist is free right now — we'll assign one the moment someone is available.";
     message += ` ${SAFETY_HINTS[category]}`;
 

@@ -31,6 +31,7 @@ const bookingSchema = new mongoose.Schema(
       longitude: Number,
       accuracy: Number
     },
+    area: { type: String, default: null },
     assignedDistanceKm: { type: Number },
     subtotal: { type: Number },
     gst: { type: Number },

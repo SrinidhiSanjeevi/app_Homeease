@@ -90,6 +90,8 @@ const bookingSchema = new mongoose.Schema(
     assignedDistanceKm: {
       type: Number
     },
+    // Service area the customer picked (services/areas.js).
+    area: { type: String, default: null },
     // Price breakdown computed on the server (services/pricing.js).
     subtotal: { type: Number },
     gst: { type: Number },

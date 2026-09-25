@@ -69,6 +69,8 @@ const emergencyRequestSchema = new mongoose.Schema(
       longitude: Number,
       accuracy: Number
     },
+    // Service area the customer picked (services/areas.js).
+    area: { type: String, default: null },
     // Distance (km) to the assigned responder, when nearest-provider
     // matching was used.
     assignedDistanceKm: {

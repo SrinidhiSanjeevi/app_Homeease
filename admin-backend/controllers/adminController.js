@@ -19,6 +19,7 @@ const EMERGENCY_TRANSITIONS = {
 };
 const canTransitionEmergency = (from, to) => (EMERGENCY_TRANSITIONS[from] || []).includes(to);
 const logger = require("../utils/logger");
+const { AREAS, findArea } = require("../services/areas");
 const { parsePagination, formatPaginationResult } = require("../utils/pagination");
 const { attachImageUrls } = require("../services/blobStorage");
 
@@ -30,6 +31,10 @@ const toImageKey = (value) => {
   const trimmed = value.trim();
   if (!trimmed || /^https?:\/\//i.test(trimmed)) return undefined;
   return trimmed;
+};
+
+const getAreas = (req, res) => {
+  res.status(200).json({ success: true, areas: AREAS });
 };
 
 const getStats = async (req, res) => {
@@ -202,7 +207,7 @@ const getAllBookings = async (req, res) => {
     const [total, bookings] = await Promise.all([
       Booking.countDocuments(filter),
       Booking.find(filter)
-        .select("user service professional isCustom customCategory customDescription date timeSlot address contactNumber notes selectedProduct paymentMethod paymentStatus status totalPrice userRating userReview createdAt")
+        .select("user service professional isCustom customCategory customDescription date timeSlot address contactNumber notes selectedProduct paymentMethod paymentStatus status totalPrice userRating userReview area assignedDistanceKm createdAt")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -366,7 +371,7 @@ const getAllProfessionals = async (req, res) => {
     const [total, professionals] = await Promise.all([
       Professional.countDocuments(filter),
       Professional.find(filter)
-        .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs createdAt")
+        .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs locality createdAt")
         .sort({ name: 1 })
         .skip(skip)
         .limit(limit)
@@ -406,7 +411,7 @@ const getAllEmergencies = async (req, res) => {
     const [total, emergencies] = await Promise.all([
       EmergencyRequest.countDocuments(filter),
       EmergencyRequest.find(filter)
-        .select("user category severity description contactNumber address status assignedProfessional fireEngineDispatched fireEngineNumber emergencyServiceNumber estimatedArrivalMinutes resolvedAt createdAt")
+        .select("user category severity description contactNumber address status assignedProfessional fireEngineDispatched fireEngineNumber emergencyServiceNumber estimatedArrivalMinutes resolvedAt area assignedDistanceKm createdAt")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -568,7 +573,7 @@ const deleteService = async (req, res) => {
 
 const createProfessional = async (req, res) => {
   try {
-    const { name, category, experience, imageKey, imageAlt, image, description, status } = req.body;
+    const { name, category, experience, imageKey, imageAlt, image, description, status, locality } = req.body;
     const finalImageKey = toImageKey(imageKey) || toImageKey(image);
     const finalImageAlt = imageAlt || (name ? `${name} - ${category} professional` : "HomeEase professional");
 
@@ -579,7 +584,14 @@ const createProfessional = async (req, res) => {
       });
     }
 
+    // Home area decides which customers they're matched with first.
+    const area = findArea(locality);
+    if (!area) {
+      return res.status(400).json({ success: false, message: "Please choose the professional's home area" });
+    }
+
     const professional = await Professional.create({
+      locality: area.name,
       name: name.trim(),
       category: category.trim(),
       experience: Number(experience),
@@ -599,9 +611,16 @@ const createProfessional = async (req, res) => {
 
 const updateProfessional = async (req, res) => {
   try {
-    const { name, category, experience, imageKey, imageAlt, image, description, status } = req.body;
+    const { name, category, experience, imageKey, imageAlt, image, description, status, locality } = req.body;
 
     const updateData = {};
+    if (locality !== undefined && locality !== null && locality !== "") {
+      const area = findArea(locality);
+      if (!area) {
+        return res.status(400).json({ success: false, message: "Unknown area" });
+      }
+      updateData.locality = area.name;
+    }
     if (name !== undefined) updateData.name = name;
     if (category !== undefined) updateData.category = category;
     if (experience !== undefined) updateData.experience = experience;
@@ -701,6 +720,7 @@ module.exports = {
   createService,
   updateService,
   deleteService,
+  getAreas,
   getAllProfessionals,
   createProfessional,
   updateProfessional,

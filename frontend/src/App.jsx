@@ -9,6 +9,8 @@ import Navbar from "./components/Navbar";
 import BookingModal from "./components/BookingModal";
 import Toast from "./components/Toast";
 import Footer from "./components/Footer";
+import AreaPicker from "./components/AreaPicker";
+import usePolling from "./hooks/usePolling";
 
 // ============================================================
 // URL HELPERS — /services/:id deep links to a service page
@@ -104,6 +106,73 @@ export default function App() {
   const [toast, setToast] = useState(null);
 
   // ============================================================
+  // SERVICE AREA — chosen once, remembered on this device
+  // ============================================================
+
+  const AREA_KEY = "homeease.area";
+  const [areas, setAreas] = useState([]);
+  const [area, setAreaState] = useState(() => {
+    try {
+      return localStorage.getItem(AREA_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
+  const [areaPickerOpen, setAreaPickerOpen] = useState(false);
+
+  const setArea = (name) => {
+    setAreaState(name);
+    setAreaPickerOpen(false);
+    try {
+      localStorage.setItem(AREA_KEY, name);
+    } catch {
+      /* storage blocked — keep it for this session only */
+    }
+  };
+
+  // First visit: ask for the area before browsing.
+  useEffect(() => {
+    if (!area) setAreaPickerOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ============================================================
+  // GUEST BROWSING — sign-in only when an action needs it
+  // ============================================================
+
+  const [authOpen, setAuthOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
+  const isLoggedIn = Boolean(token && user);
+
+  const requireAuth = (action, message = "Please sign in to continue") => {
+    if (isLoggedIn) {
+      action();
+      return;
+    }
+    setPendingAction(() => action);
+    setAuthOpen(true);
+    showToast(message, "info");
+  };
+
+  // Token refreshed / expired in the background (authFetch.js).
+  useEffect(() => {
+    const onToken = (e) => setToken(e.detail);
+    const onLogout = () => {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      localStorage.removeItem("refreshToken");
+      setUser(null);
+      setToken("");
+    };
+    window.addEventListener("homeease:token", onToken);
+    window.addEventListener("homeease:logout", onLogout);
+    return () => {
+      window.removeEventListener("homeease:token", onToken);
+      window.removeEventListener("homeease:logout", onLogout);
+    };
+  }, []);
+
+  // ============================================================
   // TOAST
   // ============================================================
 
@@ -135,7 +204,16 @@ export default function App() {
 
     setUser(userData);
     setToken(userToken);
-    setActiveTab("dashboard");
+    setAuthOpen(false);
+
+    // Continue whatever the guest was trying to do (book, open a tab…).
+    if (pendingAction) {
+      const action = pendingAction;
+      setPendingAction(null);
+      setTimeout(action, 0);
+    } else {
+      setActiveTab("dashboard");
+    }
   };
 
   // ============================================================
@@ -145,6 +223,7 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    localStorage.removeItem("refreshToken");
 
     setUser(null);
     setToken("");
@@ -326,10 +405,36 @@ export default function App() {
   // INITIAL LOAD
   // ============================================================
 
+  const fetchAreas = async () => {
+    try {
+      const response = await fetch("/api/services/areas");
+      const data = await response.json();
+      if (data.success) setAreas(data.areas || []);
+    } catch (error) {
+      console.error("Fetch Areas Error:", error);
+    }
+  };
+
   useEffect(() => {
     fetchServices();
     fetchProfessionals();
+    fetchAreas();
   }, []);
+
+  // ============================================================
+  // LIVE UPDATES — no manual refresh needed
+  // ============================================================
+
+  usePolling(() => {
+    fetchBookings();
+    fetchEmergencies();
+  }, 10000, isLoggedIn);
+
+  usePolling(() => {
+    fetchProfessionals();
+    fetchServices();
+    fetchAreas();
+  }, 30000);
 
   // ============================================================
   // LOAD USER-SPECIFIC DATA
@@ -713,33 +818,6 @@ export default function App() {
     };
 
   // ============================================================
-  // AUTHENTICATION ROUTER
-  // ============================================================
-
-  if (!token || !user) {
-    return (
-      <>
-        {toast && (
-          <Toast
-            message={toast.message}
-            type={toast.type}
-            onClose={() =>
-              setToast(null)
-            }
-          />
-        )}
-
-        <Auth
-          onLoginSuccess={
-            handleLoginSuccess
-          }
-          showToast={showToast}
-        />
-      </>
-    );
-  }
-
-  // ============================================================
   // ADMIN ACCOUNTS DON'T BELONG IN THIS APP
   //
   // Admin management now lives in its own app (admin-frontend), its
@@ -748,7 +826,7 @@ export default function App() {
   // logged out — it is never routed into the customer experience.
   // ============================================================
 
-  if (user.role === "admin") {
+  if (user?.role === "admin") {
     return (
       <div
         style={{
@@ -793,9 +871,47 @@ export default function App() {
   // ============================================================
 
   const navigate = (tab) => {
-    closeService({ useHistory: false });
-    setActiveTab(tab);
+    const go = () => {
+      closeService({ useHistory: false });
+      setActiveTab(tab);
+    };
+    if (tab === "dashboard") go();
+    else requireAuth(go, "Please sign in to see this page");
   };
+
+  // Booking needs an account and a service area.
+  const startBooking = (service, product = null) => {
+    requireAuth(() => {
+      if (!area) {
+        setAreaPickerOpen(true);
+        showToast("Choose your area first so we can send the nearest professional", "info");
+        return;
+      }
+      setBookingProduct(product);
+      setBookingService(service);
+    }, "Please sign in to book this service");
+  };
+
+  if (authOpen && !isLoggedIn) {
+    return (
+      <div className="auth-overlay">
+        {toast && (
+          <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+        )}
+        <button
+          type="button"
+          className="btn btn-secondary auth-overlay-close"
+          onClick={() => {
+            setAuthOpen(false);
+            setPendingAction(null);
+          }}
+        >
+          Continue browsing
+        </button>
+        <Auth onLoginSuccess={handleLoginSuccess} showToast={showToast} />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -804,6 +920,9 @@ export default function App() {
         setActiveTab={navigate}
         user={user}
         onLogout={handleLogout}
+        onSignIn={() => setAuthOpen(true)}
+        area={area}
+        onChangeArea={() => setAreaPickerOpen(true)}
       />
 
       <main className="app-shell page">
@@ -811,11 +930,10 @@ export default function App() {
         {activeTab === "dashboard" && !viewServiceId && (
           <Dashboard
             services={services}
-            onBookClick={(service) => {
-              setBookingProduct(null);
-              setBookingService(service);
-            }}
+            onBookClick={(service) => startBooking(service)}
             onViewService={openService}
+            area={area}
+            onChangeArea={() => setAreaPickerOpen(true)}
           />
         )}
 
@@ -829,15 +947,12 @@ export default function App() {
             professionals={professionals}
             onBack={() => closeService()}
             onViewService={openService}
-            onBook={(service, product) => {
-              setBookingProduct(product);
-              setBookingService(service);
-            }}
+            onBook={(service, product) => startBooking(service, product)}
           />
         )}
 
         {/* Bookings */}
-        {activeTab === "bookings" && (
+        {activeTab === "bookings" && isLoggedIn && (
           <Bookings
             bookings={bookings}
             onCancelBooking={
@@ -859,7 +974,7 @@ export default function App() {
         )}
 
         {/* Emergency */}
-        {activeTab === "emergency" && (
+        {activeTab === "emergency" && isLoggedIn && (
           <Emergency
             activeEmergencies={
               activeEmergencies
@@ -869,11 +984,14 @@ export default function App() {
             }
             showToast={showToast}
             token={token}
+            area={area}
+            onChangeArea={() => setAreaPickerOpen(true)}
+            onRefresh={fetchEmergencies}
           />
         )}
 
         {/* Profile */}
-        {activeTab === "profile" && (
+        {activeTab === "profile" && isLoggedIn && (
           <Profile
             user={user}
             bookings={bookings}
@@ -897,8 +1015,18 @@ export default function App() {
     }}
     professionals={professionals}
     user={user}
+    area={area}
   />
    )}
+
+      <AreaPicker
+        open={areaPickerOpen}
+        areas={areas}
+        current={area}
+        required={!area}
+        onSelect={setArea}
+        onClose={() => setAreaPickerOpen(false)}
+      />
 
       {/* Toast */}
       {toast && (

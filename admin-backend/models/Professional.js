@@ -19,7 +19,7 @@ const professionalSchema = new mongoose.Schema(
     },
     active: { type: Boolean, default: true, index: true },
     completedJobs: { type: Number, default: 0, min: 0 },
-    // Legacy fields from the removed location feature (unused).
+    // Home service area (services/areas.js); `location` is legacy/unused.
     locality: { type: String, trim: true, default: null },
     location: {
       type: { type: String, enum: ["Point"] },
