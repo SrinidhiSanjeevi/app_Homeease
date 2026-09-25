@@ -38,7 +38,7 @@ const todayIso = () => {
   return d.toISOString().split("T")[0];
 };
 
-export default function BookingModal({ service, initialProduct, onClose, onSubmit, onBookingSettled, professionals, user }) {
+export default function BookingModal({ service, initialProduct, onClose, onSubmit, onBookingSettled, professionals, user, area }) {
   const [step, setStep] = useState(1);
   const [stepError, setStepError] = useState("");
   const [customCategory, setCustomCategory] = useState(service.category || "Spa");
@@ -127,8 +127,11 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
     () =>
       professionals
         .filter((p) => p.category === activeCategory)
-        .sort((a, b) => (a.status === "Available" ? 0 : 1) - (b.status === "Available" ? 0 : 1) || (b.rating || 0) - (a.rating || 0)),
-    [professionals, activeCategory]
+        .sort((a, b) =>
+          (a.status === "Available" ? 0 : 1) - (b.status === "Available" ? 0 : 1) ||
+          (a.locality === area ? 0 : 1) - (b.locality === area ? 0 : 1) ||
+          (b.rating || 0) - (a.rating || 0)),
+    [professionals, activeCategory, area]
   );
   const availableCount = categoryProfessionals.filter((p) => !unavailableReason(p)).length;
 
@@ -176,6 +179,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
     notes,
     selectedProduct: service.isCustom ? null : selectedProduct,
     paymentMethod: paymentMethodValue,
+    area,
   });
 
   const finalizeCashBooking = async () => {
@@ -388,7 +392,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                     </span>
                     <div style={{ flex: 1 }}>
                       <strong style={{ fontSize: "0.95rem" }}>Auto-assign best match</strong>
-                      <div className="field-hint">We pick the best-rated professional who is free for this slot — fastest option.</div>
+                      <div className="field-hint">We pick the nearest professional who is free for this slot — fastest option.</div>
                     </div>
                     <span className="badge badge-completed">Recommended</span>
                   </label>
@@ -419,6 +423,14 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                             </span>
                             <span className="dot" />
                             <span>{prof.experience} yrs experience</span>
+                            {prof.locality && (
+                              <>
+                                <span className="dot" />
+                                <span style={prof.locality === area ? { color: "var(--primary)", fontWeight: 700 } : undefined}>
+                                  {prof.locality === area ? `In ${prof.locality}` : prof.locality}
+                                </span>
+                              </>
+                            )}
                             {prof.completedJobs > 0 && (
                               <>
                                 <span className="dot" />
@@ -497,6 +509,12 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
 
           {step === 3 && (
             <div style={{ animation: "fadeIn 0.2s ease" }}>
+              <div className="notice notice-info" style={{ marginBottom: 16 }}>
+                <Icon name="location_on" size={18} filled />
+                <span>
+                  Service area: <strong>{area}</strong>. We&apos;ll send the nearest available professional.
+                </span>
+              </div>
               <div className="form-group">
                 <label htmlFor="bm-address">Service address</label>
                 <textarea

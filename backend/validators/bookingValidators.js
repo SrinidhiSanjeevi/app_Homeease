@@ -1,10 +1,11 @@
 const { body, param } = require("express-validator");
-const { mobileNumber, serviceAddress } = require("./common");
+const { mobileNumber, serviceAddress, serviceArea } = require("./common");
 const { TIME_SLOTS } = require("../services/booking/bookingSchedule");
 
 const createBookingRules = [
   serviceAddress("address"),
   mobileNumber("contactNumber"),
+  serviceArea("area"),
   body("date").isString().matches(/^\d{4}-\d{2}-\d{2}$/).withMessage("Please pick a valid date"),
   body("timeSlot").isIn(TIME_SLOTS).withMessage("Please pick an available time slot"),
   body("serviceId").optional({ nullable: true }).isMongoId().withMessage("Invalid service"),

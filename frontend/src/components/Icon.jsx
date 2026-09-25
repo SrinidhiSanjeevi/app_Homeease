@@ -26,7 +26,9 @@ export default function Icon({ name, size = 20, color, filled = false, weight = 
 // (<Star />, <Clock />…) while rendering Material Symbols.
 // Accepts the props the pages already pass: size, color, fill, stroke, style.
 const make = (glyph, defaults = {}) => {
-  function NamedIcon({ size = 20, color, fill, stroke, strokeWidth, style, className }) {
+  // Extra props (onClick, title, role, aria-*) are passed through — they
+  // used to be dropped, which made clickable icons (rating stars) dead.
+  function NamedIcon({ size = 20, color, fill, stroke, strokeWidth, style, className, ...rest }) {
     const isFilled = defaults.filled || (fill && fill !== "none");
     return (
       <Icon
@@ -38,6 +40,7 @@ const make = (glyph, defaults = {}) => {
         spin={defaults.spin}
         style={style}
         className={className}
+        {...rest}
       />
     );
   }

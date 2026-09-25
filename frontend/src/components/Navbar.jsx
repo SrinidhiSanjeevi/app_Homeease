@@ -1,5 +1,6 @@
 import React from "react";
 import Icon from "./Icon";
+import { AreaChip } from "./AreaPicker";
 
 export function BrandMark({ size = 34 }) {
   return (
@@ -18,7 +19,7 @@ const TABS = [
   { id: "profile", label: "Profile", icon: "account_circle" },
 ];
 
-export default function Navbar({ activeTab, setActiveTab, user, onLogout }) {
+export default function Navbar({ activeTab, setActiveTab, user, onLogout, onSignIn, area, onChangeArea }) {
   const initials = (user?.name || "User")
     .split(" ")
     .map((part) => part[0])
@@ -56,14 +57,25 @@ export default function Navbar({ activeTab, setActiveTab, user, onLogout }) {
         </nav>
 
         <div className="nav-user">
-          <span className="avatar">{initials}</span>
-          <span className="nav-user-meta">
-            <strong>{user?.name || "User"}</strong>
-            <span>{user?.role === "professional" ? "Professional" : "Customer"}</span>
+          <span className="nav-area">
+            <AreaChip area={area} onClick={onChangeArea} compact />
           </span>
-          <button type="button" className="icon-btn" onClick={onLogout} aria-label="Log out" title="Log out">
-            <Icon name="logout" size={20} />
-          </button>
+          {user ? (
+            <>
+              <span className="avatar">{initials}</span>
+              <span className="nav-user-meta">
+                <strong>{user.name || "User"}</strong>
+                <span>{user.role === "professional" ? "Professional" : "Customer"}</span>
+              </span>
+              <button type="button" className="icon-btn" onClick={onLogout} aria-label="Log out" title="Log out">
+                <Icon name="logout" size={20} />
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn btn-primary" onClick={onSignIn}>
+              <Icon name="login" size={18} /> Sign in
+            </button>
+          )}
         </div>
       </div>
     </header>

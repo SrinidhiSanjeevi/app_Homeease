@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { AreaChip } from "../components/AreaPicker";
 import Icon, { Star, Loader2, AlertTriangle, XCircle, Check, MapPin } from "../components/Icon";
 
 // ------------------------------------------------------------------
@@ -131,7 +132,10 @@ export default function Emergency({
   activeEmergencies = [],
   onDispatchEmergency,
   showToast,
-  token
+  token,
+  area,
+  onChangeArea,
+  onRefresh
 }) {
   const remembered = useRef(readRemembered()).current;
 
@@ -194,7 +198,8 @@ export default function Emergency({
         severity,
         description: description.trim(),
         contactNumber: contactNumber.trim(),
-        address: address.trim()
+        address: address.trim(),
+        area
       });
 
       setDescription("");
@@ -218,8 +223,7 @@ export default function Emergency({
 
       if (response.ok && data.success) {
         showToast("Emergency request cancelled", "success");
-        // Reload so active emergency data is fetched again from the backend.
-        window.location.reload();
+        if (typeof onRefresh === "function") await onRefresh();
       } else {
         showToast(data.message || "Failed to cancel emergency request", "error");
       }
@@ -400,6 +404,11 @@ export default function Emergency({
                   <span className="em-step-num">3</span>
                   <h2>Where should we come?</h2>
                   {remembered.address && <span className="em-remembered">Filled in from your last request</span>}
+                </div>
+
+                <div className="area-bar">
+                  <span>Your area</span>
+                  <AreaChip area={area} onClick={onChangeArea} />
                 </div>
 
                 <div className="em-fields">

@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const {
   getServices,
+  getAreas,
   getProfessionals,
   getProfessionalAvailability,
   getServiceById,
@@ -13,6 +14,7 @@ const { serviceIdRules, serviceReviewsRules, recentReviewsRules } = require("../
 
 // PUBLIC ROUTES
 router.get("/", getServices);
+router.get("/areas", getAreas);
 router.get("/professionals", getProfessionals);
 router.get("/professionals/availability", getProfessionalAvailability);
 router.get("/reviews/recent", validate(recentReviewsRules), getRecentReviews);

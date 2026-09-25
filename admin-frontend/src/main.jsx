@@ -2,6 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import "./index.css";
+import { installAuthFetch } from "./authFetch";
+
+// Refresh expired access tokens transparently (see authFetch.js).
+installAuthFetch();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

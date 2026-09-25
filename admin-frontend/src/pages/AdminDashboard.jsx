@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -16,7 +16,16 @@ import {
   Clock,
   XCircle,
   X,
-  Save
+  Save,
+  UploadCloud,
+  AlertTriangle,
+  Siren,
+  ClipboardList,
+  Hourglass,
+  IndianRupee,
+  HardHat,
+  MapPin,
+  Timer
 } from "lucide-react";
 
 const BASE = "/api/admin";
@@ -281,7 +290,7 @@ function ImageUploader({ currentUrl, folder = "services", onUploaded }) {
           </div>
         ) : (
           <>
-            <div style={{ fontSize: "1.6rem", marginBottom: "4px" }}>☁️</div>
+            <div style={{ marginBottom: "4px", color: "#0e5e4f", display: "flex", justifyContent: "center" }}><UploadCloud size={28} /></div>
             <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#374151" }}>
               {currentUrl ? "Replace image" : "Upload image"}
             </div>
@@ -305,7 +314,7 @@ function ImageUploader({ currentUrl, folder = "services", onUploaded }) {
           background: "#fef2f2", border: "1px solid #fecaca",
           borderRadius: "8px", padding: "8px 12px"
         }}>
-          ⚠️ {error}
+          <AlertTriangle size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />{error}
         </div>
       )}
 
@@ -451,7 +460,7 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
             padding: "12px",
             borderRadius: "10px",
             border: "none",
-            background: "#0f0f0f",
+            background: "#0e5e4f",
             color: "#fff",
             cursor: loading ? "not-allowed" : "pointer",
             fontWeight: 700,
@@ -472,13 +481,14 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
 }
 
 // ── PROFESSIONAL FORM ─────────────────────────────────────────
-function ProfessionalForm({ initial, onSave, onClose, loading }) {
+function ProfessionalForm({ initial, onSave, onClose, loading, areas = [] }) {
   const blank = {
     name: "",
     category: "Spa",
     experience: "",
     image: "",
-    status: "Available"
+    status: "Available",
+    locality: ""
   };
 
   // Normalize: the DB record stores `imageKey`; the API response adds `imageUrl`.
@@ -488,11 +498,13 @@ function ProfessionalForm({ initial, onSave, onClose, loading }) {
     if (!src) return blank;
     return {
       ...src,
-      image: src.image || src.imageUrl || src.imageKey || ""
+      image: src.image || src.imageUrl || src.imageKey || "",
+      locality: src.locality || ""
     };
   };
 
   const [form, setForm] = useState(normalizeInitial(initial));
+  const [areaError, setAreaError] = useState("");
 
   const set = (k, v) =>
     setForm((f) => ({
@@ -554,6 +566,27 @@ function ProfessionalForm({ initial, onSave, onClose, loading }) {
         </Field>
       </div>
 
+      <Field label="Home Area *">
+        <select
+          style={{ ...sel, borderColor: areaError ? "#ef4444" : undefined }}
+          value={form.locality}
+          onChange={(e) => {
+            set("locality", e.target.value);
+            setAreaError("");
+          }}
+        >
+          <option value="">Select the area they work from</option>
+          {areas.map((a) => (
+            <option key={a.name} value={a.name}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+        <div style={{ fontSize: "0.74rem", color: areaError ? "#dc2626" : "#6b7280", marginTop: "4px" }}>
+          {areaError || "Customers in or near this area are matched with this professional first."}
+        </div>
+      </Field>
+
       <Field label="Profile Image">
         <ImageUploader
           currentUrl={form.imageUrl || form.image}
@@ -588,14 +621,20 @@ function ProfessionalForm({ initial, onSave, onClose, loading }) {
         </button>
 
         <button
-          onClick={() => onSave(form)}
+          onClick={() => {
+            if (!form.locality) {
+              setAreaError("Choose the professional's home area");
+              return;
+            }
+            onSave(form);
+          }}
           disabled={loading}
           style={{
             flex: 2,
             padding: "12px",
             borderRadius: "10px",
             border: "none",
-            background: "#0f0f0f",
+            background: "#0e5e4f",
             color: "#fff",
             cursor: loading ? "not-allowed" : "pointer",
             fontWeight: 700,
@@ -631,6 +670,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   const [serviceModal, setServiceModal] = useState(null);
   const [profModal, setProfModal] = useState(null);
+  const [areas, setAreas] = useState([]);
 
   const headers = {
     Authorization: `Bearer ${token}`
@@ -720,6 +760,16 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
+  const fetchAreas = async () => {
+    try {
+      const r = await fetch(`${BASE}/areas`, { headers });
+      const d = await r.json();
+      if (d.success) setAreas(d.areas || []);
+    } catch (error) {
+      console.error("FETCH AREAS ERROR:", error);
+    }
+  };
+
   const fetchEmergencies = async () => {
     try {
       const r = await fetch(`${BASE}/emergencies`, { headers });
@@ -751,6 +801,33 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   useEffect(() => {
     loadAll();
+    fetchAreas();
+  }, []);
+
+  // Live updates: quietly refresh every 10s while the tab is visible,
+  // and right away when the admin comes back to it — no manual Refresh.
+  const refreshQuietly = useRef(null);
+  refreshQuietly.current = () =>
+    Promise.all([
+      fetchStats(),
+      fetchUsers(),
+      fetchBookings(),
+      fetchServices(),
+      fetchProfessionals(),
+      fetchEmergencies()
+    ]);
+  useEffect(() => {
+    const run = () => {
+      if (document.visibilityState === "visible") refreshQuietly.current();
+    };
+    const id = setInterval(run, 10000);
+    document.addEventListener("visibilitychange", run);
+    window.addEventListener("focus", run);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", run);
+      window.removeEventListener("focus", run);
+    };
   }, []);
 
   // ── USER delete ─────────────────────────────────────────────
@@ -1083,7 +1160,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       <aside
         style={{
           width: "240px",
-          background: "#0f0f0f",
+          background: "#083a31",
           color: "#fff",
           display: "flex",
           flexDirection: "column",
@@ -1097,7 +1174,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
         <div
           style={{
             padding: "24px 20px",
-            borderBottom: "1px solid #222"
+            borderBottom: "1px solid rgba(255,255,255,0.1)"
           }}
         >
           <div
@@ -1109,8 +1186,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
           >
             <div
               style={{
-                background: "linear-gradient(135deg,#fff,#d1d5db)",
-                color: "#000",
+                background: "#fff",
+                color: "#0e5e4f",
                 width: "36px",
                 height: "36px",
                 borderRadius: "10px",
@@ -1135,7 +1212,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
               <div
                 style={{
                   fontSize: "0.7rem",
-                  color: "#888",
+                  color: "rgba(255,255,255,0.6)",
                   fontWeight: 500
                 }}
               >
@@ -1172,8 +1249,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       ? "#fff"
                       : "transparent",
                     color: active
-                      ? "#000"
-                      : "#999",
+                      ? "#083a31"
+                      : "rgba(255,255,255,0.72)",
                     fontWeight: active
                       ? 700
                       : 500,
@@ -1195,7 +1272,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
         <div
           style={{
             padding: "16px 12px",
-            borderTop: "1px solid #222"
+            borderTop: "1px solid rgba(255,255,255,0.1)"
           }}
         >
           <div
@@ -1211,7 +1288,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                 width: "34px",
                 height: "34px",
                 borderRadius: "50%",
-                background: "#333",
+                background: "rgba(255,255,255,0.14)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -1255,7 +1332,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
               padding: "8px 12px",
               borderRadius: "8px",
               background: "transparent",
-              border: "1px solid #333",
+              border: "1px solid rgba(255,255,255,0.18)",
               color: "#888",
               cursor: "pointer",
               fontSize: "0.82rem",
@@ -1264,7 +1341,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background =
-                "#1a1a1a";
+                "rgba(255,255,255,0.1)";
               e.currentTarget.style.color = "#fff";
             }}
             onMouseLeave={(e) => {
@@ -1367,7 +1444,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                   gap: "8px",
                   padding: "10px 18px",
                   borderRadius: "12px",
-                  background: "#0f0f0f",
+                  background: "#0e5e4f",
                   color: "#fff",
                   border: "none",
                   cursor: "pointer",
@@ -1391,7 +1468,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                   gap: "8px",
                   padding: "10px 18px",
                   borderRadius: "12px",
-                  background: "#0f0f0f",
+                  background: "#0e5e4f",
                   color: "#fff",
                   border: "none",
                   cursor: "pointer",
@@ -1470,7 +1547,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                         cursor: "pointer"
                       }}
                     >
-                      <div style={{ fontSize: "1.8rem" }}>🚨</div>
+                      <div style={{ color: "#dc2626", display: "flex" }}><Siren size={30} /></div>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 800, color: "#b91c1c", fontSize: "1rem" }}>
                           {stats.activeEmergencies} Active Emergency{" "}
@@ -1496,25 +1573,25 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       {
                         label: "Users",
                         value: stats.totalUsers,
-                        icon: "👥",
+                        icon: Users,
                         color: "#3b82f6"
                       },
                       {
                         label: "All Bookings",
                         value: stats.totalBookings,
-                        icon: "📋",
+                        icon: ClipboardList,
                         color: "#8b5cf6"
                       },
                       {
                         label: "Pending",
                         value: stats.pendingBookings,
-                        icon: "⏳",
+                        icon: Hourglass,
                         color: "#f59e0b"
                       },
                       {
                         label: "Completed",
                         value: stats.completedBookings,
-                        icon: "✅",
+                        icon: CheckCircle,
                         color: "#10b981"
                       },
                       {
@@ -1522,34 +1599,34 @@ export default function AdminDashboard({ token, user, onLogout }) {
                         value: `₹${(
                           stats.totalRevenue || 0
                         ).toLocaleString("en-IN")}`,
-                        icon: "💰",
+                        icon: IndianRupee,
                         color: "#10b981"
                       },
                       {
                         label: "Services",
                         value: stats.totalServices,
-                        icon: "🛠",
+                        icon: Wrench,
                         color: "#f59e0b"
                       },
                       {
                         label: "Professionals",
                         value:
                           stats.totalProfessionals,
-                        icon: "🧑‍🔧",
+                        icon: HardHat,
                         color: "#ec4899"
                       },
                       {
                         label: "Emergencies",
                         value:
                           stats.totalEmergencies,
-                        icon: "🚨",
+                        icon: Siren,
                         color: "#ef4444"
                       }
                     ].map(
                       ({
                         label,
                         value,
-                        icon,
+                        icon: StatIcon,
                         color
                       }) => (
                         <div
@@ -1566,11 +1643,17 @@ export default function AdminDashboard({ token, user, onLogout }) {
                         >
                           <div
                             style={{
-                              fontSize: "1.8rem",
-                              marginBottom: "8px"
+                              width: "42px",
+                              height: "42px",
+                              borderRadius: "12px",
+                              display: "grid",
+                              placeItems: "center",
+                              background: `${color}1a`,
+                              color,
+                              marginBottom: "12px"
                             }}
                           >
-                            {icon}
+                            <StatIcon size={22} />
                           </div>
 
                           <div
@@ -2253,6 +2336,12 @@ export default function AdminDashboard({ token, user, onLogout }) {
                               const label = unassignedLabel(b.status);
                               return <span style={{ color: label.color }}>{label.text}</span>;
                             })()}
+                            {b.area && (
+                              <div style={{ fontSize: "0.72rem", color: "#9ca3af", marginTop: "2px", display: "flex", alignItems: "center", gap: "3px" }}>
+                                <MapPin size={11} /> {b.area}
+                                {b.assignedDistanceKm != null && b.professional && ` · ${b.assignedDistanceKm} km`}
+                              </div>
+                            )}
                           </td>
 
                           <td
@@ -2519,7 +2608,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                             "12px"
                         }}
                       >
-                        ⏱ {s.duration} · ⭐{" "}
+                        <Timer size={13} style={{ verticalAlign: "-2px" }} /> {s.duration} · <Star size={13} fill="#f59e0b" color="#f59e0b" style={{ verticalAlign: "-2px" }} />{" "}
                         {s.rating} (
                         {s.numRatings})
                       </div>
@@ -2704,8 +2793,23 @@ export default function AdminDashboard({ token, user, onLogout }) {
                           "6px"
                       }}
                     >
-                      ⭐ {p.rating} ·{" "}
+                      <Star size={13} fill="#f59e0b" color="#f59e0b" style={{ verticalAlign: "-2px" }} /> {p.rating} ·{" "}
                       {p.experience} yrs
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: "0.78rem",
+                        fontWeight: 600,
+                        marginBottom: "8px",
+                        color: p.locality ? "#0e5e4f" : "#b45309",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px"
+                      }}
+                    >
+                      <MapPin size={13} />
+                      {p.locality || "No home area — edit to set one"}
                     </div>
 
                     <button
@@ -2849,7 +2953,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       color: "#ef4444"
                     }}
                   >
-                    🚨 Emergency Requests (
+                    <Siren size={18} style={{ verticalAlign: "-3px", marginRight: 6 }} />Emergency Requests (
                     {emergencies.length})
                   </h3>
 
@@ -3084,6 +3188,12 @@ export default function AdminDashboard({ token, user, onLogout }) {
                               }}
                             >
                               <div>{e.address || "—"}</div>
+                              {e.area && (
+                                <div style={{ fontSize: "0.72rem", color: "#0e5e4f", marginTop: "2px", fontWeight: 600 }}>
+                                  {e.area}
+                                  {e.assignedDistanceKm != null && e.assignedProfessional && ` · specialist ${e.assignedDistanceKm} km away`}
+                                </div>
+                              )}
                             </td>
 
                             <td
@@ -3238,7 +3348,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                   Arrived
                                 </option>
                                 <option value="Resolved">
-                                  Resolved ✓
+                                  Resolved
                                 </option>
                                 <option value="Cancelled">
                                   Cancelled
@@ -3326,6 +3436,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
               setProfModal(null)
             }
             loading={formLoading}
+            areas={areas}
           />
         </Modal>
       )}

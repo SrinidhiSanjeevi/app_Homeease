@@ -42,7 +42,7 @@ const createBooking = async (req, res) => {
     const {
       serviceId, professionalId, date, timeSlot, address, contactNumber,
       notes, selectedProduct, paymentMethod,
-      isCustom, customCategory, customDescription
+      isCustom, customCategory, customDescription, area
     } = req.body;
 
     if (!req.user || !req.user._id) {
@@ -114,7 +114,8 @@ const createBooking = async (req, res) => {
       status: isCash ? "Assigned" : "Created",
       subtotal: price.subtotal,
       gst: price.gst,
-      totalPrice: price.total
+      totalPrice: price.total,
+      area
     });
 
     if (isCash) {
@@ -133,12 +134,13 @@ const createBooking = async (req, res) => {
       }
     }
 
-    // Best-rated professional who is free for this date + slot (the
-    // customer's own pick is tried first). Nobody free → the booking waits
+    // Professional in the nearest area who is free for this date + slot
+    // (the customer's own pick is tried first). Nobody free → the booking waits
     // and the scheduler keeps trying until the slot starts.
     const matchStart = Date.now();
-    const { professional } = await reserveProfessional({
+    const { professional, distanceKm } = await reserveProfessional({
       category,
+      area,
       date: schedule.date,
       timeSlot,
       bookingId: booking._id,
@@ -154,6 +156,7 @@ const createBooking = async (req, res) => {
         {
           $set: {
             professional: professional._id,
+            assignedDistanceKm: distanceKm,
             ...(isCash ? { status: "Confirmed" } : {})
           }
         },

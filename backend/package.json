@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "seed:admin": "node scripts/seedAdmin.js",
     "migrate:slots": "node scripts/migrateSlotReservations.js",
+    "assign:areas": "node scripts/assignProfessionalAreas.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

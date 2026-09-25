@@ -5,6 +5,7 @@ const Booking = require("../models/Booking");
 const SlotReservation = require("../models/SlotReservation");
 const { attachImageUrls } = require("../services/blobStorage");
 const { TIME_SLOTS } = require("../services/booking/bookingSchedule");
+const { AREAS } = require("../services/areas");
 const logger = require("../utils/logger");
 
 // GET ALL ACTIVE SERVICES
@@ -43,7 +44,7 @@ const getProfessionals = async (req, res) => {
 
     // Public listing: no account link.
     const rawProfessionals = await Professional.find(filter)
-      .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs")
+      .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs locality")
       .sort({ rating: -1, name: 1 })
       .lean();
 
@@ -206,8 +207,28 @@ const getProfessionalAvailability = async (req, res) => {
   }
 };
 
+// GET /api/services/areas — the neighbourhoods HomeEase serves, with how
+// many active professionals are based in each.
+const getAreas = async (req, res) => {
+  try {
+    const counts = await Professional.aggregate([
+      { $match: { active: true, locality: { $ne: null } } },
+      { $group: { _id: "$locality", count: { $sum: 1 } } }
+    ]);
+    const byArea = Object.fromEntries(counts.map((c) => [c._id, c.count]));
+    return res.status(200).json({
+      success: true,
+      areas: AREAS.map((a) => ({ ...a, professionals: byArea[a.name] || 0 }))
+    });
+  } catch (error) {
+    logger.error({ err: error.message }, "Error fetching areas");
+    return res.status(500).json({ success: false, message: "Something went wrong, please try again" });
+  }
+};
+
 module.exports = {
   getServices,
+  getAreas,
   getProfessionals,
   getProfessionalAvailability,
   getServiceById,

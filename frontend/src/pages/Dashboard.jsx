@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ServiceCard, { formatCount } from "../components/ServiceCard";
 import Icon from "../components/Icon";
+import { AreaChip } from "../components/AreaPicker";
 
 const CATEGORIES = [
   { id: "Spa", label: "Spa & Salon", icon: "spa" },
@@ -31,7 +32,7 @@ function Stars({ value, size = 16 }) {
   );
 }
 
-export default function Dashboard({ services = [], onBookClick, onViewService }) {
+export default function Dashboard({ services = [], onBookClick, onViewService, area, onChangeArea }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [reviews, setReviews] = useState([]);
@@ -100,6 +101,12 @@ export default function Dashboard({ services = [], onBookClick, onViewService })
           <p className="hero-lead">
             Book trusted electricians, plumbers, carpenters and spa experts. Fixed prices, verified pros, and a slot that suits you.
           </p>
+
+          <div className="area-bar">
+            <span>Service in</span>
+            <AreaChip area={area} onClick={onChangeArea} />
+            {area && <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>· nearest professionals first</span>}
+          </div>
 
           <label className="search-box">
             <Icon name="search" size={22} color="var(--text-muted)" />

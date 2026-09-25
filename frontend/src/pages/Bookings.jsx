@@ -538,12 +538,16 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
                     <div style={{ fontWeight: 700, marginBottom: "8px" }}>Leave a Service Review</div>
                     <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
                       {[1, 2, 3, 4, 5].map((star) => (
-                        <Star
+                        <button
                           key={star}
-                          size={24}
+                          type="button"
                           onClick={() => setRatingVal(star)}
-                          style={{ cursor: "pointer", color: star <= ratingVal ? "#f59e0b" : "#cbd5e1", fill: star <= ratingVal ? "#f59e0b" : "none" }}
-                        />
+                          aria-label={`${star} star${star > 1 ? "s" : ""}`}
+                          aria-pressed={star <= ratingVal}
+                          style={{ background: "none", border: 0, padding: 2, cursor: "pointer", display: "flex" }}
+                        >
+                          <Star size={28} fill={star <= ratingVal ? "#f59e0b" : "none"} color={star <= ratingVal ? "#f59e0b" : "#cbd5e1"} />
+                        </button>
                       ))}
                     </div>
                     <textarea
