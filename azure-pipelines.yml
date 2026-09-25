@@ -17,7 +17,14 @@
 #                    commit + push to main    (main only, ONE job, all changed services)
 #        │
 #        ▼
-#   5. REPORT        push CI duration metrics to Pushgateway
+#   5. VERIFY DEV    wait until DEV serves the promoted tag, then smoke-test it   (main only)
+#        │
+#        ├──▶ 6. REPORT        push CI duration metrics to Pushgateway
+#        │
+#        ▼
+#   7. PROMOTE PROD  copy the VERIFIED DEV tags into charts/*/values-azure-prod.yaml
+#                    — waits for approval on the homeease-prod ADO environment.
+#                    Compiled in only when enableProdPromotion is 'true' (below).
 #
 # Argo CD needs no change to pick up what stage 4 pushes: every service
 # Application already has syncPolicy.automated.selfHeal and already
@@ -40,10 +47,11 @@
 #   be traced back to source. `:latest` is not pushed at all — it makes
 #   GitOps non-deterministic and blocks rollback.
 #
-# * There are no dev/staging/prod stages here, by design. CI produces
-#   ONE image digest per commit; environments are a promotion concern
-#   handled by CD. Building per-environment would mean staging and prod
-#   run different binaries.
+# * There are no per-environment BUILDS here, by design. CI produces
+#   ONE image digest per commit; environments are a promotion concern.
+#   Building per-environment would mean staging and prod run different
+#   binaries. Stages 4 and 7 never build anything — they only copy an
+#   already-pushed tag from one values file to another.
 #
 # * Trivy is pinned to a release tag and its DB is cached. Pulling
 #   install.sh from a moving branch caused a supply-chain break in this
@@ -167,6 +175,14 @@ variables:
     value: 'github.com/SrinidhiSanjeevi/Gitops_Homeease.git'
   - name: gitopsBranch
     value: 'main'
+
+  # Compile-time switch for stage 7. While 'false', the Promote PROD stage
+  # does not exist in the run at all — so no homeease-prod environment is
+  # referenced (ADO would silently auto-create one WITHOUT approvals) and
+  # no homeease-prod-gitops variable group has to exist yet. Flip to 'true'
+  # only after the one-time setup in .azuredevops/README.md is done.
+  - name: enableProdPromotion
+    value: 'false'
 
 stages:
 
@@ -479,6 +495,10 @@ stages:
 
             if [ ${#BUMPED[@]} -eq 0 ]; then
               echo "Nothing to promote — no changed service is behind $(imageTag)."
+              # Still publish which GitOps commit DEV is at — Verify DEV
+              # and Promote PROD read the DEV tags from exactly this commit.
+              DEV_COMMIT=$(git rev-parse HEAD)
+              echo "##vso[task.setvariable variable=devCommit;isOutput=true]${DEV_COMMIT}"
               exit 0
             fi
 
@@ -503,26 +523,158 @@ stages:
               fi
               exit 1
             fi
+
+            DEV_COMMIT=$(git rev-parse HEAD)
+            echo "##vso[task.setvariable variable=devCommit;isOutput=true]${DEV_COMMIT}"
+            echo "DEV desired state is now Gitops_Homeease@${DEV_COMMIT}"
+          name: bump
           displayName: 'Bump image.tag + push'
           env:
             GITOPS_PAT: $(GITOPS_PAT)
             IMAGE_TAG: $(imageTag)
 
 # ============================================================
-# STAGE 5 — REPORT
+# STAGE 5 — VERIFY DEV
+#
+# Promote only proves a commit landed in Git; this proves DEV is
+# actually RUNNING it and healthy. It is the evidence stage 7 relies
+# on: nothing reaches PROD that did not pass here first.
+#
+# Reads everything from the GitOps commit Promote published
+# (bump.devCommit) — ingress hosts and the backend tag DEV is supposed
+# to be at — so nothing here duplicates a value that lives in Git.
+#
+#   1. rollout   backend /health/live must report version == the DEV
+#                image.tag (APP_VERSION, set by charts/backend). Proves
+#                Argo CD synced and the new pods took traffic, not just
+#                that an old pod is still up.
+#   2. health    backend /health/ready must be 200 (MongoDB connected).
+#   3. smoke     frontend + admin-frontend must serve / with 200.
+#
+# Hosts are nip.io on DEV's public ingress IP, reachable from a hosted
+# agent. All checks use https with -k: this checks the app, not the TLS
+# chain (cert-manager is not installed yet — platform/README.md). Plain
+# http to these hostnames is not relied on: it is blocked (403) on some
+# networks, while https was verified to return 200 for all three.
+#
+# Failing here never touches DEV (it is already deployed); it blocks
+# PROD promotion and shows up in the Report stage's result metric.
+# ============================================================
+
+- stage: DevVerify
+  displayName: '5. Verify DEV'
+  dependsOn:
+    - Promote
+  condition: and(succeeded(), eq(variables['isMain'], 'True'))
+  jobs:
+    - job: Verify
+      displayName: 'Wait for DEV rollout + smoke test'
+      timeoutInMinutes: 25
+      variables:
+        devCommit: $[ stageDependencies.Promote.Promote.outputs['bump.devCommit'] ]
+      steps:
+        - checkout: none
+
+        - script: |
+            set -euo pipefail
+            curl -fsSL -o /usr/local/bin/yq \
+              "https://github.com/mikefarah/yq/releases/download/v$(yqVersion)/yq_linux_amd64"
+            chmod +x /usr/local/bin/yq
+            yq --version
+          displayName: 'Install yq'
+
+        - script: |
+            set -euo pipefail
+
+            if [ -z "${DEV_COMMIT:-}" ]; then
+              echo "##vso[task.logissue type=error]Promote did not publish bump.devCommit — cannot tell which DEV state to verify."
+              exit 1
+            fi
+
+            WORKDIR=$(mktemp -d)
+            git clone --quiet --depth 1 --branch "$(gitopsBranch)" \
+              "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" "$WORKDIR/gitops"
+            cd "$WORKDIR/gitops"
+            git fetch --quiet --depth 1 origin "$DEV_COMMIT"
+            devval() { git show "${DEV_COMMIT}:charts/$1/values-azure-dev.yaml" | yq "$2"; }
+
+            BACKEND_HOST=$(devval backend '.ingress.host')
+            BACKEND_TAG=$(devval backend '.image.tag')
+            FRONTEND_HOST=$(devval frontend '.ingress.host')
+            ADMIN_FRONTEND_HOST=$(devval admin-frontend '.ingress.host')
+            echo "Verifying DEV at Gitops_Homeease@${DEV_COMMIT} (backend expected at ${BACKEND_TAG})"
+
+            # One shared budget: Argo CD polls Git every ~3 min, and the
+            # backend startupProbe allows up to 2 min for a cold start.
+            DEADLINE=$(( $(date +%s) + 15 * 60 ))
+
+            # 1. Rollout — wait for the promoted version to be serving.
+            while :; do
+              BODY=$(curl -sk --max-time 10 "https://${BACKEND_HOST}/health/live" || true)
+              VERSION=$(echo "$BODY" | jq -r '.version // empty' 2>/dev/null || true)
+              if [ "$VERSION" = "$BACKEND_TAG" ]; then
+                echo "backend is serving ${BACKEND_TAG}"
+                break
+              fi
+              # Images built before /health/live reported a version cannot
+              # prove which build is live. Say so loudly and fall back to
+              # health-only; once backend is rebuilt once, this never hits.
+              if { [ -z "$VERSION" ] && echo "$BODY" | jq -e '.status == "ok"' >/dev/null 2>&1; } || [ "$VERSION" = "unknown" ]; then
+                echo "##vso[task.logissue type=warning]backend /health/live does not report a version yet — rollout of ${BACKEND_TAG} NOT confirmed, only health is checked."
+                break
+              fi
+              if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+                echo "##vso[task.logissue type=error]DEV backend still reports version '${VERSION:-unreachable}', expected ${BACKEND_TAG}. Check the backend-dev Application in Argo CD (sync status, pod events)."
+                exit 1
+              fi
+              echo "  backend reports '${VERSION:-unreachable}', waiting..."
+              sleep 15
+            done
+
+            # 2 + 3. Health and smoke checks, same deadline.
+            wait_for_200() {
+              local url="$1"
+              while :; do
+                CODE=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$url" || true)
+                if [ "$CODE" = "200" ]; then echo "OK   ${url}"; return 0; fi
+                if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+                  echo "##vso[task.logissue type=error]${url} returned ${CODE:-no response}, expected 200."
+                  return 1
+                fi
+                echo "  ${url} -> ${CODE:-no response}, waiting..."
+                sleep 10
+              done
+            }
+
+            wait_for_200 "https://${BACKEND_HOST}/health/ready"
+            wait_for_200 "https://${FRONTEND_HOST}/"
+            wait_for_200 "https://${ADMIN_FRONTEND_HOST}/"
+
+            echo "DEV verified at Gitops_Homeease@${DEV_COMMIT}"
+          displayName: 'Verify DEV rollout + health'
+          env:
+            GITOPS_PAT: $(GITOPS_PAT)
+            DEV_COMMIT: $(devCommit)
+
+# ============================================================
+# STAGE 6 — REPORT
 #
 # Ship pipeline timing to Prometheus so CI health is graphable
 # alongside app health. Never fails the build: an unreachable
 # Pushgateway is a monitoring problem, not a code problem.
+#
+# Deliberately NOT dependent on stage 7: a PROD approval can wait
+# for days, and CI metrics should not wait with it.
 # ============================================================
 
 - stage: Report
-  displayName: '5. Publish CI Metrics'
+  displayName: '6. Publish CI Metrics'
   dependsOn:
     - Static
     - Validate
     - Package
     - Promote
+    - DevVerify
   condition: always()
   jobs:
     - job: Metrics
@@ -567,3 +719,154 @@ stages:
           env:
             SYSTEM_ACCESSTOKEN: $(System.AccessToken)
           continueOnError: true
+
+# ============================================================
+# STAGE 7 — PROMOTE PROD (approval-gated)
+#
+# Copies the image tags DEV was VERIFIED at (stage 5) into
+# charts/<service>/values-azure-prod.yaml and pushes that one commit.
+# Nothing is built, pulled or re-tagged: PROD gets the exact same
+# acrhomeeasedev.azurecr.io/homeease/<service>:<sha> images DEV runs.
+#
+# THE GATE is the `environment: homeease-prod` below. Azure DevOps
+# pauses this stage until an approver on that environment approves;
+# no agent is held while it waits. Approvers, the exclusive lock and
+# the homeease-prod-gitops variable group are configured once, in the
+# ADO UI — see .azuredevops/README.md. Until that is done,
+# enableProdPromotion stays 'false' and this stage is not compiled in.
+#
+# Refuses to promote a STALE run: if DEV has moved on since this run
+# verified it (a newer commit was promoted to DEV in the meantime), it
+# fails instead of pushing older tags over newer ones. The newer run
+# asks for its own approval. lockBehavior: runLatest + the environment's
+# Exclusive Lock check additionally cancel superseded runs still waiting.
+#
+# Uses GITOPS_PROD_PAT from its own variable group, never GITOPS_PAT,
+# so the prod-writing credential can be rotated, revoked or restricted
+# to this pipeline independently of the DEV one.
+# ============================================================
+
+- ${{ if eq(variables.enableProdPromotion, 'true') }}:
+  - stage: PromoteProd
+    displayName: '7. Promote to PROD (approval required)'
+    dependsOn:
+      - Promote
+      - DevVerify
+    condition: and(succeeded(), eq(variables['isMain'], 'True'))
+    lockBehavior: runLatest
+    variables:
+      - group: homeease-prod-gitops
+    jobs:
+      - deployment: PromoteProd
+        displayName: 'Copy verified DEV tags to PROD values'
+        environment: homeease-prod
+        timeoutInMinutes: 10
+        variables:
+          devCommit: $[ stageDependencies.Promote.Promote.outputs['bump.devCommit'] ]
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # Deployment jobs auto-download every pipeline artifact
+                # (SARIF, SBOMs) by default. This job needs none of them.
+                - download: none
+
+                - script: |
+                    set -euo pipefail
+                    curl -fsSL -o /usr/local/bin/yq \
+                      "https://github.com/mikefarah/yq/releases/download/v$(yqVersion)/yq_linux_amd64"
+                    chmod +x /usr/local/bin/yq
+                    yq --version
+                  displayName: 'Install yq'
+
+                - script: |
+                    set -euo pipefail
+
+                    if [ -z "${GITOPS_PROD_PAT:-}" ]; then
+                      echo "##vso[task.logissue type=error]GITOPS_PROD_PAT is not set. Add it to the homeease-prod-gitops variable group (see .azuredevops/README.md). GITOPS_PAT is deliberately NOT used as a fallback."
+                      exit 1
+                    fi
+                    if [ -z "${DEV_COMMIT:-}" ]; then
+                      echo "##vso[task.logissue type=error]No verified DEV commit from the Promote stage — refusing to promote."
+                      exit 1
+                    fi
+
+                    WORKDIR=$(mktemp -d)
+                    git clone --quiet --depth 1 --branch "$(gitopsBranch)" \
+                      "https://x-access-token:${GITOPS_PROD_PAT}@$(gitopsRepo)" "$WORKDIR/gitops"
+                    cd "$WORKDIR/gitops"
+                    git fetch --quiet --depth 1 origin "$DEV_COMMIT"
+                    git config user.name "homeease-ci"
+                    git config user.email "homeease-ci@users.noreply.github.com"
+
+                    BUMPED=()
+                    STALE=()
+                    for svc in backend admin-backend frontend admin-frontend payment-service; do
+                      DEV_FILE="charts/${svc}/values-azure-dev.yaml"
+                      PROD_FILE="charts/${svc}/values-azure-prod.yaml"
+                      if [ ! -f "$PROD_FILE" ]; then
+                        echo "##vso[task.logissue type=error]${PROD_FILE} not found — PROD values must exist before promotion."
+                        exit 1
+                      fi
+
+                      VERIFIED_TAG=$(git show "${DEV_COMMIT}:${DEV_FILE}" | yq '.image.tag')
+                      VERIFIED_REPO=$(git show "${DEV_COMMIT}:${DEV_FILE}" | yq '.image.repository')
+                      CURRENT_DEV_TAG=$(yq '.image.tag' "$DEV_FILE")
+                      PROD_REPO=$(yq '.image.repository' "$PROD_FILE")
+                      PROD_TAG=$(yq '.image.tag' "$PROD_FILE")
+
+                      # Only ever a 12-char git SHA — the only tag stage 1 produces.
+                      if ! [[ "$VERIFIED_TAG" =~ ^[0-9a-f]{12}$ ]]; then
+                        echo "##vso[task.logissue type=error]${svc}: DEV tag '${VERIFIED_TAG}' is not a 12-char commit SHA — refusing to promote it."
+                        exit 1
+                      fi
+                      # Build once: PROD must pull the very image DEV verified.
+                      if [ "$VERIFIED_REPO" != "$PROD_REPO" ]; then
+                        echo "##vso[task.logissue type=error]${svc}: PROD image.repository (${PROD_REPO}) differs from DEV (${VERIFIED_REPO}) — PROD would not run the verified image."
+                        exit 1
+                      fi
+                      if [ "$CURRENT_DEV_TAG" != "$VERIFIED_TAG" ]; then
+                        STALE+=("${svc}: verified ${VERIFIED_TAG}, DEV is now ${CURRENT_DEV_TAG}")
+                        continue
+                      fi
+                      if [ "$PROD_TAG" = "$VERIFIED_TAG" ]; then
+                        echo "${svc}: PROD already at ${VERIFIED_TAG}"
+                        continue
+                      fi
+                      NEW_TAG="$VERIFIED_TAG" yq -i '.image.tag = strenv(NEW_TAG)' "$PROD_FILE"
+                      echo "${svc}: PROD ${PROD_TAG} -> ${VERIFIED_TAG}"
+                      BUMPED+=("$svc")
+                    done
+
+                    if [ ${#STALE[@]} -gt 0 ]; then
+                      printf '  %s\n' "${STALE[@]}"
+                      echo "##vso[task.logissue type=error]DEV has moved on since this run verified it. Promoting now would push older images to PROD — approve the newest run instead."
+                      exit 1
+                    fi
+                    if [ ${#BUMPED[@]} -eq 0 ]; then
+                      echo "Nothing to promote — PROD already matches verified DEV."
+                      exit 0
+                    fi
+
+                    echo "----- git diff (PROD values files only) -----"
+                    git --no-pager diff -- charts/*/values-azure-prod.yaml
+                    echo "---------------------------------------------"
+
+                    git add charts/*/values-azure-prod.yaml
+                    SERVICE_LIST=$(IFS=', '; echo "${BUMPED[*]}")
+                    git commit -m "$(printf 'ci(prod): promote %s to prod\n\nVerified DEV state: Gitops_Homeease@%s\nSource: SrinidhiSanjeevi/app_Homeease@%s\nBuild: %s\nApproved via Azure DevOps environment homeease-prod' "$SERVICE_LIST" "$DEV_COMMIT" "$(Build.SourceVersion)" "$(Build.BuildId)")"
+
+                    if ! git push origin "HEAD:$(gitopsBranch)" 2>/tmp/push.err; then
+                      cat /tmp/push.err
+                      if grep -qi "non-fast-forward\|fetch first" /tmp/push.err; then
+                        echo "##vso[task.logissue type=error]$(gitopsBranch) moved after this job cloned it. Re-run this stage — it re-checks staleness before pushing."
+                      else
+                        echo "##vso[task.logissue type=error]git push with GITOPS_PROD_PAT failed — check the token's expiry and Contents:write scope on Gitops_Homeease."
+                      fi
+                      exit 1
+                    fi
+                    echo "PROD desired state is now Gitops_Homeease@$(git rev-parse HEAD)"
+                  displayName: 'Copy verified DEV tags to PROD + push'
+                  env:
+                    GITOPS_PROD_PAT: $(GITOPS_PROD_PAT)
+                    DEV_COMMIT: $(devCommit)
