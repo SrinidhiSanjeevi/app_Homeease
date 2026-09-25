@@ -31,9 +31,20 @@ async function collectDbMetrics() {
       User.countDocuments({ role: "user" }),
       EmergencyRequest.countDocuments(),
       EmergencyRequest.countDocuments({ status: { $nin: ["Resolved", "Cancelled"] } }),
+      // Money actually received — same rule as the admin dashboard:
+      // paid online, cash collected, or the fee kept on a late cancellation.
       Booking.aggregate([
-        { $match: { status: { $in: ["Confirmed", "Completed"] } } },
-        { $group: { _id: null, total: { $sum: "$totalPrice" } } }
+        { $match: { paymentStatus: { $in: ["Paid", "Paid (Cash Collected)", "Partially Refunded"] } } },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: {
+                $cond: [{ $eq: ["$paymentStatus", "Partially Refunded"] }, { $ifNull: ["$cancellationFee", 0] }, "$totalPrice"]
+              }
+            }
+          }
+        }
       ]),
       ...BOOKING_STATUSES.map((status) => Booking.countDocuments({ status }))
     ]);
