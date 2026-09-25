@@ -21,22 +21,12 @@ import {
 
 const BASE = "/api/admin";
 
-// A stored location is only real if both coordinates are numbers and it
-// isn't 0,0 — older records saved Number(null) === 0 for "no location".
-const hasRealLocation = (loc) =>
-  typeof loc?.latitude === "number" &&
-  typeof loc?.longitude === "number" &&
-  !(loc.latitude === 0 && loc.longitude === 0);
-
 // What to show in the specialist column when nobody is assigned.
-const unassignedLabel = (status, loc) => {
+const unassignedLabel = (status) => {
   if (["Resolved", "Cancelled", "Completed"].includes(status)) {
     return { text: "Not assigned", color: "#9ca3af" };
   }
-  if (!hasRealLocation(loc)) {
-    return { text: "Waiting — no customer location", color: "#dc2626" };
-  }
-  return { text: "Waiting for nearest specialist…", color: "#d97706" };
+  return { text: "Waiting for a free specialist…", color: "#d97706" };
 };
 
 // Mirrors backend/services/booking/bookingStateMachine.js — only offer
@@ -482,14 +472,13 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
 }
 
 // ── PROFESSIONAL FORM ─────────────────────────────────────────
-function ProfessionalForm({ initial, onSave, onClose, loading, localities = [] }) {
+function ProfessionalForm({ initial, onSave, onClose, loading }) {
   const blank = {
     name: "",
     category: "Spa",
     experience: "",
     image: "",
-    status: "Available",
-    locality: ""
+    status: "Available"
   };
 
   // Normalize: the DB record stores `imageKey`; the API response adds `imageUrl`.
@@ -499,13 +488,11 @@ function ProfessionalForm({ initial, onSave, onClose, loading, localities = [] }
     if (!src) return blank;
     return {
       ...src,
-      image: src.image || src.imageUrl || src.imageKey || "",
-      locality: src.locality || ""
+      image: src.image || src.imageUrl || src.imageKey || ""
     };
   };
 
   const [form, setForm] = useState(normalizeInitial(initial));
-  const [localityError, setLocalityError] = useState("");
 
   const set = (k, v) =>
     setForm((f) => ({
@@ -567,27 +554,6 @@ function ProfessionalForm({ initial, onSave, onClose, loading, localities = [] }
         </Field>
       </div>
 
-      <Field label="Service Locality *">
-        <select
-          style={{ ...sel, borderColor: localityError ? "#ef4444" : undefined }}
-          value={form.locality}
-          onChange={(e) => {
-            set("locality", e.target.value);
-            setLocalityError("");
-          }}
-        >
-          <option value="">Select base area (Gachibowli, Hyderabad)</option>
-          {localities.map((l) => (
-            <option key={l.name} value={l.name}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-        <div style={{ fontSize: "0.74rem", color: localityError ? "#dc2626" : "#6b7280", marginTop: "4px" }}>
-          {localityError || "Jobs are assigned to the nearest available professional within the service area."}
-        </div>
-      </Field>
-
       <Field label="Profile Image">
         <ImageUploader
           currentUrl={form.imageUrl || form.image}
@@ -622,13 +588,7 @@ function ProfessionalForm({ initial, onSave, onClose, loading, localities = [] }
         </button>
 
         <button
-          onClick={() => {
-            if (!form.locality) {
-              setLocalityError("Choose a service locality — without one this professional never receives jobs.");
-              return;
-            }
-            onSave(form);
-          }}
+          onClick={() => onSave(form)}
           disabled={loading}
           style={{
             flex: 2,
@@ -671,7 +631,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   const [serviceModal, setServiceModal] = useState(null);
   const [profModal, setProfModal] = useState(null);
-  const [localities, setLocalities] = useState([]);
 
   const headers = {
     Authorization: `Bearer ${token}`
@@ -761,19 +720,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
-  const fetchServiceArea = async () => {
-    try {
-      const r = await fetch(`${BASE}/service-area`, { headers });
-      const d = await r.json();
-
-      if (d.success) {
-        setLocalities(d.serviceArea?.localities || []);
-      }
-    } catch (error) {
-      console.error("FETCH SERVICE AREA ERROR:", error);
-    }
-  };
-
   const fetchEmergencies = async () => {
     try {
       const r = await fetch(`${BASE}/emergencies`, { headers });
@@ -797,8 +743,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       fetchBookings(),
       fetchServices(),
       fetchProfessionals(),
-      fetchEmergencies(),
-      fetchServiceArea()
+      fetchEmergencies()
     ]);
 
     setLoading(false);
@@ -2189,7 +2134,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
                           "Customer",
                           "Service",
                           "Professional",
-                          "Location",
                           "Rating",
                           "Amount",
                           "Status",
@@ -2306,33 +2250,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                           >
                             {b.professional
                               ?.name || (() => {
-                              const label = unassignedLabel(b.status, b.location);
+                              const label = unassignedLabel(b.status);
                               return <span style={{ color: label.color }}>{label.text}</span>;
                             })()}
-                          </td>
-
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px",
-                              fontSize:
-                                "0.76rem",
-                              color:
-                                "#6b7280"
-                            }}
-                          >
-                            {hasRealLocation(b.location) ? (
-                              <>
-                                <div>
-                                  {b.location.latitude.toFixed(4)}, {b.location.longitude.toFixed(4)}
-                                </div>
-                                {b.assignedDistanceKm != null && (
-                                  <div style={{ color: "#9ca3af" }}>~{b.assignedDistanceKm} km away</div>
-                                )}
-                              </>
-                            ) : (
-                              "—"
-                            )}
                           </td>
 
                           <td
@@ -2788,17 +2708,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       {p.experience} yrs
                     </div>
 
-                    <div
-                      style={{
-                        fontSize: "0.76rem",
-                        fontWeight: 600,
-                        marginBottom: "8px",
-                        color: p.locality ? "#0e5e4f" : "#b45309"
-                      }}
-                    >
-                      {p.locality ? `📍 ${p.locality}` : "⚠ No service locality — edit to assign"}
-                    </div>
-
                     <button
                       onClick={() => handleToggleProfStatus(p)}
                       title="Click to toggle Available / Busy"
@@ -2990,7 +2899,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                           "User",
                           "Category & Severity",
                           "Description",
-                          "Location",
+                          "Address",
                           "Specialist",
                           "Status",
                           "Time",
@@ -3175,12 +3084,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
                               }}
                             >
                               <div>{e.address || "—"}</div>
-                              {hasRealLocation(e.location) && (
-                                <div style={{ fontSize: "0.72rem", color: "#9ca3af", marginTop: "2px" }}>
-                                  {e.location.latitude.toFixed(4)}, {e.location.longitude.toFixed(4)}
-                                  {e.assignedDistanceKm != null && ` · ~${e.assignedDistanceKm} km`}
-                                </div>
-                              )}
                             </td>
 
                             <td
@@ -3194,7 +3097,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                             >
                               {e.assignedProfessional
                                 ?.name || (() => {
-                                const label = unassignedLabel(e.status, e.location);
+                                const label = unassignedLabel(e.status);
                                 return (
                                   <span style={{ color: label.color, fontSize: "0.78rem" }}>
                                     {label.text}
@@ -3423,7 +3326,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
               setProfModal(null)
             }
             loading={formLoading}
-            localities={localities}
           />
         </Modal>
       )}

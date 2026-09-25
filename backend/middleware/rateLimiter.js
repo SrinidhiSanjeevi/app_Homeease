@@ -38,21 +38,6 @@ const emergencyLimiter = rateLimit({
   skip: () => isTest
 });
 
-// Address search / reverse lookups proxy to the free OpenStreetMap
-// Nominatim service, which allows ~1 request per second in total, so
-// keep each client well below that.
-const geocodeLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_GEOCODE_MAX, 10) || 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many address lookups. Please wait a minute, or pick a nearby locality instead."
-  },
-  skip: () => isTest
-});
-
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: parseInt(process.env.RATE_LIMIT_GENERAL_MAX, 10) || 200,
@@ -69,6 +54,5 @@ module.exports = {
   authLimiter,
   paymentLimiter,
   emergencyLimiter,
-  geocodeLimiter,
   generalLimiter
 };

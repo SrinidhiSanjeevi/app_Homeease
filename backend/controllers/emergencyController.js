@@ -9,15 +9,14 @@ const {
   PUBLIC_EMERGENCY_NUMBERS,
   SAFETY_HINTS
 } = require("../services/customerCore/emergencyConfig");
-const { claimNearestProfessional, reassignWaitingWork } = require("../services/customerCore");
-const { checkCustomerLocation } = require("../services/serviceArea");
+const { claimProfessional, reassignWaitingWork } = require("../services/customerCore");
 
 const ACTIVE_EMERGENCY_STATUSES = ["Dispatched", "OnTheWay", "Arrived"];
 
 // DISPATCH EMERGENCY SERVICE
 const dispatchEmergency = async (req, res) => {
   try {
-    const { category, severity, description, contactNumber, address, latitude, longitude, accuracy } = req.body;
+    const { category, severity, description, contactNumber, address } = req.body;
     const userId = req.user._id;
 
     // Fire / medical: HomeEase is not an emergency service — send the
@@ -38,15 +37,6 @@ const dispatchEmergency = async (req, res) => {
       });
     }
 
-    // Location is required and must be inside the service area.
-    const locationCheck = checkCustomerLocation(latitude, longitude);
-    if (!locationCheck.ok) {
-      return res.status(locationCheck.status).json({ success: false, message: locationCheck.message });
-    }
-    const lat = locationCheck.latitude;
-    const lng = locationCheck.longitude;
-    const coordinates = [lng, lat];
-
     // One live emergency per customer — stops one account from tying up
     // every nearby specialist.
     const existing = await EmergencyRequest.findOne({ user: userId, status: { $in: ACTIVE_EMERGENCY_STATUSES } });
@@ -60,10 +50,9 @@ const dispatchEmergency = async (req, res) => {
     const resolvedSeverity = SEVERITY_CONFIG[severity] ? severity : (CATEGORY_DEFAULT_SEVERITY[category] || "Medium");
     const severityConfig = SEVERITY_CONFIG[resolvedSeverity];
 
-    // Nearest on-duty specialist within the service radius who isn't in
-    // the middle of a scheduled job. No match → the emergency waits and
-    // the scheduler keeps retrying every minute.
-    const { professional, distanceKm } = await claimNearestProfessional(category, coordinates);
+    // Best on-duty specialist who isn't in the middle of a scheduled job.
+    // No match → the emergency waits and the scheduler retries every minute.
+    const { professional } = await claimProfessional(category);
 
     const emergency = await EmergencyRequest.create({
       user: userId,
@@ -77,20 +66,14 @@ const dispatchEmergency = async (req, res) => {
       fireEngineDispatched: false,
       fireEngineNumber: null,
       emergencyServiceNumber: null,
-      estimatedArrivalMinutes: severityConfig.estimatedArrivalMinutes,
-      location: {
-        latitude: lat,
-        longitude: lng,
-        accuracy: Number.isFinite(Number(accuracy)) && accuracy !== null ? Number(accuracy) : null
-      },
-      assignedDistanceKm: distanceKm
+      estimatedArrivalMinutes: severityConfig.estimatedArrivalMinutes
     });
 
     const populatedEmergency = await EmergencyRequest.findById(emergency._id).populate("assignedProfessional");
 
     let message = professional
-      ? `Emergency dispatched! ${professional.name} is on the way (~${distanceKm} km away).`
-      : "Emergency received. No specialist is free right now — we'll assign the nearest one the moment someone is available.";
+      ? `Emergency dispatched! ${professional.name} is on the way.`
+      : "Emergency received. No specialist is free right now — we'll assign one the moment someone is available.";
     message += ` ${SAFETY_HINTS[category]}`;
 
     if (metrics && metrics.emergencyRequestsTotal) {
