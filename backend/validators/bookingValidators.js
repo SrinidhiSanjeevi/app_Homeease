@@ -1,5 +1,5 @@
 const { body, param } = require("express-validator");
-const { mobileNumber, serviceAddress, requiredCoordinates } = require("./common");
+const { mobileNumber, serviceAddress } = require("./common");
 const { TIME_SLOTS } = require("../services/booking/bookingSchedule");
 
 const createBookingRules = [
@@ -11,8 +11,7 @@ const createBookingRules = [
   body("professionalId").optional({ nullable: true, checkFalsy: true }).isMongoId().withMessage("Invalid professional"),
   body("notes").optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage("Notes cannot exceed 500 characters"),
   body("customDescription").optional({ nullable: true }).isString().isLength({ max: 1000 }).withMessage("Description cannot exceed 1000 characters"),
-  body("paymentMethod").optional().isIn(["Razorpay", "Cash on Delivery", "Cash"]).withMessage("Invalid payment method"),
-  ...requiredCoordinates
+  body("paymentMethod").optional().isIn(["Razorpay", "Cash on Delivery", "Cash"]).withMessage("Invalid payment method")
 ];
 
 const cancelBookingRules = [

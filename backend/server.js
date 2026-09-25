@@ -152,7 +152,6 @@ app.use("/api/services", require("./routes/serviceRoutes"));
 app.use("/api/bookings", require("./routes/bookingRoutes"));
 app.use("/api/emergency", require("./routes/emergencyRoutes"));
 app.use("/api/payments", require("./routes/paymentRoutes"));
-app.use("/api/location", require("./routes/locationRoutes"));
 
 // ─── 404 handler ─────────────────────────────────────────────────────────────
 app.use((req, res) => {

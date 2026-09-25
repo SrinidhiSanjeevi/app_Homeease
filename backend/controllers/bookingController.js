@@ -3,7 +3,7 @@ const Service = require("../models/Service");
 const Professional = require("../models/Professional");
 const Payment = require("../models/Payment");
 const Notification = require("../models/Notification");
-const { reassignWaitingWork, reserveNearestProfessional, releaseBookingReservation, canTransition } = require("../services/customerCore");
+const { reassignWaitingWork, reserveProfessional, releaseBookingReservation, canTransition } = require("../services/customerCore");
 const {
   processNotificationSimulation,
   processCompletionEmailNotification
@@ -11,7 +11,6 @@ const {
 const { generateImageUrl } = require("../services/blobStorage");
 const { getScheduledEnd, hasScheduledTimeEnded, validateSchedule } = require("../services/booking/bookingSchedule");
 const { customerCancellationQuote, cancelBooking: cancelWithRefund } = require("../services/booking/bookingLifecycle");
-const { checkCustomerLocation } = require("../services/serviceArea");
 const { calculateBookingPrice } = require("../services/pricing");
 const metrics = require("../metrics");
 const logger = require("../utils/logger");
@@ -43,21 +42,13 @@ const createBooking = async (req, res) => {
     const {
       serviceId, professionalId, date, timeSlot, address, contactNumber,
       notes, selectedProduct, paymentMethod,
-      isCustom, customCategory, customDescription,
-      latitude, longitude, accuracy
+      isCustom, customCategory, customDescription
     } = req.body;
 
     if (!req.user || !req.user._id) {
       return res.status(401).json({ success: false, message: "User not authenticated" });
     }
     const userId = req.user._id;
-
-    // Location is required and must be inside the service area.
-    const locationCheck = checkCustomerLocation(latitude, longitude);
-    if (!locationCheck.ok) {
-      return res.status(locationCheck.status).json({ success: false, message: locationCheck.message });
-    }
-    const coordinates = [locationCheck.longitude, locationCheck.latitude];
 
     // Real dates and slots only: no past dates, no slot that already started.
     const schedule = validateSchedule(date, timeSlot);
@@ -123,12 +114,7 @@ const createBooking = async (req, res) => {
       status: isCash ? "Assigned" : "Created",
       subtotal: price.subtotal,
       gst: price.gst,
-      totalPrice: price.total,
-      location: {
-        latitude: locationCheck.latitude,
-        longitude: locationCheck.longitude,
-        accuracy: Number.isFinite(Number(accuracy)) && accuracy !== null ? Number(accuracy) : null
-      }
+      totalPrice: price.total
     });
 
     if (isCash) {
@@ -147,13 +133,12 @@ const createBooking = async (req, res) => {
       }
     }
 
-    // Nearest professional who is free for this date + slot (the customer's
-    // own pick is tried first). Nobody free → the booking waits and the
-    // scheduler keeps trying until the slot starts.
+    // Best-rated professional who is free for this date + slot (the
+    // customer's own pick is tried first). Nobody free → the booking waits
+    // and the scheduler keeps trying until the slot starts.
     const matchStart = Date.now();
-    const { professional, distanceKm } = await reserveNearestProfessional({
+    const { professional } = await reserveProfessional({
       category,
-      coordinates,
       date: schedule.date,
       timeSlot,
       bookingId: booking._id,
@@ -169,7 +154,6 @@ const createBooking = async (req, res) => {
         {
           $set: {
             professional: professional._id,
-            assignedDistanceKm: distanceKm,
             ...(isCash ? { status: "Confirmed" } : {})
           }
         },
@@ -201,7 +185,7 @@ const createBooking = async (req, res) => {
     } else if (professional) {
       message = "Booking confirmed! Payment will be collected in cash after the service.";
     } else {
-      message = "Booking received! No professional is free for that slot yet — we'll assign the nearest one as soon as someone is available.";
+      message = "Booking received! No professional is free for that slot yet — we'll assign a professional as soon as someone is available.";
     }
 
     return res.status(201).json({ success: true, requiresPayment: !isCash, message, booking });

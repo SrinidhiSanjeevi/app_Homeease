@@ -41,9 +41,9 @@ const getProfessionals = async (req, res) => {
       ...(category ? { category: category.trim() } : {})
     };
 
-    // Public listing: no account link or exact coordinates, just the area.
+    // Public listing: no account link.
     const rawProfessionals = await Professional.find(filter)
-      .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs locality")
+      .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs")
       .sort({ rating: -1, name: 1 })
       .lean();
 

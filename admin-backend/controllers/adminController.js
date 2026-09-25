@@ -19,7 +19,6 @@ const EMERGENCY_TRANSITIONS = {
 };
 const canTransitionEmergency = (from, to) => (EMERGENCY_TRANSITIONS[from] || []).includes(to);
 const logger = require("../utils/logger");
-const { findLocality, publicServiceArea } = require("../services/serviceArea");
 const { parsePagination, formatPaginationResult } = require("../utils/pagination");
 const { attachImageUrls } = require("../services/blobStorage");
 
@@ -31,20 +30,6 @@ const toImageKey = (value) => {
   const trimmed = value.trim();
   if (!trimmed || /^https?:\/\//i.test(trimmed)) return undefined;
   return trimmed;
-};
-
-// Locality name → { locality, location } for a Professional document.
-const localityFields = (name) => {
-  const locality = findLocality(name);
-  if (!locality) return null;
-  return {
-    locality: locality.name,
-    location: { type: "Point", coordinates: [locality.longitude, locality.latitude] }
-  };
-};
-
-const getServiceArea = (req, res) => {
-  res.status(200).json({ success: true, serviceArea: publicServiceArea() });
 };
 
 const getStats = async (req, res) => {
@@ -217,7 +202,7 @@ const getAllBookings = async (req, res) => {
     const [total, bookings] = await Promise.all([
       Booking.countDocuments(filter),
       Booking.find(filter)
-        .select("user service professional isCustom customCategory customDescription date timeSlot address contactNumber notes selectedProduct paymentMethod paymentStatus status totalPrice userRating userReview location assignedDistanceKm createdAt")
+        .select("user service professional isCustom customCategory customDescription date timeSlot address contactNumber notes selectedProduct paymentMethod paymentStatus status totalPrice userRating userReview createdAt")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -381,7 +366,7 @@ const getAllProfessionals = async (req, res) => {
     const [total, professionals] = await Promise.all([
       Professional.countDocuments(filter),
       Professional.find(filter)
-        .select("name category description rating ratingCount experience imageKey imageAlt status active locality location completedJobs createdAt")
+        .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs createdAt")
         .sort({ name: 1 })
         .skip(skip)
         .limit(limit)
@@ -421,7 +406,7 @@ const getAllEmergencies = async (req, res) => {
     const [total, emergencies] = await Promise.all([
       EmergencyRequest.countDocuments(filter),
       EmergencyRequest.find(filter)
-        .select("user category severity description contactNumber address status assignedProfessional fireEngineDispatched fireEngineNumber emergencyServiceNumber estimatedArrivalMinutes resolvedAt location assignedDistanceKm createdAt")
+        .select("user category severity description contactNumber address status assignedProfessional fireEngineDispatched fireEngineNumber emergencyServiceNumber estimatedArrivalMinutes resolvedAt createdAt")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -583,7 +568,7 @@ const deleteService = async (req, res) => {
 
 const createProfessional = async (req, res) => {
   try {
-    const { name, category, experience, imageKey, imageAlt, image, description, status, locality } = req.body;
+    const { name, category, experience, imageKey, imageAlt, image, description, status } = req.body;
     const finalImageKey = toImageKey(imageKey) || toImageKey(image);
     const finalImageAlt = imageAlt || (name ? `${name} - ${category} professional` : "HomeEase professional");
 
@@ -594,17 +579,7 @@ const createProfessional = async (req, res) => {
       });
     }
 
-    // Professionals only receive jobs near their base locality, so it's required.
-    const area = localityFields(locality);
-    if (!area) {
-      return res.status(400).json({
-        success: false,
-        message: "Please choose the professional's service locality (Gachibowli area)"
-      });
-    }
-
     const professional = await Professional.create({
-      ...area,
       name: name.trim(),
       category: category.trim(),
       experience: Number(experience),
@@ -624,16 +599,9 @@ const createProfessional = async (req, res) => {
 
 const updateProfessional = async (req, res) => {
   try {
-    const { name, category, experience, imageKey, imageAlt, image, description, status, locality } = req.body;
+    const { name, category, experience, imageKey, imageAlt, image, description, status } = req.body;
 
     const updateData = {};
-    if (locality !== undefined && locality !== null && locality !== "") {
-      const area = localityFields(locality);
-      if (!area) {
-        return res.status(400).json({ success: false, message: "Unknown service locality" });
-      }
-      Object.assign(updateData, area);
-    }
     if (name !== undefined) updateData.name = name;
     if (category !== undefined) updateData.category = category;
     if (experience !== undefined) updateData.experience = experience;
@@ -650,7 +618,7 @@ const updateProfessional = async (req, res) => {
     const professional = await Professional.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
     if (!professional) return res.status(404).json({ success: false, message: "Professional not found" });
 
-    if (professional.status === "Available" && (updateData.status === "Available" || updateData.location)) {
+    if (updateData.status === "Available") {
       reassignWaitingWork(professional.category).catch((err) =>
         logger.error({ err: err.message }, "Auto-reassignment error")
       );
@@ -733,7 +701,6 @@ module.exports = {
   createService,
   updateService,
   deleteService,
-  getServiceArea,
   getAllProfessionals,
   createProfessional,
   updateProfessional,

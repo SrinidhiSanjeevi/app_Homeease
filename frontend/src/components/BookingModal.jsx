@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Icon from "./Icon";
-import LocationPicker from "./LocationPicker";
 
 const STEPS = [
   { step: 1, label: "Schedule" },
@@ -53,7 +52,6 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
   const [notes, setNotes] = useState("");
   const [address, setAddress] = useState("");
   const [contactNumber, setContactNumber] = useState("");
-  const [location, setLocation] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("Razorpay");
   const [processingPayment, setProcessingPayment] = useState(false);
   const [razorpayLoaded, setRazorpayLoaded] = useState(false);
@@ -119,7 +117,6 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
 
   // Why a professional can't be picked for this slot, or null if they can.
   const unavailableReason = (prof) => {
-    if (!prof.locality) return "Outside area";
     if (prof.status !== "Available") return "Unavailable";
     if (bookedIds.includes(prof._id)) return "Booked";
     return null;
@@ -154,7 +151,6 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
     if (step === 1 && slotHasStarted(timeSlot)) return setStepError("That time slot has already started. Please pick a later one.");
     if (step === 2 && service.isCustom && !customDescription.trim()) return setStepError("Please describe what you need done.");
     if (step === 3) {
-      if (!location) return setStepError("Please set your service location so we can send the nearest professional.");
       if (!address.trim()) return setStepError("Please enter the service address.");
       if (!/^[6-9]\d{9}$/.test(contactNumber.replace(/\D/g, "").slice(-10))) return setStepError("Please enter a valid 10-digit mobile number.");
     }
@@ -180,9 +176,6 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
     notes,
     selectedProduct: service.isCustom ? null : selectedProduct,
     paymentMethod: paymentMethodValue,
-    latitude: location?.latitude ?? null,
-    longitude: location?.longitude ?? null,
-    accuracy: location?.accuracy ?? null
   });
 
   const finalizeCashBooking = async () => {
@@ -395,7 +388,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                     </span>
                     <div style={{ flex: 1 }}>
                       <strong style={{ fontSize: "0.95rem" }}>Auto-assign best match</strong>
-                      <div className="field-hint">We pick the nearest professional who is free for this slot — fastest option.</div>
+                      <div className="field-hint">We pick the best-rated professional who is free for this slot — fastest option.</div>
                     </div>
                     <span className="badge badge-completed">Recommended</span>
                   </label>
@@ -426,12 +419,6 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                             </span>
                             <span className="dot" />
                             <span>{prof.experience} yrs experience</span>
-                            {prof.locality && (
-                              <>
-                                <span className="dot" />
-                                <span>{prof.locality}</span>
-                              </>
-                            )}
                             {prof.completedJobs > 0 && (
                               <>
                                 <span className="dot" />
@@ -510,11 +497,6 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
 
           {step === 3 && (
             <div style={{ animation: "fadeIn 0.2s ease" }}>
-              <LocationPicker
-                value={location}
-                onChange={(loc) => { setLocation(loc); setStepError(""); }}
-                onAddressFound={(found) => setAddress((prev) => (prev.trim() ? prev : found))}
-              />
               <div className="form-group">
                 <label htmlFor="bm-address">Service address</label>
                 <textarea

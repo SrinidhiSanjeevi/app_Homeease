@@ -1,5 +1,5 @@
 const { body, param } = require("express-validator");
-const { mobileNumber, serviceAddress, requiredCoordinates } = require("./common");
+const { mobileNumber, serviceAddress } = require("./common");
 
 const dispatchEmergencyRules = [
   body("category")
@@ -14,9 +14,7 @@ const dispatchEmergencyRules = [
   body("severity")
     .optional()
     .isIn(["Low", "Medium", "High", "Critical"])
-    .withMessage("Severity must be one of: Low, Medium, High, Critical"),
-  // Required — requests are limited to the service area (services/serviceArea.js).
-  ...requiredCoordinates
+    .withMessage("Severity must be one of: Low, Medium, High, Critical")
 ];
 
 const cancelEmergencyRules = [
