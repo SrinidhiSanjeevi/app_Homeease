@@ -22,6 +22,10 @@
 #        ├──▶ 6. REPORT        push CI duration metrics to Pushgateway
 #        │
 #        ▼
+#   7a/7b. DEMO      [approve] STAGING → [approve] PROD — print what would be
+#                    promoted, write nothing   (enablePromotionDemo)
+#        │
+#        ▼
 #   7. PROMOTE PROD  copy the VERIFIED DEV tags into charts/*/values-azure-prod.yaml
 #                    — waits for approval on the homeease-prod ADO environment.
 #                    Compiled in only when enableProdPromotion is 'true' (below).
@@ -183,6 +187,14 @@ variables:
   # only after the one-time setup in .azuredevops/README.md is done.
   - name: enableProdPromotion
     value: 'false'
+
+  # Compile-time switch for the approval DEMO (stages 7a/7b): DEV →
+  # approve → STAGING → approve → PROD, printing what would be promoted
+  # but writing nothing. Approvals live on the homeease-staging and
+  # homeease-prod environments (ADO UI → Environments → Approvals and
+  # checks). Keep it 'false' when enableProdPromotion is 'true'.
+  - name: enablePromotionDemo
+    value: 'true'
 
 stages:
 
@@ -719,6 +731,42 @@ stages:
           env:
             SYSTEM_ACCESSTOKEN: $(System.AccessToken)
           continueOnError: true
+
+# ============================================================
+# STAGES 7a / 7b — PROMOTION DEMO (approval-gated, dry run)
+#
+#   5. Verify DEV ──▶ [approve] 7a. STAGING ──▶ [approve] 7b. PROD
+#
+# Each stage waits on its environment's Approvals check, then prints
+# the verified DEV tags it would promote. See promotion-demo.yml.
+# ============================================================
+
+- ${{ if eq(variables.enablePromotionDemo, 'true') }}:
+  - stage: PromoteStagingDemo
+    displayName: '7a. Promote to STAGING (approval)'
+    dependsOn:
+      - Promote
+      - DevVerify
+    condition: and(succeeded(), eq(variables['isMain'], 'True'))
+    jobs:
+      - template: .azuredevops/templates/promotion-demo.yml
+        parameters:
+          targetName: STAGING
+          environment: homeease-staging
+          valuesFile: values-azure-staging.yaml
+
+  - stage: PromoteProdDemo
+    displayName: '7b. Promote to PROD (approval)'
+    dependsOn:
+      - Promote
+      - PromoteStagingDemo
+    condition: and(succeeded(), eq(variables['isMain'], 'True'))
+    jobs:
+      - template: .azuredevops/templates/promotion-demo.yml
+        parameters:
+          targetName: PROD
+          environment: homeease-prod
+          valuesFile: values-azure-prod.yaml
 
 # ============================================================
 # STAGE 7 — PROMOTE PROD (approval-gated)
