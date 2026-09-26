@@ -50,4 +50,28 @@ function areaDistanceKm(fromName, toName) {
   return Math.round(distanceKm(from, to) * 10) / 10;
 }
 
-module.exports = { AREAS, AREA_NAMES, findArea, areaDistanceKm };
+// A professional serves at most this many areas (home area included).
+const MAX_SERVICE_AREAS = 5;
+
+/**
+ * Validates an admin-supplied list of service areas. The home area is
+ * always covered, so it is added first when missing. Returns
+ * { areas: [canonical names] } or { error: message }.
+ */
+function normalizeServiceAreas(input, homeArea) {
+  const list = Array.isArray(input) ? input : [];
+  const names = [];
+  const home = findArea(homeArea);
+  if (home) names.push(home.name);
+  for (const raw of list) {
+    const area = findArea(raw);
+    if (!area) return { error: `Unknown service area: ${String(raw).slice(0, 40)}` };
+    if (!names.includes(area.name)) names.push(area.name);
+  }
+  if (names.length > MAX_SERVICE_AREAS) {
+    return { error: `A professional can serve at most ${MAX_SERVICE_AREAS} areas (home area included)` };
+  }
+  return { areas: names };
+}
+
+module.exports = { AREAS, AREA_NAMES, MAX_SERVICE_AREAS, findArea, areaDistanceKm, normalizeServiceAreas };

@@ -7,7 +7,7 @@
 #   1. STATIC        secret scan, Dockerfile lint, change detection   (repo-wide, 1 job)
 #        │
 #        ▼
-#   2. VALIDATE      lint · test+coverage · npm audit · trivy fs · Sonar   (per changed service)
+#   2. VALIDATE      lint · tests (backend) · npm audit · trivy fs · Sonar   (per changed service)
 #        │
 #        ▼
 #   3. PACKAGE       build → trivy image → SBOM → push → sign      (per changed service, ONE job)
@@ -113,30 +113,35 @@ parameters:
         port: 5000
         hasBuild: false
         hasLint: true
+        hasTests: true
         sonarProjectKey: homeease-backend
       - name: admin-backend
         path: admin-backend
         port: 5001
         hasBuild: false
         hasLint: true
+        hasTests: false
         sonarProjectKey: homeease-admin-backend
       - name: payment-service
         path: payment-service
         port: 5002
         hasBuild: false
         hasLint: true
+        hasTests: false
         sonarProjectKey: homeease-payment-service
       - name: frontend
         path: frontend
         port: 8080
         hasBuild: true
         hasLint: false
+        hasTests: false
         sonarProjectKey: homeease-frontend
       - name: admin-frontend
         path: admin-frontend
         port: 8081
         hasBuild: true
         hasLint: false
+        hasTests: false
         sonarProjectKey: homeease-admin-frontend
 
 variables:
@@ -350,6 +355,7 @@ stages:
                 path: ${{ service.path }}
                 hasBuild: ${{ service.hasBuild }}
                 hasLint: ${{ service.hasLint }}
+                hasTests: ${{ service.hasTests }}
                 nodeVersion: $(nodeVersion)
                 trivyVersion: $(trivyVersion)
 

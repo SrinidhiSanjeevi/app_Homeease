@@ -44,7 +44,7 @@ const getProfessionals = async (req, res) => {
 
     // Public listing: no account link.
     const rawProfessionals = await Professional.find(filter)
-      .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs locality")
+      .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs locality serviceAreas")
       .sort({ rating: -1, name: 1 })
       .lean();
 

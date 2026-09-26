@@ -21,6 +21,9 @@ const professionalSchema = new mongoose.Schema(
     completedJobs: { type: Number, default: 0, min: 0 },
     // Home service area (services/areas.js); `location` is legacy/unused.
     locality: { type: String, trim: true, default: null },
+    // Areas this professional travels to (1–5, names from services/areas.js).
+    // Empty on older records: they then cover only their home `locality`.
+    serviceAreas: { type: [{ type: String, trim: true }], default: [] },
     location: {
       type: { type: String, enum: ["Point"] },
       coordinates: { type: [Number] }

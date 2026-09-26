@@ -48,13 +48,14 @@ USER homeease
 # Expose internal backend port
 EXPOSE 5000
 
-# Container healthcheck against backend health endpoint
+# Liveness only (like the Kubernetes livenessProbe): /api/health also fails
+# while MongoDB is unreachable, which would mark a working process unhealthy.
 HEALTHCHECK \
     --interval=15s \
     --timeout=5s \
     --start-period=15s \
     --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:5000/api/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:5000/health/live || exit 1
 
 # Process supervisor signal forwarding
 ENTRYPOINT ["dumb-init", "--"]
