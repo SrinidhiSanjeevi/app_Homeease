@@ -18,8 +18,13 @@ services:
     environment:
       - NODE_ENV=production
       - METRICS_COLLECTOR_ENABLED=true
-    ports:
-      - "5000:5000"
+    # Internal only: the frontend nginx containers reach this over
+    # homeease-net via /api/ proxying. Not published on the host —
+    # if you need direct access for local debugging, use
+    # `docker compose exec backend sh` or add a port mapping back
+    # temporarily rather than leaving it open by default.
+    expose:
+      - "5000"
     networks:
       - homeease-net
     depends_on:
@@ -31,6 +36,8 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+    mem_limit: 512m
+    cpus: 0.5
 
   admin-backend:
     build:
@@ -44,8 +51,9 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5001
-    ports:
-      - "5001:5001"
+    # Internal only: reached by admin-frontend over homeease-net.
+    expose:
+      - "5001"
     networks:
       - homeease-net
     healthcheck:
@@ -54,6 +62,8 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+    mem_limit: 256m
+    cpus: 0.5
 
   payment-service:
     build:
@@ -81,6 +91,8 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+    mem_limit: 256m
+    cpus: 0.5
 
   frontend:
     build:
@@ -106,21 +118,30 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+    mem_limit: 128m
+    cpus: 0.25
 
-  sonarqube:
-    image: sonarqube:lts-community
-    container_name: sonarqube
+  admin-frontend:
+    build:
+      context: ./admin-frontend
+      dockerfile: Dockerfile
+    container_name: homeease-admin-frontend
+    image: homeease-admin-frontend:prod
     restart: unless-stopped
     ports:
-      - "9000:9000"
-    volumes:
-      - sonarqube_data:/opt/sonarqube/data
-      - sonarqube_logs:/opt/sonarqube/logs
-      - sonarqube_extensions:/opt/sonarqube/extensions
+      - "8081:8080"
     networks:
       - homeease-net
-
-volumes:
-  sonarqube_data:
-  sonarqube_logs:
-  sonarqube_extensions:
+    depends_on:
+      backend:
+        condition: service_healthy
+      admin-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    mem_limit: 128m
+    cpus: 0.25
