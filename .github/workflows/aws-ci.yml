@@ -87,14 +87,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      # Findings are still printed at every severity for visibility, but
+      # only `error`-level rules (e.g. running as root, ADD instead of
+      # COPY, missing USER) fail the job — hadolint's own
+      # --failure-threshold, not a suppressed exit code. Current findings
+      # across all 5 Dockerfiles are warning/info only (DL3018 unpinned
+      # apk versions, DL3025 shell-form HEALTHCHECK CMD, DL3059, DL3066),
+      # so this does not fail CI today; it starts catching real
+      # regressions from here on.
       - name: Hadolint — Dockerfile lint
-        continue-on-error: true
         run: |
-          docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < backend/Dockerfile
-          docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < admin-backend/Dockerfile
-          docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < frontend/Dockerfile
-          docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < admin-frontend/Dockerfile
-          docker run --rm -i hadolint/hadolint:v2.15.1-alpine hadolint --no-fail - < payment-service/Dockerfile
+          set -euo pipefail
+          FAILED=0
+          for f in backend admin-backend frontend admin-frontend payment-service; do
+            echo "── hadolint ${f}/Dockerfile ──"
+            docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
+              hadolint --failure-threshold error - < "${f}/Dockerfile" || FAILED=1
+          done
+          exit $FAILED
 
       - name: Detect changed services
         uses: dorny/paths-filter@v3
@@ -209,6 +219,17 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         with:
           projectBaseDir: ${{ matrix.service }}
+
+      # Actually waits for and enforces the Quality Gate, instead of just
+      # submitting analysis. Mirrors azure-pipelines.yml's
+      # SonarCloudPublish@4 (pollingTimeoutSec: 300).
+      - name: SonarQube Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          scanMetadataReportFile: ${{ matrix.service }}/.scannerwork/report-task.txt
 
   # ==========================================================
   # 3. PACKAGE — build, scan, SBOM, push, sign
