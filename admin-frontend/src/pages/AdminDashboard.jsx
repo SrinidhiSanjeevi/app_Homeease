@@ -481,6 +481,28 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
 }
 
 // ── PROFESSIONAL FORM ─────────────────────────────────────────
+// A professional serves at most this many areas, home area included
+// (the admin API enforces the same limit).
+const MAX_SERVICE_AREAS = 5;
+
+// Straight-line km between two area centres (areas come from /api/admin/areas).
+function areaKm(areas, fromName, toName) {
+  const a = areas.find((x) => x.name === fromName);
+  const b = areas.find((x) => x.name === toName);
+  if (!a || !b) return null;
+  const rad = (d) => (d * Math.PI) / 180;
+  const h =
+    Math.sin(rad(b.latitude - a.latitude) / 2) ** 2 +
+    Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(rad(b.longitude - a.longitude) / 2) ** 2;
+  return Math.round(6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)) * 10) / 10;
+}
+
+// Home area first, then others; never more than MAX_SERVICE_AREAS.
+function withHomeArea(list, home) {
+  const rest = (list || []).filter((a) => a && a !== home);
+  return (home ? [home, ...rest] : rest).slice(0, MAX_SERVICE_AREAS);
+}
+
 function ProfessionalForm({ initial, onSave, onClose, loading, areas = [] }) {
   const blank = {
     name: "",
@@ -488,7 +510,8 @@ function ProfessionalForm({ initial, onSave, onClose, loading, areas = [] }) {
     experience: "",
     image: "",
     status: "Available",
-    locality: ""
+    locality: "",
+    serviceAreas: []
   };
 
   // Normalize: the DB record stores `imageKey`; the API response adds `imageUrl`.
@@ -499,7 +522,8 @@ function ProfessionalForm({ initial, onSave, onClose, loading, areas = [] }) {
     return {
       ...src,
       image: src.image || src.imageUrl || src.imageKey || "",
-      locality: src.locality || ""
+      locality: src.locality || "",
+      serviceAreas: withHomeArea(src.serviceAreas, src.locality || "")
     };
   };
 
@@ -571,7 +595,8 @@ function ProfessionalForm({ initial, onSave, onClose, loading, areas = [] }) {
           style={{ ...sel, borderColor: areaError ? "#ef4444" : undefined }}
           value={form.locality}
           onChange={(e) => {
-            set("locality", e.target.value);
+            const home = e.target.value;
+            setForm((f) => ({ ...f, locality: home, serviceAreas: withHomeArea(f.serviceAreas, home) }));
             setAreaError("");
           }}
         >
@@ -583,8 +608,59 @@ function ProfessionalForm({ initial, onSave, onClose, loading, areas = [] }) {
           ))}
         </select>
         <div style={{ fontSize: "0.74rem", color: areaError ? "#dc2626" : "#6b7280", marginTop: "4px" }}>
-          {areaError || "Customers in or near this area are matched with this professional first."}
+          {areaError || "Distance to customers is measured from this area."}
         </div>
+      </Field>
+
+      <Field label={`Service Areas (${form.serviceAreas.length}/${MAX_SERVICE_AREAS})`}>
+        {!form.locality ? (
+          <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>Choose the home area first.</div>
+        ) : (
+          <>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {[...areas]
+                .map((a) => ({ ...a, km: areaKm(areas, form.locality, a.name) }))
+                .sort((a, b) => (a.km ?? 99) - (b.km ?? 99))
+                .map((a) => {
+                  const isHome = a.name === form.locality;
+                  const on = form.serviceAreas.includes(a.name);
+                  const full = !on && form.serviceAreas.length >= MAX_SERVICE_AREAS;
+                  return (
+                    <button
+                      key={a.name}
+                      type="button"
+                      disabled={isHome || full}
+                      onClick={() =>
+                        set(
+                          "serviceAreas",
+                          on ? form.serviceAreas.filter((n) => n !== a.name) : [...form.serviceAreas, a.name]
+                        )
+                      }
+                      title={isHome ? "Home area — always covered" : full ? `Up to ${MAX_SERVICE_AREAS} areas` : undefined}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: "999px",
+                        border: `1.5px solid ${on ? "#0e5e4f" : "#e5e7eb"}`,
+                        background: on ? "#e7f3f0" : "#fff",
+                        color: on ? "#0e5e4f" : full ? "#9ca3af" : "#374151",
+                        fontWeight: on ? 700 : 500,
+                        fontSize: "0.78rem",
+                        cursor: isHome || full ? "not-allowed" : "pointer"
+                      }}
+                    >
+                      {on ? "✓ " : ""}{a.name}
+                      <span style={{ fontWeight: 500, color: "#6b7280" }}>
+                        {isHome ? " · home" : a.km !== null ? ` · ${a.km} km` : ""}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+            <div style={{ fontSize: "0.74rem", color: "#6b7280", marginTop: "6px" }}>
+              Bookings in these areas are auto-assigned to the nearest free professional who covers them (km from home area).
+            </div>
+          </>
+        )}
       </Field>
 
       <Field label="Profile Image">
@@ -2339,6 +2415,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                             {b.area && (
                               <div style={{ fontSize: "0.72rem", color: "#9ca3af", marginTop: "2px", display: "flex", alignItems: "center", gap: "3px" }}>
                                 <MapPin size={11} /> {b.area}
+                                {b.professional?.locality && ` · from ${b.professional.locality}`}
                                 {b.assignedDistanceKm != null && b.professional && ` · ${b.assignedDistanceKm} km`}
                               </div>
                             )}
@@ -2811,6 +2888,11 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       <MapPin size={13} />
                       {p.locality || "No home area — edit to set one"}
                     </div>
+                    {p.locality && (
+                      <div style={{ fontSize: "0.72rem", color: "#6b7280", marginTop: "-4px", marginBottom: "8px" }}>
+                        Serves: {(p.serviceAreas && p.serviceAreas.length ? p.serviceAreas : [p.locality]).join(", ")}
+                      </div>
+                    )}
 
                     <button
                       onClick={() => handleToggleProfStatus(p)}

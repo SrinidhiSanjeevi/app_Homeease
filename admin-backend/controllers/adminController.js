@@ -19,7 +19,7 @@ const EMERGENCY_TRANSITIONS = {
 };
 const canTransitionEmergency = (from, to) => (EMERGENCY_TRANSITIONS[from] || []).includes(to);
 const logger = require("../utils/logger");
-const { AREAS, findArea } = require("../services/areas");
+const { AREAS, MAX_SERVICE_AREAS, findArea, normalizeServiceAreas } = require("../services/areas");
 const { parsePagination, formatPaginationResult } = require("../utils/pagination");
 const { attachImageUrls } = require("../services/blobStorage");
 
@@ -34,7 +34,7 @@ const toImageKey = (value) => {
 };
 
 const getAreas = (req, res) => {
-  res.status(200).json({ success: true, areas: AREAS });
+  res.status(200).json({ success: true, areas: AREAS, maxServiceAreas: MAX_SERVICE_AREAS });
 };
 
 const getStats = async (req, res) => {
@@ -213,7 +213,7 @@ const getAllBookings = async (req, res) => {
         .limit(limit)
         .populate("user", "name email phone")
         .populate("service", "name category price")
-        .populate("professional", "name category experience")
+        .populate("professional", "name category experience locality serviceAreas")
         .lean()
     ]);
 
@@ -371,7 +371,7 @@ const getAllProfessionals = async (req, res) => {
     const [total, professionals] = await Promise.all([
       Professional.countDocuments(filter),
       Professional.find(filter)
-        .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs locality createdAt")
+        .select("name category description rating ratingCount experience imageKey imageAlt status active completedJobs locality serviceAreas createdAt")
         .sort({ name: 1 })
         .skip(skip)
         .limit(limit)
@@ -573,7 +573,7 @@ const deleteService = async (req, res) => {
 
 const createProfessional = async (req, res) => {
   try {
-    const { name, category, experience, imageKey, imageAlt, image, description, status, locality } = req.body;
+    const { name, category, experience, imageKey, imageAlt, image, description, status, locality, serviceAreas } = req.body;
     const finalImageKey = toImageKey(imageKey) || toImageKey(image);
     const finalImageAlt = imageAlt || (name ? `${name} - ${category} professional` : "HomeEase professional");
 
@@ -589,9 +589,12 @@ const createProfessional = async (req, res) => {
     if (!area) {
       return res.status(400).json({ success: false, message: "Please choose the professional's home area" });
     }
+    const coverage = normalizeServiceAreas(serviceAreas, area.name);
+    if (coverage.error) return res.status(400).json({ success: false, message: coverage.error });
 
     const professional = await Professional.create({
       locality: area.name,
+      serviceAreas: coverage.areas,
       name: name.trim(),
       category: category.trim(),
       experience: Number(experience),
@@ -611,7 +614,7 @@ const createProfessional = async (req, res) => {
 
 const updateProfessional = async (req, res) => {
   try {
-    const { name, category, experience, imageKey, imageAlt, image, description, status, locality } = req.body;
+    const { name, category, experience, imageKey, imageAlt, image, description, status, locality, serviceAreas } = req.body;
 
     const updateData = {};
     if (locality !== undefined && locality !== null && locality !== "") {
@@ -620,6 +623,21 @@ const updateProfessional = async (req, res) => {
         return res.status(400).json({ success: false, message: "Unknown area" });
       }
       updateData.locality = area.name;
+    }
+    if (serviceAreas !== undefined) {
+      if (!Array.isArray(serviceAreas)) {
+        return res.status(400).json({ success: false, message: "serviceAreas must be a list of area names" });
+      }
+      // Home area is always covered — use the new one if it's changing.
+      let home = updateData.locality;
+      if (!home) {
+        const current = await Professional.findById(req.params.id).select("locality").lean();
+        if (!current) return res.status(404).json({ success: false, message: "Professional not found" });
+        home = current.locality;
+      }
+      const coverage = normalizeServiceAreas(serviceAreas, home);
+      if (coverage.error) return res.status(400).json({ success: false, message: coverage.error });
+      updateData.serviceAreas = coverage.areas;
     }
     if (name !== undefined) updateData.name = name;
     if (category !== undefined) updateData.category = category;

@@ -87,7 +87,8 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
     if (booking.status === "Cancelled") return -1;
     if (booking.status === "Completed") return 4;
     if (booking.status === "Confirmed") return 3;
-    if (booking.status === "Assigned" || booking.professional) return 2;
+    // "Assigned" means paid but still waiting for a free professional.
+    if (booking.professional) return 2;
     return 1;
   };
 
@@ -152,8 +153,8 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
         </h1>
         <p style={{ color: "var(--text-muted)" }}>
           {isProfessionalMode
-            ? "Manage assigned home service requests, perform services, and mark bookings as completed."
-            : "Track your home service lifecycle: Booked → Professional Assigned → Service Confirmed → Service Completed."}
+            ? "Jobs assigned to you."
+            : "Your upcoming and past bookings."}
         </p>
       </div>
 
@@ -383,21 +384,35 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
                     <div>
                       <span style={{ display: "block", fontWeight: 700, color: "var(--text-muted)" }}>Address</span>
                       <span>{booking.address}</span>
+                      {booking.area && <span style={{ display: "block", color: "var(--text-muted)" }}>Area: {booking.area}</span>}
                     </div>
                   </div>
 
                   <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
                     <User size={16} style={{ color: "var(--primary)", marginTop: "2px" }} />
                     <div>
-                      <span style={{ display: "block", fontWeight: 700, color: "var(--text-muted)" }}>Professional Assigned</span>
+                      <span style={{ display: "block", fontWeight: 700, color: "var(--text-muted)" }}>Professional</span>
                       {booking.professional && (booking.professional.name || typeof booking.professional === "string") ? (
-                        <span style={{ fontWeight: 600 }}>{booking.professional.name || "Specialist Assigned"}</span>
+                        <>
+                          <span style={{ fontWeight: 600 }}>{booking.professional.name || "Specialist Assigned"}</span>
+                          {booking.professional.locality && (
+                            <span style={{ display: "block", color: "var(--text-muted)" }}>
+                              Based in {booking.professional.locality}
+                              {Number.isFinite(booking.assignedDistanceKm) &&
+                                (booking.assignedDistanceKm === 0
+                                  ? ` · in ${booking.area || "your area"}`
+                                  : ` · ${booking.assignedDistanceKm} km away`)}
+                            </span>
+                          )}
+                        </>
                       ) : isCompleted ? (
                         <span style={{ color: "#16a34a", fontWeight: 600 }}>Service Completed</span>
                       ) : isCancelled ? (
                         <span style={{ color: "#6b7280" }}>Not Assigned (Cancelled)</span>
+                      ) : booking.status === "Created" ? (
+                        <span style={{ color: "#6b7280" }}>Assigned after payment</span>
                       ) : (
-                        <span style={{ color: "#2563eb", fontWeight: 600 }}>Professional Assigned</span>
+                        <span style={{ color: "#2563eb", fontWeight: 600 }}>Finding a professional{booking.area ? ` in ${booking.area}` : ""}…</span>
                       )}
                     </div>
                   </div>

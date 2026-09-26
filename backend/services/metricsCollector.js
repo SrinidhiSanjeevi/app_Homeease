@@ -62,6 +62,10 @@ async function collectDbMetrics() {
     BOOKING_STATUSES.forEach((status, i) => {
       metrics.bookingsByStatusGauge.labels(status).set(statusCounts[i]);
     });
+    const activeStatuses = ["Created", "Assigned", "Confirmed"];
+    metrics.activeBookings.set(
+      BOOKING_STATUSES.reduce((sum, status, i) => (activeStatuses.includes(status) ? sum + statusCounts[i] : sum), 0)
+    );
 
     logger.info("[metricsCollector] DB-truth gauges refreshed");
   } catch (error) {

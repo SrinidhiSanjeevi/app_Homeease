@@ -32,13 +32,21 @@ const slotStartMinutes = (value) => {
   return ((Number(m[1]) % 12) + (m[3].toUpperCase() === "PM" ? 12 : 0)) * 60 + Number(m[2]);
 };
 
+// Does this professional travel to `area`? Older records have no
+// serviceAreas list and cover only their home area (same rule as the server).
+const servesArea = (prof, area) => {
+  if (!area) return false;
+  const areas = prof.serviceAreas && prof.serviceAreas.length ? prof.serviceAreas : [prof.locality];
+  return areas.includes(area);
+};
+
 const todayIso = () => {
   const d = new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().split("T")[0];
 };
 
-export default function BookingModal({ service, initialProduct, onClose, onSubmit, onBookingSettled, professionals, user, area }) {
+export default function BookingModal({ service, initialProduct, onClose, onViewBookings, onSubmit, onBookingSettled, professionals, user, area }) {
   const [step, setStep] = useState(1);
   const [stepError, setStepError] = useState("");
   const [customCategory, setCustomCategory] = useState(service.category || "Spa");
@@ -55,6 +63,8 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
   const [paymentMethod, setPaymentMethod] = useState("Razorpay");
   const [processingPayment, setProcessingPayment] = useState(false);
   const [razorpayLoaded, setRazorpayLoaded] = useState(false);
+  // Set once the booking is placed (cash) or paid (Razorpay): { booking, message }.
+  const [confirmed, setConfirmed] = useState(null);
 
   useEffect(() => {
     if (window.Razorpay) {
@@ -129,6 +139,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
         .filter((p) => p.category === activeCategory)
         .sort((a, b) =>
           (a.status === "Available" ? 0 : 1) - (b.status === "Available" ? 0 : 1) ||
+          (servesArea(a, area) ? 0 : 1) - (servesArea(b, area) ? 0 : 1) ||
           (a.locality === area ? 0 : 1) - (b.locality === area ? 0 : 1) ||
           (b.rating || 0) - (a.rating || 0)),
     [professionals, activeCategory, area]
@@ -182,13 +193,28 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
     area,
   });
 
+  // The saved booking with its professional populated (the create/verify
+  // responses may predate assignment). Falls back to what we already have.
+  const loadBooking = async (bookingId, fallback) => {
+    try {
+      const res = await fetch("/api/bookings/my-bookings", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      }).then((r) => r.json());
+      const found = res.success && res.bookings.find((b) => b._id === bookingId);
+      return found || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
   const finalizeCashBooking = async () => {
     if (processingPayment) return;
     setProcessingPayment(true);
     try {
-      await onSubmit(buildBookingPayload("Cash on Delivery"));
+      const res = await onSubmit(buildBookingPayload("Cash on Delivery"));
       if (typeof onBookingSettled === "function") onBookingSettled();
-      onClose();
+      const booking = await loadBooking(res?.booking?._id, res?.booking);
+      setConfirmed({ booking, message: res?.message });
     } catch (err) {
       console.error("Cash booking error:", err);
       alert("Could not create booking. Please try again.");
@@ -248,11 +274,13 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
           }).then(r => r.json());
 
           paid = true;
-          setProcessingPayment(false);
           if (typeof onBookingSettled === "function") onBookingSettled();
           if (verifyRes.success) {
-            onClose();
+            const saved = await loadBooking(booking._id, booking);
+            setConfirmed({ booking: saved, message: "Payment received — your booking is confirmed." });
+            setProcessingPayment(false);
           } else {
+            setProcessingPayment(false);
             alert(verifyRes.message || "Payment could not be verified. If money was deducted, it will be refunded automatically.");
           }
         },
@@ -299,6 +327,20 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
   };
 
   const selectedPro = categoryProfessionals.find((p) => p._id === selectedProfessional);
+
+  if (confirmed) {
+    return (
+      <BookingConfirmed
+        booking={confirmed.booking}
+        message={confirmed.message}
+        service={service}
+        area={area}
+        professionals={professionals}
+        onClose={onClose}
+        onViewBookings={onViewBookings || onClose}
+      />
+    );
+  }
 
   return (
     <div
@@ -392,7 +434,7 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                     </span>
                     <div style={{ flex: 1 }}>
                       <strong style={{ fontSize: "0.95rem" }}>Auto-assign best match</strong>
-                      <div className="field-hint">We pick the nearest professional who is free for this slot — fastest option.</div>
+                      <div className="field-hint">We pick the nearest professional who serves {area || "your area"} and is free for this slot — fastest option.</div>
                     </div>
                     <span className="badge badge-completed">Recommended</span>
                   </label>
@@ -435,6 +477,12 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
                               <>
                                 <span className="dot" />
                                 <span>{prof.completedJobs} jobs</span>
+                              </>
+                            )}
+                            {servesArea(prof, area) && (
+                              <>
+                                <span className="dot" />
+                                <span style={{ color: "var(--primary)", fontWeight: 700 }}>Serves {area}</span>
                               </>
                             )}
                           </div>
@@ -635,6 +683,128 @@ export default function BookingModal({ service, initialProduct, onClose, onSubmi
               )}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// Shown in place of the stepper once the booking is placed / paid.
+// ------------------------------------------------------------------
+function BookingConfirmed({ booking, message, service, area, professionals, onClose, onViewBookings }) {
+  const pro = booking?.professional && typeof booking.professional === "object" ? booking.professional : null;
+  // The populated professional has no signed image URL; the list does.
+  const proCard = pro ? professionals.find((p) => p._id === pro._id) || pro : null;
+  const km = booking?.assignedDistanceKm;
+  const bookingArea = booking?.area || area;
+  const paid = booking?.paymentStatus === "Paid";
+  const slot = TIME_SLOTS.find((s) => s.value === booking?.timeSlot);
+  const dateLabel = booking?.date
+    ? new Date(booking.date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })
+    : "—";
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="booking-confirmed-title">
+        <div className="modal-head">
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Icon name={pro ? "check_circle" : "schedule"} size={40} filled color={pro ? "var(--primary)" : "var(--brand)"} />
+            <div>
+              <h2 id="booking-confirmed-title">{pro ? "Booking confirmed" : "Booking received"}</h2>
+              <p>{message || (pro ? "Your professional is booked." : `We're finding a professional who serves ${bookingArea}.`)}</p>
+            </div>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+            <Icon name="close" size={24} />
+          </button>
+        </div>
+
+        <div className="modal-body">
+          <span className="field-label">Your professional</span>
+          {pro ? (
+            <div className="option-card is-active" style={{ cursor: "default", marginBottom: 16 }}>
+              {proCard.imageUrl || proCard.image ? (
+                <img src={proCard.imageUrl || proCard.image} alt={proCard.imageAlt || pro.name} style={{ width: 48, height: 48, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+              ) : (
+                <span className="avatar">{pro.name?.[0]}</span>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <strong style={{ fontSize: "1rem" }}>{pro.name}</strong>
+                <div className="service-card-meta">
+                  <span className="rating-pill" style={{ fontSize: "0.8rem" }}>
+                    <Icon name="star" size={14} filled /> {pro.rating || "New"}
+                  </span>
+                  <span className="dot" />
+                  <span>{pro.category}</span>
+                  {pro.experience !== undefined && (
+                    <>
+                      <span className="dot" />
+                      <span>{pro.experience} yrs</span>
+                    </>
+                  )}
+                </div>
+                <div className="field-hint" style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
+                  <Icon name="location_on" size={16} filled />
+                  {pro.locality ? `Based in ${pro.locality}` : "Location not set"}
+                  {Number.isFinite(km) && ` · ${km === 0 ? `in ${bookingArea}` : `${km} km from ${bookingArea}`}`}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="notice notice-info" style={{ marginBottom: 16 }}>
+              <Icon name="schedule" size={18} />
+              <span>No one was free for this slot yet. We&apos;ll assign the nearest professional who serves {bookingArea} as soon as one frees up — you&apos;ll see them in My Bookings.</span>
+            </div>
+          )}
+
+          <div className="summary">
+            <div className="summary-row" style={{ color: "var(--text-main)", fontWeight: 700, marginBottom: 12 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon name="event" size={18} /> {dateLabel}
+              </span>
+              <span>{slot ? `${slot.label} · ${slot.time}` : booking?.timeSlot}</span>
+            </div>
+            <div className="summary-row">
+              <span>Service</span>
+              <span>{service.isCustom ? `Custom · ${booking?.customCategory || ""}` : service.name}</span>
+            </div>
+            {booking?.selectedProduct?.name && (
+              <div className="summary-row">
+                <span>Package</span>
+                <span>{booking.selectedProduct.name}</span>
+              </div>
+            )}
+            <div className="summary-row">
+              <span>Area</span>
+              <span>{bookingArea}</span>
+            </div>
+            <div className="summary-row">
+              <span>Address</span>
+              <span style={{ textAlign: "right", maxWidth: "60%" }}>{booking?.address}</span>
+            </div>
+            <div className="summary-row">
+              <span>Payment</span>
+              <span>{booking?.paymentMethod === "Razorpay" ? "Paid online" : "Pay after service"} · {paid ? "Paid" : booking?.paymentStatus}</span>
+            </div>
+            <div className="summary-row">
+              <span>Booking ID</span>
+              <span style={{ fontFamily: "monospace" }}>#{String(booking?._id || "").slice(-8).toUpperCase()}</span>
+            </div>
+            <div className="summary-total">
+              <span>{paid ? "Total paid" : "Total"}</span>
+              <span>₹{booking?.totalPrice}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-foot">
+          <button type="button" onClick={onClose} className="btn btn-secondary">
+            Done
+          </button>
+          <button type="button" onClick={onViewBookings} className="btn btn-primary" style={{ minWidth: 180 }}>
+            <Icon name="calendar_month" size={18} /> View my bookings
+          </button>
         </div>
       </div>
     </div>

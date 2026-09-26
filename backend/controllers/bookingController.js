@@ -137,7 +137,6 @@ const createBooking = async (req, res) => {
     // Professional in the nearest area who is free for this date + slot
     // (the customer's own pick is tried first). Nobody free → the booking waits
     // and the scheduler keeps trying until the slot starts.
-    const matchStart = Date.now();
     const { professional, distanceKm } = await reserveProfessional({
       category,
       area,
@@ -149,7 +148,7 @@ const createBooking = async (req, res) => {
 
     if (professional) {
       if (metrics && metrics.professionalAssignmentTime) {
-        metrics.professionalAssignmentTime.observe((Date.now() - matchStart) / 1000);
+        metrics.professionalAssignmentTime.observe((Date.now() - new Date(booking.createdAt).getTime()) / 1000);
       }
       booking = await Booking.findByIdAndUpdate(
         booking._id,
@@ -173,7 +172,6 @@ const createBooking = async (req, res) => {
     }
     if (isCash) {
       if (professional && metrics && metrics.bookingsConfirmed) metrics.bookingsConfirmed.inc();
-      if (metrics && metrics.activeBookings) metrics.activeBookings.inc();
       processNotificationSimulation(booking, userId).catch((notificationError) => {
         logger.error({ err: notificationError.message }, "Background email notification error");
       });
@@ -418,7 +416,6 @@ const completeBooking = async (req, res) => {
     });
 
     if (metrics && metrics.bookingsCompleted) metrics.bookingsCompleted.inc();
-    if (metrics && metrics.activeBookings) metrics.activeBookings.dec();
     if (metrics && metrics.averageBookingLatency && updated.createdAt) {
       const latencySeconds = (Date.now() - new Date(updated.createdAt).getTime()) / 1000;
       if (latencySeconds >= 0) {

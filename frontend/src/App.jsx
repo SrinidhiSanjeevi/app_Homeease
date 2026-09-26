@@ -506,17 +506,10 @@ export default function App() {
       );
     }
 
-    // Cash bookings are fully confirmed immediately — refresh lists
-    // and let the toast show now. Razorpay bookings stay "Pending";
-    // BookingModal will refresh/close things itself once payment is
-    // verified, so we deliberately skip that here.
+    // Cash bookings are fully confirmed immediately — refresh lists now.
+    // BookingModal stays open and shows the booking summary itself (for
+    // Razorpay too, once payment is verified).
     if (bookingData.paymentMethod === "Cash on Delivery") {
-      showToast(
-        data.message ||
-          "Booking confirmed!",
-        "success"
-      );
-      setBookingService(null);
       await Promise.all([
         fetchBookings(),
         fetchProfessionals()
@@ -1008,6 +1001,10 @@ export default function App() {
     service={bookingService}
     initialProduct={bookingProduct}
     onClose={() => setBookingService(null)}
+    onViewBookings={() => {
+      setBookingService(null);
+      navigate("bookings");
+    }}
     onSubmit={handleBookSubmit}
     onBookingSettled={() => {
       fetchBookings();

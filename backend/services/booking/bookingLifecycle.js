@@ -88,7 +88,6 @@ async function cancelBooking(booking, { by, reason, fee = 0, refundAmount = null
   }
 
   if (metrics && metrics.bookingsCancelled) metrics.bookingsCancelled.inc();
-  if (metrics && metrics.activeBookings && booking.status !== "Created") metrics.activeBookings.dec();
   return updated;
 }
 

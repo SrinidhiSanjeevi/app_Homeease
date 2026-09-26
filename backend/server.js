@@ -23,9 +23,15 @@ const requestIdMiddleware = require("./middleware/requestId");
 const errorHandler = require("./middleware/errorHandler");
 const { generalLimiter } = require("./middleware/rateLimiter");
 
-connectDB();
+// Tests (NODE_ENV=test) import the app without a database, timers or a
+// listening socket — same pattern as payment-service/server.js.
+const isTest = process.env.NODE_ENV === "test";
 
-if (process.env.METRICS_COLLECTOR_ENABLED !== "false") {
+if (!isTest) connectDB();
+
+if (isTest) {
+  // no collector in tests: it would query MongoDB every 30s
+} else if (process.env.METRICS_COLLECTOR_ENABLED !== "false") {
   startMetricsCollector();
   logger.info("Metrics collector started (METRICS_COLLECTOR_ENABLED!=false)");
 } else {
@@ -100,7 +106,10 @@ app.use((req, res, next) => {
   metrics.httpRequestsInFlight.inc();
   const end = metrics.httpRequestDurationSeconds.startTimer({ method: req.method });
   res.on("finish", () => {
-    const routeLabel = req.route ? (req.baseUrl + req.route.path) : req.path;
+    // Unmatched requests (404s, or rejected by router-level middleware such as
+    // auth before a route matched) must not use the raw path: ids in it would
+    // create a new time series per request.
+    const routeLabel = req.route ? (req.baseUrl + req.route.path) : (req.baseUrl ? `${req.baseUrl}/*` : "unmatched");
     metrics.httpRequestsInFlight.dec();
     metrics.httpRequestsTotal.inc({ method: req.method, route: routeLabel, code: res.statusCode });
     end({ route: routeLabel, code: res.statusCode });
@@ -165,38 +174,42 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // ─── Server start ─────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
-  logger.info({ port: PORT }, `HomeEase Backend started`);
-});
+if (!isTest) startServer();
 
-// Unpaid-booking expiry, waiting-work reassignment, refund retries.
-const scheduler = require("./services/scheduler");
-scheduler.start();
-
-// ─── Graceful shutdown ────────────────────────────────────────────────────────
-const shutdown = (signal) => {
-  logger.info({ signal }, "Graceful shutdown initiated");
-  scheduler.stop();
-  server.close(() => {
-    logger.info("HTTP server closed");
-    mongoose.connection.close(false).then(() => {
-      logger.info("MongoDB connection closed");
-      process.exit(0);
-    }).catch((err) => {
-      logger.error({ err: err.message }, "Error closing MongoDB connection");
-      process.exit(1);
-    });
+function startServer() {
+  const PORT = process.env.PORT || 5000;
+  const server = app.listen(PORT, () => {
+    logger.info({ port: PORT }, `HomeEase Backend started`);
   });
 
-  // Force exit if graceful close takes too long
-  setTimeout(() => {
-    logger.error("Graceful shutdown timed out, forcing exit");
-    process.exit(1);
-  }, 10000).unref();
-};
+  // Unpaid-booking expiry, waiting-work reassignment, refund retries.
+  const scheduler = require("./services/scheduler");
+  scheduler.start();
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+  // ─── Graceful shutdown ────────────────────────────────────────────────────────
+  const shutdown = (signal) => {
+    logger.info({ signal }, "Graceful shutdown initiated");
+    scheduler.stop();
+    server.close(() => {
+      logger.info("HTTP server closed");
+      mongoose.connection.close(false).then(() => {
+        logger.info("MongoDB connection closed");
+        process.exit(0);
+      }).catch((err) => {
+        logger.error({ err: err.message }, "Error closing MongoDB connection");
+        process.exit(1);
+      });
+    });
+
+    // Force exit if graceful close takes too long
+    setTimeout(() => {
+      logger.error("Graceful shutdown timed out, forcing exit");
+      process.exit(1);
+    }, 10000).unref();
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+}
 
 module.exports = app; // for testing

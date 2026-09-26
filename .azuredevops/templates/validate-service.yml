@@ -16,6 +16,9 @@ parameters:
   - name: hasLint
     type: boolean
     default: true
+  - name: hasTests
+    type: boolean
+    default: false
   - name: nodeVersion
     type: string
     default: '22.x'
@@ -62,6 +65,15 @@ steps:
           cd ${{ parameters.path }}
           npm run lint
         displayName: 'Lint — ${{ parameters.name }}'
+
+  # Unit + HTTP tests (node:test, no database needed). A failing test fails
+  # the job, which stops Package/Promote for this run.
+  - ${{ if eq(parameters.hasTests, true) }}:
+      - script: |
+          set -euo pipefail
+          cd ${{ parameters.path }}
+          npm test
+        displayName: 'Tests — ${{ parameters.name }}'
 
   # npm audit reads the lockfile and knows about advisories Trivy's
   # database may lag on. Running both is deliberate — they disagree.
