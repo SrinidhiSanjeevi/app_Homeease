@@ -353,3 +353,46 @@ jobs:
       - name: Sign image (keyless)
         if: github.ref == 'refs/heads/main'
         run: cosign sign --yes "${{ steps.push.outputs.digest }}"
+
+      # ──────────────────────────────────────────────────────────
+      # PROMOTE — bump this service's tag in Infrastructure_Homeease's
+      # fargate-dev environment. Same mechanism azure-pipelines.yml's
+      # Promote stage already uses against gitops_homeease's
+      # values-azure-dev.yaml: clone, edit one file, commit, push to
+      # main. A GitHub Environment-gated Terraform apply workflow in
+      # that repo picks the commit up from there — this step never
+      # runs `terraform apply` itself.
+      # ──────────────────────────────────────────────────────────
+      - name: Promote tag to Infrastructure_Homeease (fargate-dev)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.INFRA_REPO_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "INFRA_REPO_PAT not set — skipping promotion (fargate-dev not wired up yet)."
+            exit 0
+          fi
+
+          case "${{ matrix.service }}" in
+            admin-backend)   FIELD=admin_backend ;;
+            admin-frontend)  FIELD=admin_frontend ;;
+            payment-service) FIELD=payment_service ;;
+            *)               FIELD="${{ matrix.service }}" ;;
+          esac
+
+          WORKDIR=$(mktemp -d)
+          git clone --quiet --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/SrinidhiSanjeevi/Infrastruture_Homeease.git" \
+            "$WORKDIR/infra"
+          cd "$WORKDIR/infra"
+
+          TFVARS="terraform/aws/environments/fargate-dev/image-tags.auto.tfvars"
+          sed -i -E "s/^(\s*${FIELD}\s*=\s*)\"[^\"]*\"/\1\"${{ needs.static.outputs.image_tag }}\"/" "$TFVARS"
+          grep -q "\"${{ needs.static.outputs.image_tag }}\"" "$TFVARS"
+
+          git config user.name "homeease-ci"
+          git config user.email "ci@homeease.local"
+          git add "$TFVARS"
+          git commit -m "ci(fargate-dev): promote ${{ matrix.service }} to ${{ needs.static.outputs.image_tag }}"
+          git push origin HEAD:main
