@@ -1,0 +1,72 @@
+# ============================================================
+# promotion-demo.yml — approval-gated promotion, DEMONSTRATION ONLY
+#
+# One deployment job bound to an ADO environment. When that
+# environment has an "Approvals" check, the run pauses here with a
+# Review → Approve / Reject button; no agent is held while it waits.
+#
+# After approval it prints the image tags DEV was VERIFIED at (the
+# exact GitOps commit this run promoted) and what promoting them to
+# <targetName> would change. It writes NOTHING: there is no staging or
+# prod cluster yet. The real, writing PROD promotion is stage
+# PromoteProd in azure-pipelines.yml (enableProdPromotion).
+# ============================================================
+
+parameters:
+  - name: targetName        # STAGING / PROD — shown in the log
+    type: string
+  - name: environment       # ADO environment that carries the approval check
+    type: string
+  - name: valuesFile        # values file the real promotion would write
+    type: string
+
+jobs:
+  - deployment: Promote
+    displayName: 'Approve & promote verified DEV tags to ${{ parameters.targetName }}'
+    environment: ${{ parameters.environment }}
+    timeoutInMinutes: 10
+    variables:
+      devCommit: $[ stageDependencies.Promote.Promote.outputs['bump.devCommit'] ]
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            # Deployment jobs auto-download every pipeline artifact by default.
+            - download: none
+
+            - script: |
+                set -euo pipefail
+                curl -fsSL -o /usr/local/bin/yq \
+                  "https://github.com/mikefarah/yq/releases/download/v$(yqVersion)/yq_linux_amd64"
+                chmod +x /usr/local/bin/yq
+              displayName: 'Install yq'
+
+            - script: |
+                set -euo pipefail
+                if [ -z "${DEV_COMMIT:-}" ]; then
+                  echo "##vso[task.logissue type=error]No verified DEV commit from the Promote stage — nothing to promote."
+                  exit 1
+                fi
+
+                WORKDIR=$(mktemp -d)
+                git clone --quiet --depth 1 --branch "$(gitopsBranch)" \
+                  "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" "$WORKDIR/gitops"
+                cd "$WORKDIR/gitops"
+                git fetch --quiet --depth 1 origin "$DEV_COMMIT"
+
+                echo "Approved by: $(Build.RequestedFor)  |  run $(Build.BuildNumber)"
+                echo "Source of truth: Gitops_Homeease@${DEV_COMMIT} (verified in stage 5)"
+                echo
+                printf '%-16s %-14s %s\n' SERVICE VERIFIED_TAG "TARGET (${{ parameters.targetName }})"
+                for svc in backend admin-backend payment-service frontend admin-frontend; do
+                  TAG=$(git show "${DEV_COMMIT}:charts/${svc}/values-azure-dev.yaml" | yq '.image.tag')
+                  REPO=$(git show "${DEV_COMMIT}:charts/${svc}/values-azure-dev.yaml" | yq '.image.repository')
+                  printf '%-16s %-14s %s\n' "$svc" "$TAG" "charts/${svc}/${{ parameters.valuesFile }} → ${REPO}:${TAG}"
+                done
+                echo
+                echo "DEMO: ${{ parameters.targetName }} would now run the SAME images DEV verified (build once, promote many)."
+                echo "No files were changed — this stage demonstrates the approval gate only."
+              displayName: 'Show ${{ parameters.targetName }} promotion (dry run)'
+              env:
+                GITOPS_PAT: $(GITOPS_PAT)
+                DEV_COMMIT: $(devCommit)
