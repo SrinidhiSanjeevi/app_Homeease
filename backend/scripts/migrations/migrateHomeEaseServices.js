@@ -3,7 +3,7 @@ require("dotenv").config();
 
 const Service = require("../../models/Service");
 
-const STORAGE_ACCOUNT = "sthomeeaseimggvz8nk";
+const STORAGE_ACCOUNT = "sthomeeaseimgayhiue";
 
 const imageMap = {
   "AC Deep Filter & Foam Service":

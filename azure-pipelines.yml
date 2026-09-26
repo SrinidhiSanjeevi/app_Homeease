@@ -142,11 +142,11 @@ variables:
   - group: homeease-ci
 
   - name: acrName
-    value: 'acrhomeeasedev'
+    value: 'acrhomeeasedev01'
   - name: acrLoginServer
     value: '$(acrName).azurecr.io'
 
-  # Repository namespace inside the registry: acrhomeeasedev.azurecr.io/homeease/backend
+  # Repository namespace inside the registry: acrhomeeasedev01.azurecr.io/homeease/backend
   # One registry serves all environments — promotion is by digest, not by registry.
   - name: imageNamespace
     value: 'homeease'
@@ -726,7 +726,7 @@ stages:
 # Copies the image tags DEV was VERIFIED at (stage 5) into
 # charts/<service>/values-azure-prod.yaml and pushes that one commit.
 # Nothing is built, pulled or re-tagged: PROD gets the exact same
-# acrhomeeasedev.azurecr.io/homeease/<service>:<sha> images DEV runs.
+# acrhomeeasedev01.azurecr.io/homeease/<service>:<sha> images DEV runs.
 #
 # THE GATE is the `environment: homeease-prod` below. Azure DevOps
 # pauses this stage until an approver on that environment approves;
