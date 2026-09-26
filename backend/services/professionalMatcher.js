@@ -159,7 +159,7 @@ async function assignWaitingBooking(booking) {
   if (!professional) return false;
 
   const updated = await Booking.findOneAndUpdate(
-    { _id: booking._id, professional: null, status: "Assigned" },
+    { _id: booking._id, professional: null, status: booking.status },
     { $set: { professional: professional._id, status: "Confirmed", assignedDistanceKm: distanceKm } },
     { new: true }
   );
@@ -184,7 +184,12 @@ async function assignWaitingBooking(booking) {
 }
 
 async function reassignWaitingBookings() {
-  const pendingBookings = await Booking.find({ professional: null, status: "Assigned" })
+  // "Confirmed" is included alongside "Assigned": the admin panel allows
+  // confirming a booking before a professional is attached (see
+  // bookingStateMachine's Assigned/Created -> Confirmed transitions), so a
+  // booking can reach "Confirmed" with professional still null. Without
+  // this, such a booking would never be picked up again.
+  const pendingBookings = await Booking.find({ professional: null, status: { $in: ["Assigned", "Confirmed"] } })
     .populate("service")
     .sort({ createdAt: 1 })
     .limit(50);
