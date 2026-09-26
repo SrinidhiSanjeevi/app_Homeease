@@ -37,7 +37,7 @@ steps:
     displayName: 'Set up Buildx'
     inputs:
       command: 'login'
-      containerRegistry: 'acr-homeease-wif'
+      containerRegistry: 'acr-homeease-wif-new'
     # NOTE: uses variables['isMain'] directly, not ${{ parameters.pushEnabled }}.
     # That parameter is passed in as the macro $(isMain), which template
     # expansion bakes in as the literal string "$(isMain)" — macro syntax is
@@ -195,5 +195,5 @@ steps:
     displayName: 'Logout from ACR'
     inputs:
       command: 'logout'
-      containerRegistry: 'acr-homeease-wif'
+      containerRegistry: 'acr-homeease-wif-new'
     condition: always()
