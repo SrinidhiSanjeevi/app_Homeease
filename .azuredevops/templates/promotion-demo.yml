@@ -1,15 +1,23 @@
 # ============================================================
-# promotion-demo.yml — approval-gated promotion, DEMONSTRATION ONLY
+# promotion-demo.yml — approval-gated promotion
 #
 # One deployment job bound to an ADO environment. When that
 # environment has an "Approvals" check, the run pauses here with a
 # Review → Approve / Reject button; no agent is held while it waits.
 #
-# After approval it prints the image tags DEV was VERIFIED at (the
-# exact GitOps commit this run promoted) and what promoting them to
-# <targetName> would change. It writes NOTHING: there is no staging or
-# prod cluster yet. The real, writing PROD promotion is stage
-# PromoteProd in azure-pipelines.yml (enableProdPromotion).
+# STAGING (parameters.dryRun: false): a REAL promotion. After approval
+# it clones Gitops_Homeease, bumps charts/<service>/${{ valuesFile }}'s
+# image.tag to the tag DEV was VERIFIED at (stage 5, DevVerify), commits
+# and pushes — same git/yq/error-handling pattern as the real `Promote`
+# stage in azure-pipelines.yml. Argo CD (argocd/azure-staging/) then
+# rolls it out automatically; StagingVerify (below in
+# azure-pipelines.yml) proves it actually took.
+#
+# PROD (parameters.dryRun: true, the default): still print-only. There
+# is no writing PROD cluster/promotion wired up here yet — real PROD
+# promotion is the separate, explicitly-gated stage PromoteProd
+# (enableProdPromotion), which uses its own GITOPS_PROD_PAT. This job
+# only shows what promoting the verified DEV tags to PROD would change.
 # ============================================================
 
 parameters:
@@ -17,8 +25,11 @@ parameters:
     type: string
   - name: environment       # ADO environment that carries the approval check
     type: string
-  - name: valuesFile        # values file the real promotion would write
+  - name: valuesFile        # values file this promotion reads/writes
     type: string
+  - name: dryRun             # false = really clone/bump/commit/push; true = print only
+    type: boolean
+    default: true
 
 jobs:
   - deployment: Promote
@@ -41,32 +52,132 @@ jobs:
                 chmod +x /usr/local/bin/yq
               displayName: 'Install yq'
 
-            - script: |
-                set -euo pipefail
-                if [ -z "${DEV_COMMIT:-}" ]; then
-                  echo "##vso[task.logissue type=error]No verified DEV commit from the Promote stage — nothing to promote."
-                  exit 1
-                fi
+            - ${{ if eq(parameters.dryRun, true) }}:
+                - script: |
+                    set -euo pipefail
+                    if [ -z "${DEV_COMMIT:-}" ]; then
+                      echo "##vso[task.logissue type=error]No verified DEV commit from the Promote stage — nothing to promote."
+                      exit 1
+                    fi
 
-                WORKDIR=$(mktemp -d)
-                git clone --quiet --depth 1 --branch "$(gitopsBranch)" \
-                  "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" "$WORKDIR/gitops"
-                cd "$WORKDIR/gitops"
-                git fetch --quiet --depth 1 origin "$DEV_COMMIT"
+                    WORKDIR=$(mktemp -d)
+                    git clone --quiet --depth 1 --branch "$(gitopsBranch)" \
+                      "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" "$WORKDIR/gitops"
+                    cd "$WORKDIR/gitops"
+                    git fetch --quiet --depth 1 origin "$DEV_COMMIT"
 
-                echo "Approved by: $(Build.RequestedFor)  |  run $(Build.BuildNumber)"
-                echo "Source of truth: Gitops_Homeease@${DEV_COMMIT} (verified in stage 5)"
-                echo
-                printf '%-16s %-14s %s\n' SERVICE VERIFIED_TAG "TARGET (${{ parameters.targetName }})"
-                for svc in backend admin-backend payment-service frontend admin-frontend; do
-                  TAG=$(git show "${DEV_COMMIT}:charts/${svc}/values-azure-dev.yaml" | yq '.image.tag')
-                  REPO=$(git show "${DEV_COMMIT}:charts/${svc}/values-azure-dev.yaml" | yq '.image.repository')
-                  printf '%-16s %-14s %s\n' "$svc" "$TAG" "charts/${svc}/${{ parameters.valuesFile }} → ${REPO}:${TAG}"
-                done
-                echo
-                echo "DEMO: ${{ parameters.targetName }} would now run the SAME images DEV verified (build once, promote many)."
-                echo "No files were changed — this stage demonstrates the approval gate only."
-              displayName: 'Show ${{ parameters.targetName }} promotion (dry run)'
-              env:
-                GITOPS_PAT: $(GITOPS_PAT)
-                DEV_COMMIT: $(devCommit)
+                    echo "Approved by: $(Build.RequestedFor)  |  run $(Build.BuildNumber)"
+                    echo "Source of truth: Gitops_Homeease@${DEV_COMMIT} (verified in stage 5)"
+                    echo
+                    printf '%-16s %-14s %s\n' SERVICE VERIFIED_TAG "TARGET (${{ parameters.targetName }})"
+                    for svc in backend admin-backend payment-service frontend admin-frontend notification-service; do
+                      TAG=$(git show "${DEV_COMMIT}:charts/${svc}/values-azure-dev.yaml" | yq '.image.tag')
+                      REPO=$(git show "${DEV_COMMIT}:charts/${svc}/values-azure-dev.yaml" | yq '.image.repository')
+                      printf '%-16s %-14s %s\n' "$svc" "$TAG" "charts/${svc}/${{ parameters.valuesFile }} → ${REPO}:${TAG}"
+                    done
+                    echo
+                    echo "DEMO: ${{ parameters.targetName }} would now run the SAME images DEV verified (build once, promote many)."
+                    echo "No files were changed — this stage demonstrates the approval gate only."
+                  displayName: 'Show ${{ parameters.targetName }} promotion (dry run)'
+                  env:
+                    GITOPS_PAT: $(GITOPS_PAT)
+                    DEV_COMMIT: $(devCommit)
+
+            - ${{ if eq(parameters.dryRun, false) }}:
+                - script: |
+                    set -euo pipefail
+
+                    # GITOPS_PAT is a GitHub PAT scoped to Contents:write on
+                    # Gitops_Homeease only — see .azuredevops/README.md.
+                    # ${{ parameters.targetName }} isn't sensitive enough to
+                    # need its own separate PAT the way PROD's real
+                    # promotion (GITOPS_PROD_PAT) does.
+                    if [ -z "${GITOPS_PAT:-}" ]; then
+                      echo "##vso[task.logissue type=error]GITOPS_PAT is not set. Add it as a secret variable in the homeease-ci variable group (see .azuredevops/README.md)."
+                      exit 1
+                    fi
+                    if [ -z "${DEV_COMMIT:-}" ]; then
+                      echo "##vso[task.logissue type=error]No verified DEV commit from the Promote stage — nothing to promote."
+                      exit 1
+                    fi
+
+                    echo "GitOps repo:   $(gitopsRepo)"
+                    echo "GitOps branch: $(gitopsBranch)"
+
+                    # Read-only auth check, before anything destructive —
+                    # same as the Promote stage.
+                    if ! git ls-remote --exit-code \
+                         "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" \
+                         "refs/heads/$(gitopsBranch)" > /tmp/ls-remote.out 2>/tmp/ls-remote.err; then
+                      echo "##vso[task.logissue type=error]Could not authenticate to $(gitopsRepo) / see refs/heads/$(gitopsBranch) with GITOPS_PAT. This is a token/permissions problem, not a pipeline bug — check the PAT's expiry, its Contents:write scope on Gitops_Homeease, and (for fine-grained tokens) whether it still needs org/repo approval."
+                      cat /tmp/ls-remote.err
+                      exit 1
+                    fi
+                    echo "Auth check passed — $(gitopsBranch) is reachable with GITOPS_PAT."
+
+                    WORKDIR=$(mktemp -d)
+                    git clone --depth 1 --branch "$(gitopsBranch)" \
+                      "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" \
+                      "$WORKDIR/gitops"
+                    cd "$WORKDIR/gitops"
+                    git fetch --quiet --depth 1 origin "$DEV_COMMIT"
+                    git config user.name "homeease-ci"
+                    git config user.email "homeease-ci@users.noreply.github.com"
+
+                    BUMPED=()
+                    for svc in backend admin-backend payment-service frontend admin-frontend notification-service; do
+                      DEV_FILE="charts/${svc}/values-azure-dev.yaml"
+                      TARGET_FILE="charts/${svc}/${{ parameters.valuesFile }}"
+                      if [ ! -f "$TARGET_FILE" ]; then
+                        echo "##vso[task.logissue type=error]${TARGET_FILE} not found — chart layout may have changed."
+                        exit 1
+                      fi
+
+                      VERIFIED_TAG=$(git show "${DEV_COMMIT}:${DEV_FILE}" | yq '.image.tag')
+                      CURRENT_TAG=$(yq '.image.tag' "$TARGET_FILE")
+                      if [ "$CURRENT_TAG" = "$VERIFIED_TAG" ]; then
+                        echo "${svc}: ${{ parameters.targetName }} already at ${VERIFIED_TAG}, nothing to do"
+                        continue
+                      fi
+                      VERIFIED_TAG="$VERIFIED_TAG" yq -i '.image.tag = strenv(VERIFIED_TAG)' "$TARGET_FILE"
+                      echo "${svc}: ${CURRENT_TAG} -> ${VERIFIED_TAG}"
+                      BUMPED+=("$svc")
+                    done
+
+                    if [ ${#BUMPED[@]} -eq 0 ]; then
+                      echo "Nothing to promote — ${{ parameters.targetName }} already matches verified DEV (Gitops_Homeease@${DEV_COMMIT})."
+                      TARGET_COMMIT=$(git rev-parse HEAD)
+                      echo "##vso[task.setvariable variable=stagingCommit;isOutput=true]${TARGET_COMMIT}"
+                      exit 0
+                    fi
+
+                    echo "----- git diff (${{ parameters.valuesFile }} only) -----"
+                    git --no-pager diff -- charts/*/${{ parameters.valuesFile }}
+                    echo "--------------------------------------------------------"
+
+                    git add charts/*/${{ parameters.valuesFile }}
+                    SERVICE_LIST=$(IFS=', '; echo "${BUMPED[*]}")
+                    git commit -m "$(printf 'ci: promote %s to ${{ parameters.targetName }}\n\nVerified DEV state: Gitops_Homeease@%s\nApproved by: %s\nSource: SrinidhiSanjeevi/app_Homeease@%s\nBuild: %s' "$SERVICE_LIST" "$DEV_COMMIT" "$(Build.RequestedFor)" "$(Build.SourceVersion)" "$(Build.BuildId)")"
+
+                    if ! git push origin "HEAD:$(gitopsBranch)" 2>/tmp/push.err; then
+                      cat /tmp/push.err
+                      if grep -qi "protected branch\|required status check\|pull request" /tmp/push.err; then
+                        echo "##vso[task.logissue type=error]Push rejected by a GitHub branch protection rule on $(gitopsBranch). Check Gitops_Homeease > Settings > Branches: either allow the GITOPS_PAT identity to bypass required-PR/status-check rules, or note that this branch requires promotion via PR (a workflow change, out of scope for this pipeline)."
+                      elif grep -qi "403\|authentication failed\|invalid username or token" /tmp/push.err; then
+                        echo "##vso[task.logissue type=error]Push rejected by GitHub authentication/authorization. Re-check GITOPS_PAT expiry and its Contents:write scope on Gitops_Homeease."
+                      elif grep -qi "non-fast-forward\|fetch first\|rejected" /tmp/push.err; then
+                        echo "##vso[task.logissue type=error]$(gitopsBranch) moved on the remote after this job cloned it (e.g. a concurrent manual promotion). Re-run the pipeline rather than force-pushing over it."
+                      else
+                        echo "##vso[task.logissue type=error]git push to $(gitopsRepo) failed for an unrecognized reason — see the error above."
+                      fi
+                      exit 1
+                    fi
+
+                    TARGET_COMMIT=$(git rev-parse HEAD)
+                    echo "##vso[task.setvariable variable=stagingCommit;isOutput=true]${TARGET_COMMIT}"
+                    echo "${{ parameters.targetName }} desired state is now Gitops_Homeease@${TARGET_COMMIT}"
+                  name: bump
+                  displayName: 'Promote verified DEV tags to ${{ parameters.targetName }} + push'
+                  env:
+                    GITOPS_PAT: $(GITOPS_PAT)
+                    DEV_COMMIT: $(devCommit)

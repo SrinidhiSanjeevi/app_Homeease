@@ -22,8 +22,18 @@
 #        ├──▶ 6. REPORT        push CI duration metrics to Pushgateway
 #        │
 #        ▼
-#   7a/7b. DEMO      [approve] STAGING → [approve] PROD — print what would be
-#                    promoted, write nothing   (enablePromotionDemo)
+#   7a. PROMOTE      [approve] bump charts/*/values-azure-staging.yaml to the
+#       STAGING      verified DEV tags — a REAL write, same cluster, Argo CD
+#                    (argocd/azure-staging/) rolls it out   (enableStagingPromotion)
+#        │
+#        ▼
+#   7b. VERIFY       wait until STAGING serves the promoted tag, smoke-test it
+#       STAGING      (same mechanism as stage 5, pointed at staging hosts)
+#        │
+#        ▼
+#   7c. PROMOTE PROD [approve] print what promoting to PROD would change,
+#       (preview)     write nothing — PROD has no cluster to roll out to yet
+#                    (enableStagingPromotion)
 #        │
 #        ▼
 #   7. PROMOTE PROD  copy the VERIFIED DEV tags into charts/*/values-azure-prod.yaml
@@ -202,12 +212,15 @@ variables:
   - name: enableProdPromotion
     value: 'false'
 
-  # Compile-time switch for the approval DEMO (stages 7a/7b): DEV →
-  # approve → STAGING → approve → PROD, printing what would be promoted
-  # but writing nothing. Approvals live on the homeease-staging and
-  # homeease-prod environments (ADO UI → Environments → Approvals and
-  # checks). Keep it 'false' when enableProdPromotion is 'true'.
-  - name: enablePromotionDemo
+  # Compile-time switch for stages 7a/7b: DEV → approve → STAGING (a
+  # REAL promotion — bumps charts/*/values-azure-staging.yaml, Argo CD
+  # (argocd/azure-staging/) rolls it out on the SAME aks-homeease-dev
+  # cluster) → approve → PROD (still print-only; real PROD promotion is
+  # the separate PromoteProd stage below). Approvals live on the
+  # homeease-staging and homeease-prod environments (ADO UI →
+  # Environments → Approvals and checks). Keep it 'false' when
+  # enableProdPromotion is 'true'.
+  - name: enableStagingPromotion
     value: 'true'
 
 stages:
@@ -750,16 +763,26 @@ stages:
           continueOnError: true
 
 # ============================================================
-# STAGES 7a / 7b — PROMOTION DEMO (approval-gated, dry run)
+# STAGES 7a / 7b / 7c — PROMOTE STAGING (real, approval-gated),
+# VERIFY STAGING, PROMOTE PROD (preview, approval-gated)
 #
-#   5. Verify DEV ──▶ [approve] 7a. STAGING ──▶ [approve] 7b. PROD
+#   5. Verify DEV ──▶ [approve] 7a. Promote STAGING ──▶ 7b. Verify STAGING
+#                                                              │
+#                                                              ▼
+#                                              [approve] 7c. Promote PROD (preview)
 #
-# Each stage waits on its environment's Approvals check, then prints
-# the verified DEV tags it would promote. See promotion-demo.yml.
+# 7a is a REAL promotion (dryRun: false in promotion-demo.yml): it bumps
+# charts/*/values-azure-staging.yaml in Gitops_Homeease to the tags
+# DevVerify just confirmed, on the SAME aks-homeease-dev cluster
+# (homeease-staging namespace, argocd/azure-staging/). 7b then proves
+# STAGING is actually running what 7a pushed, the same way DevVerify
+# proves it for DEV. 7c remains print-only (dryRun: true, the default):
+# there is no PROD cluster to roll out to yet — see stage
+# PromoteProd/enableProdPromotion for the real, separate PROD path.
 # ============================================================
 
-- ${{ if eq(variables.enablePromotionDemo, 'true') }}:
-  - stage: PromoteStagingDemo
+- ${{ if eq(variables.enableStagingPromotion, 'true') }}:
+  - stage: PromoteStaging
     displayName: '7a. Promote to STAGING (approval)'
     dependsOn:
       - Promote
@@ -771,12 +794,119 @@ stages:
           targetName: STAGING
           environment: homeease-staging
           valuesFile: values-azure-staging.yaml
+          dryRun: false
+
+  # ============================================================
+  # STAGE 7b — VERIFY STAGING
+  #
+  # STAGING twin of stage 5 (DevVerify) — same wait-for-rollout +
+  # health + smoke mechanism, pointed at values-azure-staging.yaml and
+  # the -staging nip.io hosts instead of DEV's. Reads the commit
+  # PromoteStaging just pushed (bump.stagingCommit) so nothing here
+  # duplicates a value that lives in Git.
+  # ============================================================
+
+  - stage: StagingVerify
+    displayName: '7b. Verify STAGING'
+    dependsOn:
+      - PromoteStaging
+    condition: and(succeeded(), eq(variables['isMain'], 'True'))
+    jobs:
+      - job: Verify
+        displayName: 'Wait for STAGING rollout + smoke test'
+        timeoutInMinutes: 25
+        variables:
+          stagingCommit: $[ stageDependencies.PromoteStaging.Promote.outputs['bump.stagingCommit'] ]
+        steps:
+          - checkout: none
+
+          - script: |
+              set -euo pipefail
+              curl -fsSL -o /usr/local/bin/yq \
+                "https://github.com/mikefarah/yq/releases/download/v$(yqVersion)/yq_linux_amd64"
+              chmod +x /usr/local/bin/yq
+              yq --version
+            displayName: 'Install yq'
+
+          - script: |
+              set -euo pipefail
+
+              if [ -z "${STAGING_COMMIT:-}" ]; then
+                echo "##vso[task.logissue type=error]PromoteStaging did not publish bump.stagingCommit — cannot tell which STAGING state to verify."
+                exit 1
+              fi
+
+              WORKDIR=$(mktemp -d)
+              git clone --quiet --depth 1 --branch "$(gitopsBranch)" \
+                "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" "$WORKDIR/gitops"
+              cd "$WORKDIR/gitops"
+              git fetch --quiet --depth 1 origin "$STAGING_COMMIT"
+              stagingval() { git show "${STAGING_COMMIT}:charts/$1/values-azure-staging.yaml" | yq "$2"; }
+
+              BACKEND_HOST=$(stagingval backend '.ingress.host')
+              BACKEND_TAG=$(stagingval backend '.image.tag')
+              FRONTEND_HOST=$(stagingval frontend '.ingress.host')
+              ADMIN_FRONTEND_HOST=$(stagingval admin-frontend '.ingress.host')
+              echo "Verifying STAGING at Gitops_Homeease@${STAGING_COMMIT} (backend expected at ${BACKEND_TAG})"
+
+              # Same shared budget as DevVerify: Argo CD polls Git every
+              # ~3 min, and the backend startupProbe allows up to 2 min
+              # for a cold start.
+              DEADLINE=$(( $(date +%s) + 15 * 60 ))
+
+              # 1. Rollout — wait for the promoted version to be serving.
+              while :; do
+                BODY=$(curl -sk --max-time 10 "https://${BACKEND_HOST}/health/live" || true)
+                VERSION=$(echo "$BODY" | jq -r '.version // empty' 2>/dev/null || true)
+                if [ "$VERSION" = "$BACKEND_TAG" ]; then
+                  echo "backend is serving ${BACKEND_TAG}"
+                  break
+                fi
+                # Images built before /health/live reported a version cannot
+                # prove which build is live. Say so loudly and fall back to
+                # health-only; once backend is rebuilt once, this never hits.
+                if { [ -z "$VERSION" ] && echo "$BODY" | jq -e '.status == "ok"' >/dev/null 2>&1; } || [ "$VERSION" = "unknown" ]; then
+                  echo "##vso[task.logissue type=warning]backend /health/live does not report a version yet — rollout of ${BACKEND_TAG} NOT confirmed, only health is checked."
+                  break
+                fi
+                if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+                  echo "##vso[task.logissue type=error]STAGING backend still reports version '${VERSION:-unreachable}', expected ${BACKEND_TAG}. Check the backend-staging Application in Argo CD (sync status, pod events)."
+                  exit 1
+                fi
+                echo "  backend reports '${VERSION:-unreachable}', waiting..."
+                sleep 15
+              done
+
+              # 2 + 3. Health and smoke checks, same deadline.
+              wait_for_200() {
+                local url="$1"
+                while :; do
+                  CODE=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$url" || true)
+                  if [ "$CODE" = "200" ]; then echo "OK   ${url}"; return 0; fi
+                  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+                    echo "##vso[task.logissue type=error]${url} returned ${CODE:-no response}, expected 200."
+                    return 1
+                  fi
+                  echo "  ${url} -> ${CODE:-no response}, waiting..."
+                  sleep 10
+                done
+              }
+
+              wait_for_200 "https://${BACKEND_HOST}/health/ready"
+              wait_for_200 "https://${FRONTEND_HOST}/"
+              wait_for_200 "https://${ADMIN_FRONTEND_HOST}/"
+
+              echo "STAGING verified at Gitops_Homeease@${STAGING_COMMIT}"
+            displayName: 'Verify STAGING rollout + health'
+            env:
+              GITOPS_PAT: $(GITOPS_PAT)
+              STAGING_COMMIT: $(stagingCommit)
 
   - stage: PromoteProdDemo
-    displayName: '7b. Promote to PROD (approval)'
+    displayName: '7c. Promote to PROD (preview, approval)'
     dependsOn:
       - Promote
-      - PromoteStagingDemo
+      - StagingVerify
     condition: and(succeeded(), eq(variables['isMain'], 'True'))
     jobs:
       - template: .azuredevops/templates/promotion-demo.yml
@@ -784,6 +914,7 @@ stages:
           targetName: PROD
           environment: homeease-prod
           valuesFile: values-azure-prod.yaml
+          dryRun: true
 
 # ============================================================
 # STAGE 7 — PROMOTE PROD (approval-gated)
