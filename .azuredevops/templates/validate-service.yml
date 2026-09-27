@@ -68,21 +68,11 @@ steps:
 
   # Unit + HTTP tests (node:test, no database needed). A failing test fails
   # the job, which stops Package/Promote for this run.
-  #
-  # Runs `test:coverage` when a service defines it (produces
-  # coverage/lcov.info for the SonarCloud step below via each service's own
-  # sonar.javascript.lcov.reportPaths) and falls back to plain `test`
-  # otherwise, so services that haven't been wired for coverage yet
-  # (e.g. backend) aren't broken by this being a shared template step.
   - ${{ if eq(parameters.hasTests, true) }}:
       - script: |
           set -euo pipefail
           cd ${{ parameters.path }}
-          if npm run | grep -q '^  test:coverage$'; then
-            npm run test:coverage
-          else
-            npm test
-          fi
+          npm test
         displayName: 'Tests — ${{ parameters.name }}'
 
   # npm audit reads the lockfile and knows about advisories Trivy's
