@@ -1,0 +1,13 @@
+{
+  "name": "local-db-split",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One-time local migration script: fans homeease_seed's collections out into the 4 per-service databases.",
+  "main": "split-by-service.js",
+  "scripts": {
+    "split": "node split-by-service.js"
+  },
+  "dependencies": {
+    "mongodb": "^7.5.0"
+  }
+}

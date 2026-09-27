@@ -3,12 +3,27 @@ const mongoose = require("mongoose");
 const Razorpay = require("razorpay");
 const razorpay = require("../config/razorpay");
 const Payment = require("../models/Payment");
-const Booking = require("../models/Booking");
+const bookingServiceClient = require("./bookingServiceClient");
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
 
 const toObjectId = (id) => new mongoose.Types.ObjectId(String(id));
 const cleanString = (value) => (typeof value === "string" ? value.trim() : "");
+
+// Fetches a booking from booking-service, treating "not found" as null
+// (same shape a local `Booking.findById(...)` returning null used to have)
+// instead of throwing — callers below decide what a missing booking means.
+async function getBookingSafe(bookingId) {
+  try {
+    const { booking } = await bookingServiceClient.getBooking(bookingId);
+    return booking;
+  } catch (err) {
+    if (err.isOperational && err.statusCode === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
 
 // ============================================================
 // CREATE ORDER
@@ -20,8 +35,11 @@ const createOrder = async ({ bookingId, userId }) => {
     throw new AppError("Invalid booking ID or user ID", 400);
   }
 
-  const booking = await Booking.findOne({ _id: toObjectId(bookingId), user: toObjectId(userId) });
-  if (!booking) {
+  const booking = await getBookingSafe(bookingId);
+  // Same message whether the booking doesn't exist or belongs to someone
+  // else — mirrors the old combined `Booking.findOne({_id, user})` query,
+  // which never distinguished the two either.
+  if (!booking || String(booking.user) !== String(userId)) {
     throw new AppError("Booking not found", 404);
   }
   if (booking.paymentMethod !== "Razorpay") {
@@ -79,7 +97,7 @@ const createOrder = async ({ bookingId, userId }) => {
 async function settleGenuinePayment({ booking, orderRecord, paymentId, amountPaise, extra = {} }) {
   const already = await Payment.findOne({ transactionId: paymentId, status: { $in: ["Success", "Refunded", "Partially Refunded"] } });
   if (already) {
-    const fresh = await Booking.findById(booking._id);
+    const fresh = await getBookingSafe(booking._id);
     return { outcome: already.status === "Success" ? "paid" : "refunded", booking: fresh, payment: already };
   }
 
@@ -90,18 +108,12 @@ async function settleGenuinePayment({ booking, orderRecord, paymentId, amountPai
   const amount = (amountPaise || expectedPaise) / 100;
 
   // Only a booking that is still waiting for payment can become paid.
-  const paidBooking = await Booking.findOneAndUpdate(
-    { _id: booking._id, status: "Created", paymentStatus: "Pending" },
-    [
-      {
-        $set: {
-          paymentStatus: "Paid",
-          status: { $cond: [{ $ifNull: ["$professional", false] }, "Confirmed", "Assigned"] }
-        }
-      }
-    ],
-    { new: true, updatePipeline: true }
-  );
+  // booking-service applies this conditionally (same aggregation-pipeline
+  // update this used to run locally) and tells us whether it matched.
+  const { settled, booking: paidBooking } = await bookingServiceClient.settlePayment(booking._id, {
+    outcome: "paid",
+    paymentId
+  });
 
   const payment = await Payment.findOneAndUpdate(
     { _id: orderRecord._id },
@@ -116,12 +128,12 @@ async function settleGenuinePayment({ booking, orderRecord, paymentId, amountPai
     { new: true }
   );
 
-  if (paidBooking) {
+  if (settled) {
     return { outcome: "paid", booking: paidBooking, payment };
   }
 
   // Late or duplicate payment — give the money back.
-  const current = await Booking.findById(booking._id);
+  const current = await getBookingSafe(booking._id);
   logger.warn(
     { bookingId: booking._id, paymentId, bookingStatus: current?.status, paymentStatus: current?.paymentStatus },
     "[PaymentService] Payment received for a booking that can't take it — refunding"
@@ -144,11 +156,11 @@ const verifyPayment = async ({ bookingId, userId, razorpayOrderId, razorpayPayme
     throw new AppError("Invalid payment details", 400);
   }
 
-  const booking = await Booking.findById(toObjectId(bookingId));
+  const booking = await getBookingSafe(bookingId);
   if (!booking) {
     throw new AppError("Booking not found", 404);
   }
-  if (!userId || booking.user.toString() !== userId.toString()) {
+  if (!userId || String(booking.user) !== String(userId)) {
     throw new AppError("Unauthorized to verify payment for this booking", 403);
   }
 
@@ -274,7 +286,7 @@ async function findOrderForWebhook(orderId, bookingIdFromNotes) {
     logger.error({ orderId, bookingIdFromNotes }, "[PaymentService Webhook] Order/booking mismatch");
     return { orderRecord: null, booking: null };
   }
-  const booking = await Booking.findById(orderRecord.booking);
+  const booking = await getBookingSafe(orderRecord.booking);
   return { orderRecord, booking };
 }
 

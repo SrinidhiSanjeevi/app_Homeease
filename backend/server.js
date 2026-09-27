@@ -165,6 +165,19 @@ app.use("/api/bookings", require("./routes/bookingRoutes"));
 app.use("/api/emergency", require("./routes/emergencyRoutes"));
 app.use("/api/payments", require("./routes/paymentRoutes"));
 
+// Internal-only admin API (X-Internal-Token, no end-user JWT) — consumed by
+// admin-backend, which no longer touches this service's MongoDB directly.
+app.use("/api/internal/admin", require("./routes/internal/adminRoutes"));
+
+// Internal-only booking API (X-Internal-Token, no end-user JWT) — consumed by
+// payment-service, which no longer touches Booking.status/paymentStatus directly.
+app.use("/api/internal/bookings", require("./routes/internal/bookingRoutes"));
+
+// Internal-only user API (X-Internal-Token, no end-user JWT) — consumed by
+// notification-service for recipient name/email, which no longer holds its
+// own copy of the User model.
+app.use("/api/internal/users", require("./routes/internal/userRoutes"));
+
 // ─── 404 handler ─────────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ success: false, message: `Route ${req.method} ${req.originalUrl} not found` });

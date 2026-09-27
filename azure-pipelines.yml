@@ -77,6 +77,7 @@ trigger:
       - frontend/**
       - admin-frontend/**
       - payment-service/**
+      - notification-service/**
       - azure-pipelines.yml
       - .azuredevops/**
 
@@ -91,6 +92,7 @@ pr:
       - frontend/**
       - admin-frontend/**
       - payment-service/**
+      - notification-service/**
       - azure-pipelines.yml
       - .azuredevops/**
 
@@ -129,6 +131,13 @@ parameters:
         hasLint: true
         hasTests: false
         sonarProjectKey: homeease-payment-service
+      - name: notification-service
+        path: notification-service
+        port: 5003
+        hasBuild: false
+        hasLint: true
+        hasTests: false
+        sonarProjectKey: homeease-notification-service
       - name: frontend
         path: frontend
         port: 8080
@@ -249,7 +258,7 @@ stages:
             set -euo pipefail
             docker pull hadolint/hadolint:v2.15.1-alpine
             FAILED=0
-            for f in backend admin-backend frontend admin-frontend payment-service; do
+            for f in backend admin-backend frontend admin-frontend payment-service notification-service; do
               echo "── hadolint ${f}/Dockerfile ──"
               docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
                 hadolint --no-fail - < "${f}/Dockerfile" || FAILED=1
@@ -304,7 +313,7 @@ stages:
               FORCE_ALL=false
             fi
 
-            for svc in backend admin-backend frontend admin-frontend payment-service; do
+            for svc in backend admin-backend frontend admin-frontend payment-service notification-service; do
               VAR="changed_$(echo $svc | tr '-' '_')"
               if [ "$FORCE_ALL" = "true" ] || echo "$CHANGED" | grep -q "^${svc}/"; then
                 echo "  ${svc}: CHANGED"
@@ -433,6 +442,7 @@ stages:
         changed_frontend: $[ stageDependencies.Static.Changes.outputs['detect.changed_frontend'] ]
         changed_admin_frontend: $[ stageDependencies.Static.Changes.outputs['detect.changed_admin_frontend'] ]
         changed_payment_service: $[ stageDependencies.Static.Changes.outputs['detect.changed_payment_service'] ]
+        changed_notification_service: $[ stageDependencies.Static.Changes.outputs['detect.changed_notification_service'] ]
       steps:
         - checkout: none
 
@@ -490,6 +500,7 @@ stages:
               [frontend]="$(changed_frontend)"
               [admin-frontend]="$(changed_admin_frontend)"
               [payment-service]="$(changed_payment_service)"
+              [notification-service]="$(changed_notification_service)"
             )
 
             BUMPED=()
@@ -855,7 +866,7 @@ stages:
 
                     BUMPED=()
                     STALE=()
-                    for svc in backend admin-backend frontend admin-frontend payment-service; do
+                    for svc in backend admin-backend frontend admin-frontend payment-service notification-service; do
                       DEV_FILE="charts/${svc}/values-azure-dev.yaml"
                       PROD_FILE="charts/${svc}/values-azure-prod.yaml"
                       if [ ! -f "$PROD_FILE" ]; then
