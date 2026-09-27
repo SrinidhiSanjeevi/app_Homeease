@@ -8,7 +8,11 @@ delete process.env.INTERNAL_SERVICE_TOKEN;
 
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
+const mongoose = require("mongoose");
+const nodemailer = require("nodemailer");
 const app = require("../server");
+const Notification = require("../models/Notification");
+const bookingServiceClient = require("../services/bookingServiceClient");
 
 let server;
 let base;
@@ -149,4 +153,92 @@ test("CORS allows a known dev origin", async () => {
 test("CORS does not reflect an arbitrary origin", async () => {
   const res = await fetch(`${base}/health/live`, { headers: { Origin: "https://evil.example" } });
   assert.equal(res.headers.get("access-control-allow-origin"), null);
+});
+
+// ─── Controller success/error branches ────────────────────────────────────
+//
+// The tests above only ever reach the controllers' validation `return`s
+// (400s) — never the line that actually calls the service or the
+// try/catch's error branch. dispatchNotification/Notification.find are
+// destructured or referenced through singletons the controller shares with
+// this test file (mongoose, the Notification model), so mocking them here
+// with node:test's TestContext tracker (auto-restored after each test)
+// drives the real controller code through its 202/200 and 500 branches too.
+
+test("POST /api/internal/notifications/dispatch returns 202 with the enqueued+delivered notification", async (t) => {
+  t.mock.method(Notification, "findOne", async () => null);
+  const created = {
+    _id: "notif-1",
+    status: "Pending",
+    recipient: "asha@example.com",
+    attempts: 0,
+    maxAttempts: 3,
+    save: async function () { return this; }
+  };
+  t.mock.method(Notification, "create", async () => created);
+  t.mock.method(Notification, "findOneAndUpdate", async () => created);
+  t.mock.method(bookingServiceClient, "getBooking", async () => ({ _id: "66f0c0ffee0000000000abcd" }));
+
+  process.env.EMAIL_USER = "ci@example.com";
+  process.env.EMAIL_PASS = "app-password";
+  t.mock.method(nodemailer, "createTransport", () => ({
+    sendMail: async () => ({ messageId: "msg-1" })
+  }));
+
+  const res = await post("/api/internal/notifications/dispatch", {
+    type: "BOOKING_CREATED",
+    bookingId: "66f0c0ffee0000000000abcd",
+    userId: "66f0c0ffee0000000000abce"
+  });
+
+  assert.equal(res.status, 202);
+  const body = await res.json();
+  assert.equal(body.success, true);
+  assert.equal(body.notification.status, "Success");
+
+  delete process.env.EMAIL_USER;
+  delete process.env.EMAIL_PASS;
+});
+
+test("POST /api/internal/notifications/dispatch returns a generic 500 on an unexpected internal error", async (t) => {
+  t.mock.method(mongoose.Types.ObjectId, "isValid", () => {
+    throw new Error("internal validator exploded");
+  });
+
+  const res = await post("/api/internal/notifications/dispatch", {
+    type: "BOOKING_CREATED",
+    bookingId: "66f0c0ffee0000000000abcd",
+    userId: "66f0c0ffee0000000000abce"
+  });
+
+  assert.equal(res.status, 500);
+  const body = await res.json();
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Something went wrong, please try again");
+  assert.ok(!body.message.includes("internal validator exploded"), "internal error details must not leak to the client");
+});
+
+test("GET /api/internal/notifications/booking/:bookingId returns 200 with the booking's notifications", async (t) => {
+  const fakeDocs = [{ _id: "notif-1", status: "Success" }];
+  t.mock.method(Notification, "find", () => ({
+    sort: () => ({ lean: async () => fakeDocs })
+  }));
+
+  const res = await fetch(`${base}/api/internal/notifications/booking/66f0c0ffee0000000000abcd`);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.success, true);
+  assert.deepEqual(body.notifications, fakeDocs);
+});
+
+test("GET /api/internal/notifications/booking/:bookingId returns a generic 500 when the query fails", async (t) => {
+  t.mock.method(Notification, "find", () => {
+    throw new Error("mongo connection dropped");
+  });
+
+  const res = await fetch(`${base}/api/internal/notifications/booking/66f0c0ffee0000000000abcd`);
+  assert.equal(res.status, 500);
+  const body = await res.json();
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Something went wrong, please try again");
 });

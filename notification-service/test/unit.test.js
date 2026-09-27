@@ -112,6 +112,18 @@ test("resolveTemplateData falls back to a generic template for an unmapped type"
   assert.match(message, /Notification for booking 00ABCD/);
 });
 
+test("resolveTemplateData maps BOOKING_COMPLETED to the completed template", () => {
+  const { resolveTemplateData } = require("../services/notificationService");
+
+  const { subject } = resolveTemplateData(
+    NOTIFICATION_TYPES.BOOKING_COMPLETED,
+    { _id: "66f0c0ffee0000000000abcd", totalPrice: 100 },
+    "Asha",
+    "asha@example.com"
+  );
+  assert.match(subject, /Service Completed/);
+});
+
 test("bookingServiceClient.getBooking maps a connection failure to a 503 AppError", async () => {
   // Port 1 refuses connections immediately (no timeout wait) — deterministic
   // in any environment, unlike pointing at a real booking-service.
@@ -124,6 +136,55 @@ test("bookingServiceClient.getBooking maps a connection failure to a 503 AppErro
     (err) => {
       assert.equal(err.statusCode, 503);
       assert.equal(err.isOperational, true);
+      return true;
+    }
+  );
+});
+
+test("bookingServiceClient.getBooking returns the booking on a successful response", async (t) => {
+  delete require.cache[require.resolve("../services/bookingServiceClient")];
+  const bookingServiceClient = require("../services/bookingServiceClient");
+
+  t.mock.method(globalThis, "fetch", async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ booking: { _id: "66f0c0ffee0000000000abcd", totalPrice: 500 } })
+  }));
+
+  const booking = await bookingServiceClient.getBooking("66f0c0ffee0000000000abcd");
+  assert.deepEqual(booking, { _id: "66f0c0ffee0000000000abcd", totalPrice: 500 });
+});
+
+test("bookingServiceClient.getUser returns the user on a successful response", async (t) => {
+  delete require.cache[require.resolve("../services/bookingServiceClient")];
+  const bookingServiceClient = require("../services/bookingServiceClient");
+
+  t.mock.method(globalThis, "fetch", async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ user: { _id: "66f0c0ffee0000000000abce", email: "a@example.com" } })
+  }));
+
+  const user = await bookingServiceClient.getUser("66f0c0ffee0000000000abce");
+  assert.deepEqual(user, { _id: "66f0c0ffee0000000000abce", email: "a@example.com" });
+});
+
+test("bookingServiceClient.getBooking rethrows an operational AppError for a non-ok response", async (t) => {
+  delete require.cache[require.resolve("../services/bookingServiceClient")];
+  const bookingServiceClient = require("../services/bookingServiceClient");
+
+  t.mock.method(globalThis, "fetch", async () => ({
+    ok: false,
+    status: 404,
+    json: async () => ({ message: "Booking not found" })
+  }));
+
+  await assert.rejects(
+    () => bookingServiceClient.getBooking("66f0c0ffee0000000000abcd"),
+    (err) => {
+      assert.equal(err.statusCode, 404);
+      assert.equal(err.isOperational, true);
+      assert.equal(err.message, "Booking not found");
       return true;
     }
   );
