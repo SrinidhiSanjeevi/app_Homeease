@@ -816,7 +816,11 @@ stages:
         displayName: 'Wait for STAGING rollout + smoke test'
         timeoutInMinutes: 25
         variables:
-          stagingCommit: $[ stageDependencies.PromoteStaging.Promote.outputs['bump.stagingCommit'] ]
+          # PromoteStaging's `Promote` job is a `deployment:` job (see
+          # promotion-demo.yml), which Azure DevOps wraps in an implicit
+          # nested job — output refs need the job name repeated as an
+          # extra prefix segment, unlike a plain `job:`.
+          stagingCommit: $[ stageDependencies.PromoteStaging.Promote.outputs['Promote.bump.stagingCommit'] ]
         steps:
           - checkout: none
 
