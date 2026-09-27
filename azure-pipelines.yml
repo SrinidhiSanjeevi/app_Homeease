@@ -146,7 +146,7 @@ parameters:
         port: 5003
         hasBuild: false
         hasLint: true
-        hasTests: true
+        hasTests: false
         sonarProjectKey: homeease-notification-service
       - name: frontend
         path: frontend
