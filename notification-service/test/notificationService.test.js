@@ -223,6 +223,27 @@ test("processPendingOutbox returns an empty list when the query errors", async (
   assert.deepEqual(result, []);
 });
 
+test("processPendingOutbox delivers each due notification and collects the results", async (t) => {
+  const due = fakeNotificationDoc({ status: NOTIFICATION_STATUS.PENDING, attempts: 0 });
+  t.mock.method(Notification, "find", () => ({ limit: async () => [due] }));
+  t.mock.method(Notification, "findOneAndUpdate", async () => due);
+  t.mock.method(bookingServiceClient, "getBooking", async () => ({ _id: "booking-1" }));
+
+  process.env.EMAIL_USER = "ci@example.com";
+  process.env.EMAIL_PASS = "app-password";
+  t.mock.method(nodemailer, "createTransport", () => ({
+    sendMail: async () => ({ messageId: "msg-1" })
+  }));
+
+  const result = await processPendingOutbox({ limit: 5 });
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].status, NOTIFICATION_STATUS.SUCCESS);
+
+  delete process.env.EMAIL_USER;
+  delete process.env.EMAIL_PASS;
+});
+
 // ─── dispatchNotification ─────────────────────────────────────────────────
 
 test("dispatchNotification enqueues then immediately delivers a new PENDING record", async (t) => {
