@@ -201,7 +201,7 @@ jobs:
       # never will — a compromised build-time dependency is still a
       # supply-chain compromise.
       - name: Trivy fs
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: ${{ matrix.service }}
@@ -298,7 +298,7 @@ jobs:
 
       # THE GATE. Nothing below runs if this fails.
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.img.outputs.ref }}
           severity: HIGH,CRITICAL
