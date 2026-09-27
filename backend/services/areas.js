@@ -5,7 +5,8 @@
  * the customer's (straight-line distance between area centres), so no
  * GPS or paid map API is needed.
  *
- * Mirrored in admin-backend/services/areas.js — keep both in sync.
+ * Sole copy as of the Stage 1 microservice split — admin-backend no longer
+ * has its own copy; it reaches this via GET /api/internal/admin/areas.
  */
 
 const AREAS = Object.freeze([

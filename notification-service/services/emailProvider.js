@@ -1,5 +1,5 @@
 const nodemailer = require("nodemailer");
-const logger = require("../../utils/logger");
+const logger = require("../utils/logger");
 
 const createTransporter = () => {
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return null;

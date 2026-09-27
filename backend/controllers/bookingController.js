@@ -1,8 +1,8 @@
 const Booking = require("../models/Booking");
 const Service = require("../models/Service");
 const Professional = require("../models/Professional");
-const Payment = require("../models/Payment");
-const Notification = require("../models/Notification");
+const paymentClient = require("../services/payment/paymentClient");
+const notificationClient = require("../services/notification/notificationClient");
 const { reassignWaitingWork, reserveProfessional, releaseBookingReservation, canTransition } = require("../services/customerCore");
 const {
   processNotificationSimulation,
@@ -120,14 +120,7 @@ const createBooking = async (req, res) => {
 
     if (isCash) {
       try {
-        await Payment.create({
-          booking: booking._id,
-          user: userId,
-          amount: price.total,
-          status: "Pending",
-          paymentMethod: "Cash on Delivery",
-          transactionId: `COD-${booking._id}`
-        });
+        await paymentClient.createCodPayment({ bookingId: booking._id, userId, amount: price.total });
       } catch (paymentError) {
         await Booking.deleteOne({ _id: booking._id });
         throw paymentError;
@@ -221,12 +214,12 @@ const getUserBookings = async (req, res) => {
     const enrichedBookings = await Promise.all(
       (bookings || []).map(async (booking) => {
         try {
-          const [payments, notifications] = await Promise.all([
-            Payment.find({ booking: booking._id }).sort({ createdAt: -1 }).lean(),
-            Notification.find({ booking: booking._id }).sort({ createdAt: -1 }).lean()
+          const [paymentsResult, notificationsResult] = await Promise.all([
+            paymentClient.getPaymentsForBooking(booking._id),
+            notificationClient.getNotificationsForBooking(booking._id)
           ]);
           const service = await withServiceImageUrl(booking.service);
-          return { ...booking, service, payments: payments || [], notifications: notifications || [] };
+          return { ...booking, service, payments: paymentsResult.payments || [], notifications: notificationsResult.notifications || [] };
         } catch (error) {
           logger.error({ err: error.message }, "BOOKING HISTORY ENRICHMENT ERROR");
           return { ...booking, payments: [], notifications: [] };
@@ -266,12 +259,12 @@ const getProfessionalBookings = async (req, res) => {
     const enrichedBookings = await Promise.all(
       (bookings || []).map(async (booking) => {
         try {
-          const [payments, notifications] = await Promise.all([
-            Payment.find({ booking: booking._id }).lean(),
-            Notification.find({ booking: booking._id }).lean()
+          const [paymentsResult, notificationsResult] = await Promise.all([
+            paymentClient.getPaymentsForBooking(booking._id),
+            notificationClient.getNotificationsForBooking(booking._id)
           ]);
           const service = await withServiceImageUrl(booking.service);
-          return { ...booking, service, payments: payments || [], notifications: notifications || [] };
+          return { ...booking, service, payments: paymentsResult.payments || [], notifications: notificationsResult.notifications || [] };
         } catch (error) {
           logger.error({ err: error.message }, "PROFESSIONAL BOOKING ENRICHMENT ERROR");
           return { ...booking, payments: [], notifications: [] };
@@ -395,10 +388,7 @@ const completeBooking = async (req, res) => {
     }
 
     if (isCash) {
-      await Payment.findOneAndUpdate(
-        { booking: updated._id, paymentMethod: "Cash on Delivery" },
-        { status: "Success" }
-      );
+      await paymentClient.settleCodPayment(updated._id);
       if (metrics && metrics.paymentSuccess) metrics.paymentSuccess.inc();
     }
 

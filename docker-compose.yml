@@ -4,7 +4,33 @@ networks:
   homeease-net:
     driver: bridge
 
+volumes:
+  mongo-data:
+
 services:
+
+  mongo:
+    image: mongo:7
+    container_name: homeease-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    # Internal only: shared by backend/admin-backend/payment-service/
+    # notification-service over homeease-net, each connecting to its own
+    # database on this single instance (homeease_booking, homeease_admin,
+    # homeease_payment, homeease_notification). Not published on the host.
+    expose:
+      - "27017"
+    networks:
+      - homeease-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    mem_limit: 512m
+    cpus: 0.5
 
   backend:
     build:
@@ -28,7 +54,7 @@ services:
     networks:
       - homeease-net
     depends_on:
-      payment-service:
+      mongo:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5000/health/ready"]
@@ -56,6 +82,11 @@ services:
       - "5001"
     networks:
       - homeease-net
+    depends_on:
+      mongo:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5001/health/ready"]
       interval: 15s
@@ -85,8 +116,47 @@ services:
       - "5002"
     networks:
       - homeease-net
+    depends_on:
+      mongo:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5002/health/live"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    mem_limit: 256m
+    cpus: 0.5
+
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: homeease-notification-service
+    image: homeease-notification-service:prod
+    restart: unless-stopped
+    env_file:
+      - ./notification-service/.env
+    environment:
+      - NODE_ENV=production
+      - NOTIFICATION_SERVICE_PORT=5003
+      - PORT=5003
+    # Internal only: reached by backend over homeease-net, never published
+    # on the host. Set INTERNAL_SERVICE_TOKEN in both backend/.env and
+    # notification-service/.env to require the shared service token.
+    expose:
+      - "5003"
+    networks:
+      - homeease-net
+    depends_on:
+      mongo:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5003/health/live"]
       interval: 15s
       timeout: 5s
       start_period: 15s

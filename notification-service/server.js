@@ -31,15 +31,7 @@ app.set("trust proxy", 1);
 app.use(helmet());
 app.use(cors({ origin: true, credentials: true }));
 
-// Capture raw body for Razorpay webhook signature validation
-app.use(
-  express.json({
-    limit: "2mb",
-    verify: (req, res, buf) => {
-      req.rawBody = buf;
-    }
-  })
-);
+app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: false }));
 
 // ─── Prometheus HTTP metrics ──────────────────────────────────────────────────
@@ -61,7 +53,7 @@ app.use((req, res, next) => {
 
 // Health probes
 app.get("/health/live", (req, res) => {
-  res.status(200).json({ status: "ok", service: "homeease-payment-service" });
+  res.status(200).json({ status: "ok", service: "homeease-notification-service" });
 });
 
 app.get("/health/ready", (req, res) => {
@@ -75,7 +67,7 @@ app.get("/api/health", (req, res) => {
   const dbReady = mongoose.connection.readyState === 1;
   res.status(dbReady ? 200 : 503).json({
     status: dbReady ? "ok" : "degraded",
-    service: "homeease-payment-service",
+    service: "homeease-notification-service",
     db: dbReady ? "connected" : "disconnected",
     timestamp: new Date().toISOString()
   });
@@ -87,14 +79,12 @@ app.get("/metrics", async (req, res) => {
   res.end(await metrics.register.metrics());
 });
 
-app.get("/", (req, res) => res.send("HomeEase Payment Service Running"));
-
-// Payment Routes
-app.use("/api/payments", require("./routes/paymentRoutes"));
+app.get("/", (req, res) => res.send("HomeEase Notification Service Running"));
 
 // Internal-only API (X-Internal-Token, no end-user JWT) — consumed by
-// backend for Cash-on-Delivery payment records it no longer writes directly.
-app.use("/api/internal/payments", require("./routes/internalRoutes"));
+// backend for booking-lifecycle notifications it no longer dispatches
+// in-process.
+app.use("/api/internal/notifications", require("./routes/notificationRoutes"));
 
 // 404
 app.use((req, res) => {
@@ -103,27 +93,33 @@ app.use((req, res) => {
 
 // Centralized error handler
 app.use((err, req, res, _next) => {
-  logger.error({ err: err.message }, "Unhandled error in Payment Service");
+  logger.error({ err: err.message }, "Unhandled error in Notification Service");
   res.status(err.statusCode || 500).json({
     success: false,
     message: err.isOperational ? err.message : "Internal Server Error"
   });
 });
 
-const PORT = process.env.PAYMENT_SERVICE_PORT || process.env.PORT || 5002;
+const PORT = process.env.NOTIFICATION_SERVICE_PORT || process.env.PORT || 5003;
 let server = null;
 
 if (process.env.NODE_ENV !== "test") {
   server = app.listen(PORT, () => {
-    logger.info({ port: PORT }, "HomeEase Payment Service started");
+    logger.info({ port: PORT }, "HomeEase Notification Service started");
   });
 
+  // Outbox retry sweep — picks up any due `Pending` notification whose first
+  // synchronous dispatch attempt failed, without a caller re-invoking /dispatch.
+  const scheduler = require("./services/scheduler");
+  scheduler.start();
+
   const shutdown = (signal) => {
-    logger.info({ signal }, "Payment Service graceful shutdown initiated");
+    logger.info({ signal }, "Notification Service graceful shutdown initiated");
+    scheduler.stop();
     if (server) {
       server.close(() => {
         mongoose.connection.close(false).then(() => {
-          logger.info("Payment Service connections closed");
+          logger.info("Notification Service connections closed");
           process.exit(0);
         });
       });

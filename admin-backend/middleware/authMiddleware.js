@@ -1,6 +1,8 @@
 const jwt = require("jsonwebtoken");
-const User = require("../models/User");
 const logger = require("../utils/logger");
+// admin-backend no longer holds a local User model/DB (Stage 1 split) —
+// the authenticated user is fetched from booking-service instead.
+const bookingServiceClient = require("../services/bookingServiceClient");
 
 const protect = async (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -36,8 +38,22 @@ const protect = async (req, res, next) => {
             });
         }
 
-        req.user = await User.findById(decoded.id)
-            .select("-password");
+        let userData;
+        try {
+            userData = await bookingServiceClient.getUserById(decoded.id);
+        } catch (fetchError) {
+            if (fetchError.statusCode === 404) {
+                return res.status(401).json({
+                    success: false,
+                    message: "Not authorized, user not found"
+                });
+            }
+            // Network/service errors (e.g. booking-service unreachable) fall
+            // through to the outer catch below.
+            throw fetchError;
+        }
+
+        req.user = userData.user;
 
         if (!req.user) {
             return res.status(401).json({

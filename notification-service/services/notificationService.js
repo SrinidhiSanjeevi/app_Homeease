@@ -1,8 +1,7 @@
-const Notification = require("../../models/Notification");
-const User = require("../../models/User");
-const Booking = require("../../models/Booking");
-const metrics = require("../../metrics");
-const logger = require("../../utils/logger");
+const Notification = require("../models/Notification");
+const bookingServiceClient = require("./bookingServiceClient");
+const metrics = require("../metrics");
+const logger = require("../utils/logger");
 const { sendEmail } = require("./emailProvider");
 const {
   getBookingConfirmedTemplate,
@@ -77,7 +76,19 @@ async function enqueueNotification({
     let recipientName = explicitName;
 
     if (!recipientEmail || !recipientName) {
-      const userDoc = await User.findById(userId).lean();
+      // A missing/unreachable user must never block enqueueing the outbox
+      // record itself — fall back to generic recipient details, same
+      // resilience the old local `User.findById(...).lean()` (which never
+      // threw on a not-found id) gave callers.
+      let userDoc = null;
+      try {
+        userDoc = await bookingServiceClient.getUser(userId);
+      } catch (err) {
+        logger.warn(
+          { err: err.message, userId },
+          "[NotificationService] Could not fetch user from Booking Service — using fallback recipient details"
+        );
+      }
       recipientEmail = recipientEmail || userDoc?.email || "customer@homeease.com";
       recipientName = recipientName || userDoc?.name || "Customer";
     }
@@ -142,10 +153,12 @@ async function processNotification(notificationId) {
       return existing;
     }
 
-    // Load booking if available for template formatting
+    // Load booking (over HTTP, via booking-service) if available for
+    // template formatting — same fallback shape the old local
+    // `Booking.findById` catch block used when the lookup failed.
     let bookingDoc = null;
     try {
-      bookingDoc = await Booking.findById(notification.booking);
+      bookingDoc = await bookingServiceClient.getBooking(notification.booking);
     } catch (_) {
       bookingDoc = { _id: notification.booking };
     }
