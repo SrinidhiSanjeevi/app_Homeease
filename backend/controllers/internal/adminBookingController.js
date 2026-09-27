@@ -272,11 +272,13 @@ const updateBookingStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: `Booking is already ${status}` });
     }
 
-    if (!canTransition(existingBooking.status, status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Illegal booking status transition from '${existingBooking.status}' to '${status}'`
-      });
+    const hasProfessional = Boolean(existingBooking.professional);
+    if (!canTransition(existingBooking.status, status, hasProfessional)) {
+      const message =
+        (status === "Confirmed" || status === "Completed") && !hasProfessional
+          ? `Cannot mark this booking '${status}' — no professional is assigned to it yet`
+          : `Illegal booking status transition from '${existingBooking.status}' to '${status}'`;
+      return res.status(400).json({ success: false, message });
     }
 
     const isCash = existingBooking.paymentMethod === "Cash on Delivery";

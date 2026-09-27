@@ -301,7 +301,7 @@ const acceptBooking = async (req, res) => {
       return res.status(404).json({ success: false, message: "Booking not found" });
     }
 
-    if (!canTransition(booking.status, "Confirmed")) {
+    if (!canTransition(booking.status, "Confirmed", Boolean(booking.professional))) {
       return res.status(400).json({
         success: false,
         message: `Cannot transition booking from ${booking.status} to Confirmed`
@@ -355,13 +355,15 @@ const completeBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: "This booking is already completed" });
     }
 
-    if (!canTransition(booking.status, "Completed")) {
-      return res.status(400).json({
-        success: false,
-        message: booking.status === "Created"
+    const hasProfessional = Boolean(booking.professional);
+    if (!canTransition(booking.status, "Completed", hasProfessional)) {
+      const message =
+        booking.status === "Created"
           ? "This booking hasn't been paid yet, so it can't be completed"
-          : `Cannot transition booking from ${booking.status} to Completed`
-      });
+          : !hasProfessional
+            ? "This booking has no professional assigned yet, so it can't be completed"
+            : `Cannot transition booking from ${booking.status} to Completed`;
+      return res.status(400).json({ success: false, message });
     }
 
     const isCash = booking.paymentMethod === "Cash on Delivery";
