@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# =============================================================
-# sonar-scan.sh — run SonarQube scanner for all four services
-#
-# Usage:
-#   ./scripts/sonar-scan.sh              # scan all services
-#   ./scripts/sonar-scan.sh backend      # scan one service
-#
-# Credentials come from .env at the repo root — never typed
-# directly into a terminal command.
-# =============================================================
+# sonar-scan.sh — run SonarQube scanner for all (or one) service. Usage: ./scripts/sonar-scan.sh [service]. Credentials come from .env.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
