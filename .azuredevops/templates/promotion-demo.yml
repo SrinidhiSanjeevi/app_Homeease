@@ -5,19 +5,21 @@
 # environment has an "Approvals" check, the run pauses here with a
 # Review → Approve / Reject button; no agent is held while it waits.
 #
-# STAGING (parameters.dryRun: false): a REAL promotion. After approval
-# it clones Gitops_Homeease, bumps charts/<service>/${{ valuesFile }}'s
-# image.tag to the tag DEV was VERIFIED at (stage 5, DevVerify), commits
-# and pushes — same git/yq/error-handling pattern as the real `Promote`
-# stage in azure-pipelines.yml. Argo CD (argocd/azure-staging/) then
-# rolls it out automatically; StagingVerify (below in
-# azure-pipelines.yml) proves it actually took.
+# Both STAGING and PROD currently use dryRun: true (the default): after
+# approval this job only prints what promoting the verified DEV tags
+# (stage 5, DevVerify) to ${{ parameters.targetName }} would change — it
+# clones Gitops_Homeease read-only and writes nothing. Neither STAGING
+# nor PROD has GitOps/a cluster wired up for this demo; the job exists
+# to demonstrate the approval-gate mechanism and carry the verified tags
+# forward. Real PROD promotion is the separate, explicitly-gated stage
+# PromoteProd (enableProdPromotion), which uses its own GITOPS_PROD_PAT
+# and actually writes charts/*/values-azure-prod.yaml.
 #
-# PROD (parameters.dryRun: true, the default): still print-only. There
-# is no writing PROD cluster/promotion wired up here yet — real PROD
-# promotion is the separate, explicitly-gated stage PromoteProd
-# (enableProdPromotion), which uses its own GITOPS_PROD_PAT. This job
-# only shows what promoting the verified DEV tags to PROD would change.
+# dryRun: false remains supported (see below) for the day a real
+# STAGING cluster is wired up — it clones, bumps
+# charts/<service>/${{ valuesFile }}'s image.tag, commits and pushes,
+# same git/yq/error-handling pattern as the real `Promote` stage in
+# azure-pipelines.yml. Nothing currently sets dryRun: false.
 # ============================================================
 
 parameters:

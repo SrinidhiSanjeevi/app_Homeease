@@ -15,10 +15,6 @@ services:
     restart: unless-stopped
     volumes:
       - mongo-data:/data/db
-    # Internal only: shared by backend/admin-backend/payment-service/
-    # notification-service over homeease-net, each connecting to its own
-    # database on this single instance (homeease_booking, homeease_admin,
-    # homeease_payment, homeease_notification). Not published on the host.
     expose:
       - "27017"
     networks:
@@ -44,11 +40,7 @@ services:
     environment:
       - NODE_ENV=production
       - METRICS_COLLECTOR_ENABLED=true
-    # Internal only: the frontend nginx containers reach this over
-    # homeease-net via /api/ proxying. Not published on the host —
-    # if you need direct access for local debugging, use
-    # `docker compose exec backend sh` or add a port mapping back
-    # temporarily rather than leaving it open by default.
+  
     expose:
       - "5000"
     networks:
@@ -77,7 +69,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5001
-    # Internal only: reached by admin-frontend over homeease-net.
+  
     expose:
       - "5001"
     networks:
@@ -109,9 +101,7 @@ services:
       - NODE_ENV=production
       - PAYMENT_SERVICE_PORT=5002
       - PORT=5002
-    # Internal only: reached by backend over homeease-net, never published
-    # on the host. Set INTERNAL_SERVICE_TOKEN in both backend/.env and
-    # payment-service/.env to require the shared service token.
+    
     expose:
       - "5002"
     networks:
@@ -143,9 +133,7 @@ services:
       - NODE_ENV=production
       - NOTIFICATION_SERVICE_PORT=5003
       - PORT=5003
-    # Internal only: reached by backend over homeease-net, never published
-    # on the host. Set INTERNAL_SERVICE_TOKEN in both backend/.env and
-    # notification-service/.env to require the shared service token.
+    
     expose:
       - "5003"
     networks:
