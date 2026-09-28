@@ -1,9 +1,4 @@
-# ============================================================
-# Reusable validation steps for one Node service.
-#
-# Order matters: cheapest and most likely to fail goes first, so a
-# broken lint doesn't wait 4 minutes behind a test suite.
-# ============================================================
+# Reusable validation steps for one Node service — cheapest checks run first.
 
 parameters:
   - name: name
@@ -91,15 +86,7 @@ steps:
           npm run build
         displayName: 'Production build — ${{ parameters.name }}'
 
-  # ──────────────────────────────────────────────────────────
-  # SCA on the source tree.
-  #
-  # This is NOT the same as the image scan in the Package stage:
-  # here Trivy sees devDependencies and the lockfile; there it sees
-  # only what shipped. Both matter — a vulnerable build-time dep is
-  # a supply-chain risk even if it never reaches production.
-  # ──────────────────────────────────────────────────────────
-
+  # SCA on the source tree (sees devDependencies/lockfile, unlike the Package stage's image scan).
   - task: Cache@2
     displayName: 'Cache Trivy DB'
     inputs:
@@ -128,33 +115,7 @@ steps:
         ${{ parameters.path }}
     displayName: 'Trivy fs — ${{ parameters.name }}'
 
-  # ──────────────────────────────────────────────────────────
-  # SonarQube Cloud — this service has its OWN project, so its own
-  # dashboard and Quality Gate, independent of the other three.
-  #
-  # configMode: 'file' reads that properties file directly — project
-  # key, sources, exclusions all live in exactly one place (the
-  # properties file), not duplicated here in YAML. Nothing in this
-  # task needs a token, host URL, or branch property:
-  # sonarcloud-homeease (the service connection) supplies auth, and
-  # SonarCloud's own Azure DevOps integration detects branch/PR
-  # context automatically.
-  # ──────────────────────────────────────────────────────────
-
-  # ──────────────────────────────────────────────────────────
-  # SonarQube Cloud tasks upgraded from @3 → @4.
-  #
-  # The installed SonarQube Cloud ADO extension is v4.2.6; @3 tasks are
-  # deprecated (they were shipped with extension v3.x). @4 tasks are the
-  # currently supported version and correspond to the installed extension.
-  #
-  # Authentication: sonarcloud-homeease service connection supplies the
-  # token — no token or URL appears in this file or in sonar-project.properties.
-  #
-  # configMode:'file' reads each service's sonar-project.properties directly.
-  # Branch detection is automatic from the Azure DevOps build context.
-  # ──────────────────────────────────────────────────────────
-
+  # SonarCloud (own project per service, auth via sonarcloud-homeease service connection, config from sonar-project.properties).
   - task: SonarCloudPrepare@4
     displayName: 'SonarCloud prepare — ${{ parameters.name }}'
     inputs:

@@ -1,76 +1,4 @@
-# ============================================================
-# HomeEase — CI/CD Pipeline (Azure DevOps → ACR → Gitops_Homeease)
-#
-#   Git push / PR
-#        │
-#        ▼
-#   1. STATIC        secret scan, Dockerfile lint, change detection   (repo-wide, 1 job)
-#        │
-#        ▼
-#   2. VALIDATE      lint · tests (backend) · npm audit · trivy fs · Sonar   (per changed service)
-#        │
-#        ▼
-#   3. PACKAGE       build → trivy image → SBOM → push → sign      (per changed service, ONE job)
-#        │
-#        ▼
-#   4. PROMOTE       bump image.tag in Gitops_Homeease's charts/*/values-azure-dev.yaml,
-#                    commit + push to main    (main only, ONE job, all changed services)
-#        │
-#        ▼
-#   5. VERIFY DEV    wait until DEV serves the promoted tag, then smoke-test it   (main only)
-#        │
-#        ├──▶ 6. REPORT        push CI duration metrics to Pushgateway
-#        │
-#        ▼
-#   7a. PROMOTE      [approve] print what promoting the verified DEV tags to
-#       STAGING      STAGING would change, write nothing — demo of the
-#       (preview)     approval gate only, no GitOps write   (enableStagingPromotion)
-#        │
-#        ▼
-#   7c. PROMOTE PROD [approve] print what promoting to PROD would change,
-#       (preview)     write nothing — demo of the approval gate only
-#                    (enableStagingPromotion)
-#        │
-#        ▼
-#   7. PROMOTE PROD  copy the VERIFIED DEV tags into charts/*/values-azure-prod.yaml
-#                    — waits for approval on the homeease-prod ADO environment.
-#                    Compiled in only when enableProdPromotion is 'true' (below).
-#
-# Argo CD needs no change to pick up what stage 4 pushes: every service
-# Application already has syncPolicy.automated.selfHeal and already
-# watches charts/<service>/values-azure-dev.yaml via helm.valueFiles
-# (see Gitops_Homeease/argocd/azure/bootstrap/0N-<service>.yaml). It
-# picks up the new commit on its next poll with no GitOps-repo change
-# required for this feature.
-#
-# DESIGN NOTES — read before editing
-#
-# * Build, scan and push live in ONE job per service. The previous
-#   version crossed stage boundaries with `docker save` + Pipeline
-#   Artifacts, which meant uploading and downloading ~150 MB per
-#   service TWICE per run. On the free tier (1 parallel job,
-#   1,800 min/month) that was the single biggest consumer of minutes.
-#   Nothing is gained: the image is scanned and pushed from the same
-#   Docker daemon that built it.
-#
-# * Image tag is the GIT SHA, not $(Build.BuildId). A build ID cannot
-#   be traced back to source. `:latest` is not pushed at all — it makes
-#   GitOps non-deterministic and blocks rollback.
-#
-# * There are no per-environment BUILDS here, by design. CI produces
-#   ONE image digest per commit; environments are a promotion concern.
-#   Building per-environment would mean staging and prod run different
-#   binaries. Stages 4 and 7 never build anything — they only copy an
-#   already-pushed tag from one values file to another.
-#
-# * Trivy is pinned to a release tag and its DB is cached. Pulling
-#   install.sh from a moving branch caused a supply-chain break in this
-#   project before; pulling the DB anonymously from ghcr.io on every run
-#   causes intermittent TOOMANYREQUESTS failures that look like flakes.
-#
-# * Conditions are kept on ONE LINE. Multi-line conditions have broken
-#   YAML parsing in this pipeline before.
-# ============================================================
+# HomeEase CI/CD: Static -> Validate -> Package -> Promote (GitOps) -> Verify DEV -> Report -> Promote Staging/Prod (preview) -> Promote Prod.
 
 trigger:
   branches:
@@ -105,12 +33,7 @@ pr:
 pool:
   vmImage: 'ubuntu-latest'
 
-# ============================================================
-# SERVICE CATALOGUE
-#
-# The single source of truth. Adding another service means adding
-# one entry here — not copying 200 lines of YAML.
-# ============================================================
+# Service catalogue: the single source of truth for all per-service jobs below.
 
 parameters:
   - name: services
@@ -160,9 +83,7 @@ parameters:
         sonarProjectKey: homeease-admin-frontend
 
 variables:
-  # PUSHGATEWAY_URL (used by Package/Report stages below) comes from
-  # this group. SonarCloud auth is handled entirely by the
-  # sonarcloud-homeease service connection, not by any variable here.
+  # PUSHGATEWAY_URL (used by Package/Report stages) comes from this group.
   - group: homeease-ci
 
   - name: acrName
@@ -170,8 +91,7 @@ variables:
   - name: acrLoginServer
     value: '$(acrName).azurecr.io'
 
-  # Repository namespace inside the registry: acrhomeeasedev01.azurecr.io/homeease/backend
-  # One registry serves all environments — promotion is by digest, not by registry.
+  # Repository namespace inside the registry, e.g. .../homeease/backend
   - name: imageNamespace
     value: 'homeease'
 
@@ -191,46 +111,23 @@ variables:
   - name: isMain
     value: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
 
-  # GitOps repo the Promote stage bumps image.tag in. Chart directory
-  # names under charts/ match parameters.services[].name exactly
-  # (backend, admin-backend, frontend, admin-frontend, payment-service)
-  # — no mapping table needed.
+  # GitOps repo the Promote stage bumps image.tag in.
   - name: gitopsRepo
     value: 'github.com/SrinidhiSanjeevi/Gitops_Homeease.git'
   - name: gitopsBranch
     value: 'main'
 
-  # Compile-time switch for stage 7. While 'false', the Promote PROD stage
-  # does not exist in the run at all — so no homeease-prod environment is
-  # referenced (ADO would silently auto-create one WITHOUT approvals) and
-  # no homeease-prod-gitops variable group has to exist yet. Flip to 'true'
-  # only after the one-time setup in .azuredevops/README.md is done.
+  # Compile-time switch: when 'false', the real Promote PROD stage (7) is not compiled into the run at all.
   - name: enableProdPromotion
     value: 'false'
 
-  # Compile-time switch for stage 7a: DEV → approve → STAGING (preview
-  # only — prints what would be promoted, writes nothing) → approve →
-  # PROD (also preview only; real PROD promotion is the separate
-  # PromoteProd stage below). Neither STAGING nor PROD has GitOps/a
-  # cluster wired up for this demo — both stages exist only to show the
-  # approval-gate mechanism and pass the verified image tags along.
-  # Approvals live on the homeease-staging and homeease-prod environments
-  # (ADO UI → Environments → Approvals and checks). Keep it 'false' when
-  # enableProdPromotion is 'true'.
+  # Compile-time switch: enables the preview-only, approval-gated Staging/Prod demo stages (7a/7c).
   - name: enableStagingPromotion
     value: 'true'
 
 stages:
 
-# ============================================================
-# STAGE 1 — STATIC
-#
-# Repo-wide checks that need no dependencies installed, plus change
-# detection so unmodified services are skipped entirely. On a 1-job
-# agent this is the difference between a 6-minute run and a 20-minute
-# one when you touch a single service.
-# ============================================================
-
+# Stage 1: secret scan, Dockerfile lint, and change detection (repo-wide, no dependencies needed).
 - stage: Static
   displayName: '1. Static Analysis'
   jobs:
@@ -287,11 +184,7 @@ stages:
               git fetch --no-tags origin "$(System.PullRequest.TargetBranch)"
               RANGE="${BASE}...HEAD"
             else
-              # On main, diff against the commit of the last SUCCESSFUL
-              # main build — not HEAD~1. A push of several commits (or a
-              # previously failed run) would otherwise hide changes made
-              # in the earlier commits. Falls back to HEAD~1, then to
-              # "everything changed" on the very first run.
+              # Diff against the last SUCCESSFUL main build, not HEAD~1, so a multi-commit push doesn't hide earlier changes.
               LAST_GOOD=$(curl -fsS -H "Authorization: Bearer ${SYSTEM_ACCESSTOKEN}" \
                 "$(System.CollectionUri)$(System.TeamProject)/_apis/build/builds?definitions=$(System.DefinitionId)&branchName=refs/heads/main&resultFilter=succeeded&statusFilter=completed&queryOrder=finishTimeDescending&\$top=1&api-version=7.1" \
                 | jq -r '.value[0].sourceVersion // empty' 2>/dev/null || true)
@@ -349,13 +242,7 @@ stages:
           condition: always()
           displayName: 'Publish SARIF reports'
 
-# ============================================================
-# STAGE 2 — VALIDATE
-#
-# Per-service fast feedback. Skipped for services this commit
-# did not touch.
-# ============================================================
-
+# Stage 2: per-service lint/test/audit/scan, skipped for services this commit did not touch.
 - stage: Validate
   displayName: '2. Validate Services'
   dependsOn: Static
@@ -378,14 +265,7 @@ stages:
                 nodeVersion: $(nodeVersion)
                 trivyVersion: $(trivyVersion)
 
-# ============================================================
-# STAGE 3 — PACKAGE
-#
-# Build → scan → SBOM → push, all in one job so the image never
-# leaves the agent between steps. Push only happens on main; PRs
-# stop after the scan.
-# ============================================================
-
+# Stage 3: build, scan, SBOM and push, one job per service (push only on main).
 - stage: Package
   displayName: '3. Build, Scan & Push'
   dependsOn:
@@ -414,27 +294,7 @@ stages:
                 trivyVersion: $(trivyVersion)
                 syftVersion: $(syftVersion)
 
-# ============================================================
-# STAGE 4 — PROMOTE
-#
-# Bump image.tag in Gitops_Homeease so Argo CD deploys what Package
-# just pushed. Argo CD itself needs no change for this: every service
-# Application already has syncPolicy.automated.selfHeal on main and
-# already watches charts/<service>/values-azure-dev.yaml via
-# helm.valueFiles — this stage only ever edits a value that Application
-# already reads, never the chart or Application shape.
-#
-# ONE job, not one per service, on purpose: all 5 services share a
-# single image tag (see Static's "Same tag for every service built
-# from this commit"), so bumping all 5 files is naturally one commit.
-# Splitting into per-service jobs would mean concurrent pushes to the
-# same GitOps branch racing each other for a fast-forward.
-#
-# Runs only on main, only after Package succeeded — a PR's Package jobs
-# build and scan but skip the actual ACR push (see package-service.yml),
-# so there's nothing to promote.
-# ============================================================
-
+# Stage 4: bump image.tag for all changed services in Gitops_Homeease in one commit (main only).
 - stage: Promote
   displayName: '4. Promote to GitOps'
   dependsOn:
@@ -468,11 +328,7 @@ stages:
         - script: |
             set -euo pipefail
 
-            # GITOPS_PAT is a GitHub PAT scoped to Contents:write on
-            # Gitops_Homeease only — see .azuredevops/README.md for the
-            # variable-group setup this reads it from. Never echoed;
-            # Azure DevOps also auto-redacts any secret-variable value
-            # found in logs.
+            # GITOPS_PAT: a GitHub PAT scoped to Contents:write on Gitops_Homeease only (see .azuredevops/README.md).
             if [ -z "${GITOPS_PAT:-}" ]; then
               echo "##vso[task.logissue type=error]GITOPS_PAT is not set. Add it as a secret variable in the homeease-ci variable group (see .azuredevops/README.md)."
               exit 1
@@ -481,12 +337,7 @@ stages:
             echo "GitOps repo:   $(gitopsRepo)"
             echo "GitOps branch: $(gitopsBranch)"
 
-            # Read-only auth check, before anything destructive. Confirms
-            # GITOPS_PAT can actually authenticate and see the target
-            # branch, so a failure here is unambiguously a token/repo
-            # problem and not a clone/push race. Never prints the token:
-            # git redacts credentials in its own output, and Azure DevOps
-            # separately masks any literal secret-variable value in logs.
+            # Read-only auth check before anything destructive, so a failure here is unambiguously a token/repo problem.
             if ! git ls-remote --exit-code \
                  "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" \
                  "refs/heads/$(gitopsBranch)" > /tmp/ls-remote.out 2>/tmp/ls-remote.err; then
@@ -572,34 +423,7 @@ stages:
             GITOPS_PAT: $(GITOPS_PAT)
             IMAGE_TAG: $(imageTag)
 
-# ============================================================
-# STAGE 5 — VERIFY DEV
-#
-# Promote only proves a commit landed in Git; this proves DEV is
-# actually RUNNING it and healthy. It is the evidence stage 7 relies
-# on: nothing reaches PROD that did not pass here first.
-#
-# Reads everything from the GitOps commit Promote published
-# (bump.devCommit) — ingress hosts and the backend tag DEV is supposed
-# to be at — so nothing here duplicates a value that lives in Git.
-#
-#   1. rollout   backend /health/live must report version == the DEV
-#                image.tag (APP_VERSION, set by charts/backend). Proves
-#                Argo CD synced and the new pods took traffic, not just
-#                that an old pod is still up.
-#   2. health    backend /health/ready must be 200 (MongoDB connected).
-#   3. smoke     frontend + admin-frontend must serve / with 200.
-#
-# Hosts are nip.io on DEV's public ingress IP, reachable from a hosted
-# agent. All checks use https with -k: this checks the app, not the TLS
-# chain (cert-manager is not installed yet — platform/README.md). Plain
-# http to these hostnames is not relied on: it is blocked (403) on some
-# networks, while https was verified to return 200 for all three.
-#
-# Failing here never touches DEV (it is already deployed); it blocks
-# PROD promotion and shows up in the Report stage's result metric.
-# ============================================================
-
+# Stage 5: wait for DEV to actually run the promoted tag, then health/smoke-test it (main only).
 - stage: DevVerify
   displayName: '5. Verify DEV'
   dependsOn:
@@ -655,9 +479,7 @@ stages:
                 echo "backend is serving ${BACKEND_TAG}"
                 break
               fi
-              # Images built before /health/live reported a version cannot
-              # prove which build is live. Say so loudly and fall back to
-              # health-only; once backend is rebuilt once, this never hits.
+              # Older images without a versioned /health/live fall back to health-only checks.
               if { [ -z "$VERSION" ] && echo "$BODY" | jq -e '.status == "ok"' >/dev/null 2>&1; } || [ "$VERSION" = "unknown" ]; then
                 echo "##vso[task.logissue type=warning]backend /health/live does not report a version yet — rollout of ${BACKEND_TAG} NOT confirmed, only health is checked."
                 break
@@ -695,17 +517,7 @@ stages:
             GITOPS_PAT: $(GITOPS_PAT)
             DEV_COMMIT: $(devCommit)
 
-# ============================================================
-# STAGE 6 — REPORT
-#
-# Ship pipeline timing to Prometheus so CI health is graphable
-# alongside app health. Never fails the build: an unreachable
-# Pushgateway is a monitoring problem, not a code problem.
-#
-# Deliberately NOT dependent on stage 7: a PROD approval can wait
-# for days, and CI metrics should not wait with it.
-# ============================================================
-
+# Stage 6: push CI duration/result metrics to Pushgateway; never fails the build.
 - stage: Report
   displayName: '6. Publish CI Metrics'
   dependsOn:
@@ -759,23 +571,7 @@ stages:
             SYSTEM_ACCESSTOKEN: $(System.AccessToken)
           continueOnError: true
 
-# ============================================================
-# STAGES 7a / 7c — PROMOTE STAGING (preview, approval-gated),
-# PROMOTE PROD (preview, approval-gated)
-#
-#   5. Verify DEV ──▶ [approve] 7a. Promote STAGING (preview)
-#                                                              │
-#                                                              ▼
-#                                              [approve] 7c. Promote PROD (preview)
-#
-# Both stages are print-only (dryRun: true, the default in
-# promotion-demo.yml): they show what promoting the verified DEV tags
-# would change and gate that on an ADO environment approval, but write
-# nothing to Gitops_Homeease and never touch a cluster. There is no
-# STAGING or PROD Argo CD/cluster wired up for this demo — see stage
-# PromoteProd/enableProdPromotion for the real, separate PROD path.
-# ============================================================
-
+# Stages 7a/7c: approval-gated preview of promoting verified DEV tags to STAGING then PROD (writes nothing).
 - ${{ if eq(variables.enableStagingPromotion, 'true') }}:
   - stage: PromoteStaging
     displayName: '7a. Promote to STAGING (preview, approval)'
@@ -805,32 +601,7 @@ stages:
           valuesFile: values-azure-prod.yaml
           dryRun: true
 
-# ============================================================
-# STAGE 7 — PROMOTE PROD (approval-gated)
-#
-# Copies the image tags DEV was VERIFIED at (stage 5) into
-# charts/<service>/values-azure-prod.yaml and pushes that one commit.
-# Nothing is built, pulled or re-tagged: PROD gets the exact same
-# acrhomeeasedev01.azurecr.io/homeease/<service>:<sha> images DEV runs.
-#
-# THE GATE is the `environment: homeease-prod` below. Azure DevOps
-# pauses this stage until an approver on that environment approves;
-# no agent is held while it waits. Approvers, the exclusive lock and
-# the homeease-prod-gitops variable group are configured once, in the
-# ADO UI — see .azuredevops/README.md. Until that is done,
-# enableProdPromotion stays 'false' and this stage is not compiled in.
-#
-# Refuses to promote a STALE run: if DEV has moved on since this run
-# verified it (a newer commit was promoted to DEV in the meantime), it
-# fails instead of pushing older tags over newer ones. The newer run
-# asks for its own approval. lockBehavior: runLatest + the environment's
-# Exclusive Lock check additionally cancel superseded runs still waiting.
-#
-# Uses GITOPS_PROD_PAT from its own variable group, never GITOPS_PAT,
-# so the prod-writing credential can be rotated, revoked or restricted
-# to this pipeline independently of the DEV one.
-# ============================================================
-
+# Stage 7: copy the verified DEV tags into values-azure-prod.yaml and push, gated on homeease-prod approval.
 - ${{ if eq(variables.enableProdPromotion, 'true') }}:
   - stage: PromoteProd
     displayName: '7. Promote to PROD (approval required)'

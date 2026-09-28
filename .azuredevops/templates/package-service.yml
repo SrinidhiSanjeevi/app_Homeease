@@ -1,11 +1,4 @@
-# ============================================================
-# Build → scan → SBOM → push, for one service, in ONE job.
-#
-# The image is never serialised to an artifact. It is built, scanned
-# and pushed from the same Docker daemon, which removes ~300 MB of
-# artifact traffic per service per run and closes the gap where an
-# unscanned image could be pushed by a differently-configured job.
-# ============================================================
+# Build, scan, SBOM and push for one service, in ONE job — the image never leaves the agent.
 
 parameters:
   - name: name
@@ -46,15 +39,7 @@ steps:
     # because isMain is a pipeline-scoped variable visible in every job.
     condition: eq(variables['isMain'], 'True')
 
-  # ──────────────────────────────────────────────────────────
-  # BUILD
-  #
-  # OCI labels are what make DORA lead-time computable later:
-  # image.created carries the COMMIT time, not the build time, so
-  # lead time = argocd_sync_time - image.created with no extra
-  # correlation store.
-  # ──────────────────────────────────────────────────────────
-
+  # Build — OCI labels carry commit time (not build time) so DORA lead-time is computable later.
   - script: |
       set -euo pipefail
       docker buildx create --use --name homeease --driver docker-container 2>/dev/null || docker buildx use homeease
@@ -79,10 +64,7 @@ steps:
       docker image inspect "$(IMAGE)" --format 'Built {{.RepoTags}} — {{.Size}} bytes'
     displayName: 'Build ${{ parameters.name }}'
 
-  # ──────────────────────────────────────────────────────────
-  # SCAN — the gate. Nothing below this line runs if it fails.
-  # ──────────────────────────────────────────────────────────
-
+  # Scan — the gate. Nothing below this line runs if it fails.
   - task: Cache@2
     displayName: 'Cache Trivy DB'
     inputs:
@@ -117,11 +99,7 @@ steps:
         "$(IMAGE)"
     displayName: 'Trivy image scan — ${{ parameters.name }}'
 
-  # ──────────────────────────────────────────────────────────
-  # SBOM — the difference between "we scanned it" and "we can
-  # answer, six months from now, whether we shipped that CVE."
-  # ──────────────────────────────────────────────────────────
-
+  # SBOM — records what shipped so a later CVE can be traced back to the image.
   - script: |
       set -euo pipefail
       curl -fsSL "https://github.com/anchore/syft/releases/download/v${{ parameters.syftVersion }}/syft_${{ parameters.syftVersion }}_linux_amd64.tar.gz" \
@@ -139,13 +117,7 @@ steps:
     condition: succeededOrFailed()
     displayName: 'Publish SBOM + SARIF — ${{ parameters.name }}'
 
-  # ──────────────────────────────────────────────────────────
-  # PUSH — main only, and only after the gate above passed.
-  #
-  # No :latest tag. The digest is captured and printed because that
-  # is what CD should reference; tags are mutable, digests are not.
-  # ──────────────────────────────────────────────────────────
-
+  # Push — main only, after the scan gate passed. No :latest tag; the immutable digest is captured for CD.
   - script: |
       set -euo pipefail
       START=$(date +%s)
@@ -170,15 +142,7 @@ steps:
     displayName: 'Push to ACR + record duration — ${{ parameters.name }}'
     condition: and(succeeded(), eq(variables['isMain'], 'True'))
 
-  # ──────────────────────────────────────────────────────────
-  # SIGN (optional, main only)
-  #
-  # NOTE: cosign KEYLESS signing needs an OIDC issuer Sigstore's
-  # Fulcio trusts. GitHub Actions is trusted; Azure DevOps is not.
-  # So on ADO, sign with a key in Key Vault (azurekms://) instead.
-  # The AWS pipeline uses keyless. Enable once the key exists.
-  # ──────────────────────────────────────────────────────────
-
+  # Sign (optional, main only) — disabled until the Key Vault signing key exists.
   # - script: |
   #     set -euo pipefail
   #     COSIGN_VERSION=3.1.3

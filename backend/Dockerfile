@@ -60,11 +60,5 @@ HEALTHCHECK \
 # Process supervisor signal forwarding
 ENTRYPOINT ["dumb-init", "--"]
 
-# FIX: the trailing "# CI rebuild" comment was on the SAME line as CMD,
-# breaking Docker's JSON-array parsing of the exec form. Docker silently
-# fell back to shell form and tried to literally execute the text
-# `["node", "server.js"]# CI rebuild` as a shell command — which doesn't
-# exist, producing exit code 127 and an endless restart loop under
-# docker-compose's `restart: unless-stopped`. The comment must be its
-# own line, or removed entirely, never appended after CMD.
+# Comment must be on its own line, never appended after CMD.
 CMD ["node", "server.js"]

@@ -1,26 +1,4 @@
-# ============================================================
-# promotion-demo.yml — approval-gated promotion
-#
-# One deployment job bound to an ADO environment. When that
-# environment has an "Approvals" check, the run pauses here with a
-# Review → Approve / Reject button; no agent is held while it waits.
-#
-# Both STAGING and PROD currently use dryRun: true (the default): after
-# approval this job only prints what promoting the verified DEV tags
-# (stage 5, DevVerify) to ${{ parameters.targetName }} would change — it
-# clones Gitops_Homeease read-only and writes nothing. Neither STAGING
-# nor PROD has GitOps/a cluster wired up for this demo; the job exists
-# to demonstrate the approval-gate mechanism and carry the verified tags
-# forward. Real PROD promotion is the separate, explicitly-gated stage
-# PromoteProd (enableProdPromotion), which uses its own GITOPS_PROD_PAT
-# and actually writes charts/*/values-azure-prod.yaml.
-#
-# dryRun: false remains supported (see below) for the day a real
-# STAGING cluster is wired up — it clones, bumps
-# charts/<service>/${{ valuesFile }}'s image.tag, commits and pushes,
-# same git/yq/error-handling pattern as the real `Promote` stage in
-# azure-pipelines.yml. Nothing currently sets dryRun: false.
-# ============================================================
+# Approval-gated promotion demo: prints what promoting verified DEV tags to the target would change (dryRun: true by default; false writes for real).
 
 parameters:
   - name: targetName        # STAGING / PROD — shown in the log
@@ -89,11 +67,7 @@ jobs:
                 - script: |
                     set -euo pipefail
 
-                    # GITOPS_PAT is a GitHub PAT scoped to Contents:write on
-                    # Gitops_Homeease only — see .azuredevops/README.md.
-                    # ${{ parameters.targetName }} isn't sensitive enough to
-                    # need its own separate PAT the way PROD's real
-                    # promotion (GITOPS_PROD_PAT) does.
+                    # GITOPS_PAT: scoped to Contents:write on Gitops_Homeease (see .azuredevops/README.md).
                     if [ -z "${GITOPS_PAT:-}" ]; then
                       echo "##vso[task.logissue type=error]GITOPS_PAT is not set. Add it as a secret variable in the homeease-ci variable group (see .azuredevops/README.md)."
                       exit 1
