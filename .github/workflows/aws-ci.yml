@@ -14,8 +14,9 @@
 #     the local cache dance ADO needs
 #
 # Repository configuration required (Settings → Secrets and variables):
-#   Variables:  AWS_REGION, AWS_ACCOUNT_ID, AWS_CI_ROLE_ARN, PUSHGATEWAY_URL
-#   Secrets:    SONAR_TOKEN, SONAR_HOST_URL
+#   Variables:  AWS_REGION, AWS_ACCOUNT_ID, AWS_CI_ROLE_ARN, PUSHGATEWAY_URL,
+#               SONAR_HOST_URL (not sensitive — the SonarCloud instance URL)
+#   Secrets:    SONAR_TOKEN
 #
 # AWS_CI_ROLE_ARN is an identifier, not a credential — keep it a
 # variable so it's visible in logs and obvious that nothing secret
@@ -216,7 +217,7 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v4
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
         with:
           projectBaseDir: ${{ matrix.service }}
 
