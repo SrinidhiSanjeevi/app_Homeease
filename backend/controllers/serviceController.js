@@ -94,7 +94,6 @@ const getServiceById = async (req, res) => {
   }
 };
 
-// Public reviews show only "First L." — never full names or contact data.
 const toDisplayName = (name) => {
   const parts = (name || "").trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "Customer";
@@ -102,7 +101,6 @@ const toDisplayName = (name) => {
   return parts.length > 1 ? `${first} ${parts[parts.length - 1][0].toUpperCase()}.` : first;
 };
 
-// GET RECENT REVIEWS + RATING BREAKDOWN FOR A SERVICE
 const getServiceReviews = async (req, res) => {
   try {
     const limit = Number(req.query.limit) || 10;
@@ -156,7 +154,6 @@ const getServiceReviews = async (req, res) => {
   }
 };
 
-// GET LATEST WRITTEN REVIEWS ACROSS ALL SERVICES (home page)
 const getRecentReviews = async (req, res) => {
   try {
     const limit = Number(req.query.limit) || 6;
@@ -191,8 +188,6 @@ const getRecentReviews = async (req, res) => {
   }
 };
 
-// GET /api/services/professionals/availability?date=YYYY-MM-DD&timeSlot=...
-// → ids of professionals already booked for that slot.
 const getProfessionalAvailability = async (req, res) => {
   try {
     const { date, timeSlot } = req.query;
@@ -207,8 +202,6 @@ const getProfessionalAvailability = async (req, res) => {
   }
 };
 
-// GET /api/services/areas — the neighbourhoods HomeEase serves, with how
-// many active professionals are based in each.
 const getAreas = async (req, res) => {
   try {
     const counts = await Professional.aggregate([

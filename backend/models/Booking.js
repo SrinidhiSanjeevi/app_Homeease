@@ -85,8 +85,6 @@ const bookingSchema = new mongoose.Schema(
       longitude: Number,
       accuracy: Number
     },
-    // Distance (km) between the customer and the professional that was
-    // actually assigned, when nearest-provider matching was used.
     assignedDistanceKm: {
       type: Number
     },
@@ -100,7 +98,6 @@ const bookingSchema = new mongoose.Schema(
     cancelledBy: { type: String, enum: ["customer", "admin", "system"] },
     cancellationReason: { type: String },
     cancellationFee: { type: Number, default: 0 },
-    // Amount still to be refunded when paymentStatus is "Refund Pending".
     refundAmount: { type: Number },
     refundAttempts: { type: Number, default: 0 }
   },

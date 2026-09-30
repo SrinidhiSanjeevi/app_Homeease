@@ -1,9 +1,6 @@
 const AuditLog = require("../models/AuditLog");
 const logger = require("../utils/logger");
 
-/**
- * Helper to record an audit log entry
- */
 async function recordAudit({
   admin,
   action,
@@ -40,9 +37,6 @@ async function recordAudit({
   }
 }
 
-/**
- * Express middleware that intercepts and records audit logs for mutating requests
- */
 function auditAction(action, targetType) {
   return async (req, res, next) => {
     const originalJson = res.json.bind(res);

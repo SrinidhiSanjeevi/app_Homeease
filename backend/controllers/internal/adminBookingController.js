@@ -1,19 +1,3 @@
-/**
- * Internal Admin Booking Controller
- *
- * Backs the /api/internal/admin/* routes admin-backend calls over HTTP
- * instead of touching Mongo directly. This is the moved, unmodified
- * business logic that used to live in
- * admin-backend/controllers/adminController.js — same queries, same side
- * effects (SlotReservation cleanup, Professional.completedJobs increment,
- * reassignWaitingWork(), freeing a professional on emergency close), now
- * running against booking-service's own (canonical) models.
- *
- * Every route here sits behind requireInternalToken (middleware/internalAuth.js)
- * — no end-user JWT is checked; the calling service already did human-level
- * admin auth.
- */
-
 const mongoose = require("mongoose");
 const User = require("../../models/User");
 const Booking = require("../../models/Booking");
@@ -29,9 +13,6 @@ const { AREAS, MAX_SERVICE_AREAS, findArea, normalizeServiceAreas } = require(".
 const { parsePagination, formatPaginationResult } = require("../../utils/pagination");
 const { attachImageUrls } = require("../../services/blobStorage");
 
-// The admin form's `image` field may hold a short-lived SAS preview URL.
-// Only persist real blob keys ("<container>/<blob>"), never URLs, or the
-// stored image breaks once the SAS token expires.
 const toImageKey = (value) => {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -64,8 +45,6 @@ const getStats = async (req, res) => {
       Service.countDocuments(),
       Professional.countDocuments(),
       EmergencyRequest.countDocuments(),
-      // Everything still in flight — this is what the admin overview's
-      // emergency alert banner reacts to, not the all-time total above.
       EmergencyRequest.countDocuments({ status: { $nin: ["Resolved", "Cancelled"] } }),
       Booking.countDocuments({ status: "Created" }),
       Booking.countDocuments({ status: "Assigned" }),
@@ -82,8 +61,6 @@ const getStats = async (req, res) => {
     const pendingBookings = createdBookings + assignedBookings;
 
     const revenueAgg = await Booking.aggregate([
-      // Money actually received: paid online, cash collected, or the fee
-      // kept on a late cancellation.
       { $match: { paymentStatus: { $in: ["Paid", "Paid (Cash Collected)", "Partially Refunded"] } } },
       {
         $group: {
@@ -161,8 +138,6 @@ const getAllUsers = async (req, res) => {
   }
 };
 
-// Internal-only: fetches a single user (password excluded) for admin-backend's
-// JWT auth middleware, which no longer holds a local User model/DB of its own.
 const getUserById = async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -266,8 +241,6 @@ const updateBookingStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: "Booking not found" });
     }
 
-    // Setting the same status again is a no-op — never re-run the side
-    // effects (freeing the professional, refunds) a second time.
     if (existingBooking.status === status) {
       return res.status(400).json({ success: false, message: `Booking is already ${status}` });
     }
@@ -295,15 +268,12 @@ const updateBookingStatus = async (req, res) => {
     if (status === "Cancelled") {
       Object.assign(update, { cancelledAt: new Date(), cancelledBy: "admin", cancellationReason: "Cancelled by admin" });
       if (isPaid) {
-        // Full refund; issued (and retried) by the backend scheduler.
         Object.assign(update, { paymentStatus: "Refund Pending", refundAmount: existingBooking.totalPrice, refundAttempts: 0 });
       } else if (existingBooking.paymentStatus === "Pending") {
         update.paymentStatus = "Cancelled";
       }
     }
 
-    // Admins may complete a booking at any time, regardless of its slot.
-    // Conditional on the old status so two admins can't both apply it.
     const booking = await Booking.findOneAndUpdate(
       { _id: existingBooking._id, status: existingBooking.status },
       { $set: update },
@@ -315,7 +285,6 @@ const updateBookingStatus = async (req, res) => {
     }
 
     if (status === "Cancelled" || status === "Completed") {
-      // Frees exactly this booking's slot — nothing else of the professional's.
       await SlotReservation.deleteMany({ booking: booking._id });
       if (status === "Completed" && booking.professional) {
         await Professional.updateOne({ _id: booking.professional }, { $inc: { completedJobs: 1 } });
@@ -608,7 +577,6 @@ const createProfessional = async (req, res) => {
       });
     }
 
-    // Home area decides which customers they're matched with first.
     const area = findArea(locality);
     if (!area) {
       return res.status(400).json({ success: false, message: "Please choose the professional's home area" });
@@ -652,7 +620,6 @@ const updateProfessional = async (req, res) => {
       if (!Array.isArray(serviceAreas)) {
         return res.status(400).json({ success: false, message: "serviceAreas must be a list of area names" });
       }
-      // Home area is always covered — use the new one if it's changing.
       let home = updateData.locality;
       if (!home) {
         const current = await Professional.findById(req.params.id).select("locality").lean();

@@ -23,14 +23,11 @@ const requestIdMiddleware = require("./middleware/requestId");
 const errorHandler = require("./middleware/errorHandler");
 const { generalLimiter } = require("./middleware/rateLimiter");
 
-// Tests (NODE_ENV=test) import the app without a database, timers or a
-// listening socket — same pattern as payment-service/server.js.
 const isTest = process.env.NODE_ENV === "test";
 
 if (!isTest) connectDB();
 
 if (isTest) {
-  // no collector in tests: it would query MongoDB every 30s
 } else if (process.env.METRICS_COLLECTOR_ENABLED !== "false") {
   startMetricsCollector();
   logger.info("Metrics collector started (METRICS_COLLECTOR_ENABLED!=false)");
@@ -45,7 +42,6 @@ app.set("trust proxy", 1);
 
 app.use(helmet());
 
-// CORS: include Docker frontend (:8080) and Vite dev (:5173) defaults, plus any env-configured origins
 const defaultOrigins = [
   "http://localhost:8080",
   "http://localhost:5173",
@@ -59,7 +55,6 @@ const allowedOrigins = Array.from(new Set([...defaultOrigins, ...envOrigins]));
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (curl, Postman, server-to-server, health checkers)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
     callback(null, false);
@@ -78,7 +73,6 @@ app.use(express.urlencoded({ extended: false }));
 // ─── Request correlation ID ───────────────────────────────────────────────────
 app.use(requestIdMiddleware);
 
-// ─── Structured HTTP logging (skip noisy health/metrics paths) ───────────────
 let pinoHttp;
 try {
   pinoHttp = require("pino-http");
@@ -106,9 +100,6 @@ app.use((req, res, next) => {
   metrics.httpRequestsInFlight.inc();
   const end = metrics.httpRequestDurationSeconds.startTimer({ method: req.method });
   res.on("finish", () => {
-    // Unmatched requests (404s, or rejected by router-level middleware such as
-    // auth before a route matched) must not use the raw path: ids in it would
-    // create a new time series per request.
     const routeLabel = req.route ? (req.baseUrl + req.route.path) : (req.baseUrl ? `${req.baseUrl}/*` : "unmatched");
     metrics.httpRequestsInFlight.dec();
     metrics.httpRequestsTotal.inc({ method: req.method, route: routeLabel, code: res.statusCode });
@@ -117,11 +108,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─── Health probes ────────────────────────────────────────────────────────────
-// Liveness: always 200 — if this returns, the process is alive.
-// `version` is the image tag (git SHA), injected by the Helm chart as
-// APP_VERSION — the pipeline's Verify DEV stage polls this to confirm the
-// NEW image is serving, not just that some old pod is still healthy.
 app.get("/health/live", (req, res) => {
   res.status(200).json({ status: "ok", service: "homeease-backend", version: process.env.APP_VERSION || "unknown" });
 });
@@ -165,17 +151,10 @@ app.use("/api/bookings", require("./routes/bookingRoutes"));
 app.use("/api/emergency", require("./routes/emergencyRoutes"));
 app.use("/api/payments", require("./routes/paymentRoutes"));
 
-// Internal-only admin API (X-Internal-Token, no end-user JWT) — consumed by
-// admin-backend, which no longer touches this service's MongoDB directly.
 app.use("/api/internal/admin", require("./routes/internal/adminRoutes"));
 
-// Internal-only booking API (X-Internal-Token, no end-user JWT) — consumed by
-// payment-service, which no longer touches Booking.status/paymentStatus directly.
 app.use("/api/internal/bookings", require("./routes/internal/bookingRoutes"));
 
-// Internal-only user API (X-Internal-Token, no end-user JWT) — consumed by
-// notification-service for recipient name/email, which no longer holds its
-// own copy of the User model.
 app.use("/api/internal/users", require("./routes/internal/userRoutes"));
 
 // ─── 404 handler ─────────────────────────────────────────────────────────────

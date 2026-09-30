@@ -3,9 +3,6 @@ const crypto = require("crypto");
 // Base32 alphabet (RFC 4648)
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-/**
- * Encodes a buffer into a Base32 string
- */
 function base32Encode(buffer) {
   let bits = 0;
   let value = 0;
@@ -28,9 +25,6 @@ function base32Encode(buffer) {
   return output;
 }
 
-/**
- * Decodes a Base32 string into a Buffer
- */
 function base32Decode(base32) {
   const cleanBase32 = base32.toUpperCase().replace(/=+$/, "").replace(/\s/g, "");
   let bits = 0;
@@ -55,17 +49,11 @@ function base32Decode(base32) {
   return Buffer.from(bytes);
 }
 
-/**
- * Generates a random Base32 secret for TOTP (160 bits / 20 bytes)
- */
 function generateSecret(length = 20) {
   const randomBytes = crypto.randomBytes(length);
   return base32Encode(randomBytes);
 }
 
-/**
- * Generates a 6-digit TOTP token for a given counter (RFC 6238 / RFC 4226)
- */
 function generateTokenForCounter(secretBase32, counter) {
   const key = base32Decode(secretBase32);
   const buffer = Buffer.alloc(8);
@@ -86,17 +74,11 @@ function generateTokenForCounter(secretBase32, counter) {
   return otp;
 }
 
-/**
- * Generates the current 6-digit TOTP token
- */
 function generateCurrentToken(secretBase32, step = 30) {
   const counter = Math.floor(Date.now() / 1000 / step);
   return generateTokenForCounter(secretBase32, counter);
 }
 
-/**
- * Verifies a 6-digit TOTP token against the secret with a +/- 1 step window (RFC 6238)
- */
 function verifyTotp(token, secretBase32, window = 1, step = 30) {
   if (!token || !secretBase32) return false;
   const sanitizedToken = token.toString().trim();
@@ -114,9 +96,6 @@ function verifyTotp(token, secretBase32, window = 1, step = 30) {
   return false;
 }
 
-/**
- * Generates an otpauth:// URL for QR code generation
- */
 function getOtpAuthUrl(email, secretBase32, issuer = "HomeEase") {
   const label = encodeURIComponent(`${issuer}:${email}`);
   const params = new URLSearchParams({

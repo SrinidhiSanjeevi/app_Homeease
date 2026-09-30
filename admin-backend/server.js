@@ -74,9 +74,6 @@ app.use((req, res, next) => {
   metrics.httpRequestsInFlight.inc();
   const end = metrics.httpRequestDurationSeconds.startTimer({ method: req.method });
   res.on("finish", () => {
-    // Unmatched requests (404s, or rejected by router-level middleware such as
-    // auth before a route matched) must not use the raw path: ids in it would
-    // create a new time series per request.
     const routeLabel = req.route ? (req.baseUrl + req.route.path) : (req.baseUrl ? `${req.baseUrl}/*` : "unmatched");
     metrics.httpRequestsInFlight.dec();
     metrics.httpRequestsTotal.inc({ method: req.method, route: routeLabel, code: res.statusCode });

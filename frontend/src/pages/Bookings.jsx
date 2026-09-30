@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Calendar, Clock, MapPin, User, Star, CheckCircle, CreditCard, Mail, ArrowRight, XCircle, Activity, TrendingUp, Check } from "../components/Icon";
 
-// When the booked slot ends, in the customer's local time. Dates are stored
-// as UTC midnight of the picked day; slots look like "09:00 AM - 11:00 AM".
 const getSlotEnd = (booking) => {
   const date = new Date(booking.date);
   if (Number.isNaN(date.getTime())) return null;
@@ -17,7 +15,6 @@ const getSlotEnd = (booking) => {
   return end;
 };
 
-// When the booked slot starts, in the customer's local time.
 const getSlotStart = (booking) => {
   const date = new Date(booking.date);
   if (Number.isNaN(date.getTime())) return null;
@@ -36,14 +33,12 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
   const [filter, setFilter] = useState("All");
   const [completingId, setCompletingId] = useState(null);
 
-  // Re-render every 30s so "Mark Service Completed" unlocks when a slot ends.
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
 
-  // Show what cancelling costs (late-cancellation fee) before confirming.
   const handleCancel = async (bookingId) => {
     let text = "Cancel this booking?";
     try {
@@ -87,7 +82,6 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
     if (booking.status === "Cancelled") return -1;
     if (booking.status === "Completed") return 4;
     if (booking.status === "Confirmed") return 3;
-    // "Assigned" means paid but still waiting for a free professional.
     if (booking.professional) return 2;
     return 1;
   };
@@ -483,7 +477,6 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
                 {/* ── ACTION BUTTONS ──────────────────────────────── */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", paddingTop: "8px" }}>
 
-                  {/* CUSTOMER VIEW: can mark completed once the booked slot has ended */}
                   {!isProfessionalMode && canCustomerComplete && slotEnded && (
                     <button
                       onClick={() => handleComplete(booking._id)}
@@ -496,7 +489,6 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
                     </button>
                   )}
 
-                  {/* CUSTOMER VIEW: slot not over yet (or not confirmed) — awaiting completion */}
                   {!isProfessionalMode && !isCompleted && !isCancelled && !(canCustomerComplete && slotEnded) && (
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-muted)", fontWeight: 600, fontSize: "0.9rem" }}>
                       <Clock size={16} />
@@ -515,7 +507,6 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
                   )}
 
                   <div style={{ display: "flex", gap: "12px" }}>
-                    {/* Cancel — only before the visit starts (free until 2h before) */}
                     {!isCompleted && !isCancelled && !visitStarted && (
                       <button
                         onClick={() => handleCancel(booking._id)}

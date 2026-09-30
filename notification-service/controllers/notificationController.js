@@ -1,25 +1,9 @@
-/**
- * Internal Notifications Controller
- *
- * Backs the /api/internal/notifications/* routes that `backend`
- * (booking-service) calls over HTTP for booking-lifecycle notifications,
- * instead of dispatching them in-process. Gated solely by
- * requireInternalToken — no end-user JWT.
- */
-
 const mongoose = require("mongoose");
 const Notification = require("../models/Notification");
 const { dispatchNotification } = require("../services/notificationService");
 const { NOTIFICATION_TYPES } = require("../services/notificationTypes");
 const logger = require("../utils/logger");
 
-// POST /api/internal/notifications/dispatch — same fire-and-forget contract
-// callers already used against the in-process dispatchNotification: the
-// caller doesn't await delivery succeeding, only that the outbox record was
-// enqueued and a first delivery attempt was made. Responds 202 once that
-// synchronous enqueue+process completes (matching how long today's
-// in-process call already took the caller, which itself awaits this inside
-// a `.catch(...)`-guarded, non-blocking background call).
 const dispatch = async (req, res) => {
   try {
     const { type, bookingId, userId } = req.body || {};
@@ -43,8 +27,6 @@ const dispatch = async (req, res) => {
   }
 };
 
-// GET /api/internal/notifications/booking/:bookingId — replaces backend's
-// local Notification.find({ booking }) in getUserBookings/getProfessionalBookings.
 const getNotificationsForBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;

@@ -14,15 +14,11 @@ export default [
       globals: { ...globals.node }
     },
     rules: {
-      // Unused vars are usually a real bug, but allow the _-prefixed
-      // convention for deliberately-ignored Express args (err, next).
       'no-unused-vars': ['error', {
         argsIgnorePattern: '^_',
         varsIgnorePattern: '^_',
         caughtErrorsIgnorePattern: '^_'
       }],
-      // console.log in a service that already has pino is a leak
-      // waiting to happen — pino redacts, console does not.
       'no-console': 'warn',
       eqeqeq: ['error', 'smart'],
       'no-var': 'error',

@@ -1,14 +1,3 @@
-/**
- * Notification Service HTTP Client Adapter
- *
- * Exclusively handles network communication between Booking Service
- * (today's `backend`) and Notification Service. Contains NO business logic
- * — that lives entirely in notification-service now.
- *
- * Modeled exactly on backend/services/payment/paymentClient.js /
- * payment-service/middleware/internalAuth.js's shared conventions.
- */
-
 const AppError = require("../../utils/AppError");
 const logger = require("../../utils/logger");
 
@@ -59,10 +48,6 @@ async function makeRequest(path, options = {}) {
   }
 }
 
-// POST /api/internal/notifications/dispatch — replaces the in-process
-// dispatchNotification(...) call. Callers already invoke this
-// fire-and-forget (`.catch(...)`), so a thrown 503 here (service down)
-// is swallowed by the caller exactly like a local processing error used to be.
 const dispatch = async ({ type, bookingId, userId }) => {
   return makeRequest("/api/internal/notifications/dispatch", {
     method: "POST",
@@ -70,9 +55,6 @@ const dispatch = async ({ type, bookingId, userId }) => {
   });
 };
 
-// GET /api/internal/notifications/booking/:bookingId — replaces the direct
-// local Notification.find({ booking }) calls in getUserBookings /
-// getProfessionalBookings.
 const getNotificationsForBooking = async (bookingId) => {
   return makeRequest(`/api/internal/notifications/booking/${bookingId}`, {
     method: "GET"

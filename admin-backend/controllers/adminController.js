@@ -2,16 +2,8 @@ const AuditLog = require("../models/AuditLog");
 const logger = require("../utils/logger");
 const bookingServiceClient = require("../services/bookingServiceClient");
 
-// Fallback message kept identical to the pre-split code's generic
-// catch-all, so an unexpected failure still reads the same to the
-// admin-frontend regardless of which side (network vs booking-service
-// business logic) produced it.
 const GENERIC_ERROR_MESSAGE = "Something went wrong, please try again";
 
-// bookingServiceClient always throws AppError (either the booking-service's
-// own response forwarded verbatim, or a 503 for a connectivity failure) —
-// this reproduces the exact `res.status(...).json({success:false,message})`
-// shape every handler here used to return directly.
 const handleClientError = (res, error, logLabel) => {
   logger.error({ err: error.message }, logLabel);
   res.status(error.statusCode || 500).json({
@@ -164,8 +156,6 @@ const updateEmergencyStatus = async (req, res) => {
   }
 };
 
-// Audit logs are admin-backend's own data (its only remaining collection) —
-// unchanged, still a direct local Mongoose query.
 const getAuditLogs = async (req, res) => {
   try {
     const { page = 1, limit = 20, action } = req.query;

@@ -1,19 +1,3 @@
-/**
- * Internal User Controller
- *
- * Backs GET /api/internal/users/:id, which notification-service calls
- * instead of holding its own copy of the User model. Deliberately a
- * separate, much narrower endpoint than admin-backend's
- * /api/internal/admin/users/:id (adminBookingController.js's getUserById,
- * which returns every field except password for the admin UI) — this one
- * returns only { _id, name, email }, never password/role/phone/address or
- * any other permissions/MFA-adjacent field, since notification-service only
- * needs a recipient name and email address for its templates.
- *
- * Sits behind requireInternalToken (middleware/internalAuth.js) — no
- * end-user JWT is checked; the calling service already did human-level auth.
- */
-
 const mongoose = require("mongoose");
 const User = require("../../models/User");
 const logger = require("../../utils/logger");

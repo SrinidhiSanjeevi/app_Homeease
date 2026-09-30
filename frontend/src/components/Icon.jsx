@@ -1,7 +1,5 @@
 import React from "react";
 
-// Google Material Symbols (Rounded) — loaded from Google Fonts in index.html.
-// <Icon name="star" filled size={18} /> renders the "star" glyph.
 export default function Icon({ name, size = 20, color, filled = false, weight = 400, spin = false, style, className = "", ...rest }) {
   return (
     <span
@@ -22,12 +20,7 @@ export default function Icon({ name, size = 20, color, filled = false, weight = 
   );
 }
 
-// Drop-in named icons so pages keep familiar component names
-// (<Star />, <Clock />…) while rendering Material Symbols.
-// Accepts the props the pages already pass: size, color, fill, stroke, style.
 const make = (glyph, defaults = {}) => {
-  // Extra props (onClick, title, role, aria-*) are passed through — they
-  // used to be dropped, which made clickable icons (rating stars) dead.
   function NamedIcon({ size = 20, color, fill, stroke, strokeWidth, style, className, ...rest }) {
     const isFilled = defaults.filled || (fill && fill !== "none");
     return (

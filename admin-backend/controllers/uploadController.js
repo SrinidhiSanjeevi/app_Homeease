@@ -13,7 +13,6 @@ const ALLOWED_MIME_TYPES = new Set([
 ]);
 const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
-// ── Multer — in-memory, no disk writes ────────────────────────
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_SIZE_BYTES },
@@ -45,18 +44,7 @@ const FOLDER_TO_CONTAINER = {
   professionals: "professional-images"
 };
 
-/**
- * POST /api/admin/upload
- * Query param: ?folder=services|professionals  (defaults to "services")
- * Multipart body field: image  (the file)
- *
- * Response 200: { imageKey: "service-images/uuid.jpg", imageUrl: "<SAS URL>" }
- * Response 400: invalid file type or missing file
- * Response 413: file too large
- * Response 500: Azure upload failure
- */
 async function uploadImage(req, res, next) {
-  // Run multer inline so errors are caught and forwarded correctly
   upload(req, res, async (multerErr) => {
     if (multerErr) {
       if (multerErr.code === "LIMIT_FILE_SIZE") {
@@ -77,15 +65,12 @@ async function uploadImage(req, res, next) {
 
     const ext = MIME_TO_EXT[req.file.mimetype] || "jpg";
     const blobName = `${randomUUID()}.${ext}`;
-    // Must match the containers Terraform provisions
-    // (Infrastructure_Homeease/terraform/persistent/azure-storage/main.tf).
     const containerName = FOLDER_TO_CONTAINER[folder];
     const imageKey = `${containerName}/${blobName}`;
 
     try {
       await uploadBuffer(req.file.buffer, containerName, blobName, req.file.mimetype);
 
-      // Generate a fresh SAS URL so the frontend can preview immediately
       const imageUrl = await generateImageUrl(imageKey, 15);
 
       logger.info(

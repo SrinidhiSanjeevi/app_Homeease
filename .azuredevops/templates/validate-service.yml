@@ -1,5 +1,3 @@
-# Reusable validation steps for one Node service — cheapest checks run first.
-
 parameters:
   - name: name
     type: string
@@ -24,8 +22,6 @@ parameters:
 steps:
 
   # Full git history is required for SonarCloud blame / SCM analysis.
-  # Without it the scanner emits "Shallow clone detected, no blame information
-  # will be provided" and all file annotations are missing.
   - checkout: self
     fetchDepth: 0
     displayName: 'Checkout (full depth for SCM blame)'
@@ -36,9 +32,6 @@ steps:
     inputs:
       version: '${{ parameters.nodeVersion }}'
 
-  # Cache the npm download cache, not node_modules. Caching node_modules
-  # can restore a tree that doesn't match the lockfile after a dependency
-  # bump; ~/.npm is content-addressed and always safe.
   - task: Cache@2
     displayName: 'Cache npm — ${{ parameters.name }}'
     inputs:
@@ -61,8 +54,6 @@ steps:
           npm run lint
         displayName: 'Lint — ${{ parameters.name }}'
 
-  # Unit + HTTP tests (node:test, no database needed). A failing test fails
-  # the job, which stops Package/Promote for this run.
   - ${{ if eq(parameters.hasTests, true) }}:
       - script: |
           set -euo pipefail
@@ -70,15 +61,12 @@ steps:
           npm test
         displayName: 'Tests — ${{ parameters.name }}'
 
-  # npm audit reads the lockfile and knows about advisories Trivy's
-  # database may lag on. Running both is deliberate — they disagree.
   - script: |
       set -euo pipefail
       cd ${{ parameters.path }}
       npm audit --audit-level=high --omit=dev
     displayName: 'npm audit (high+) — ${{ parameters.name }}'
 
-  # Services with a build step (e.g. frontend) still have to compile.
   - ${{ if eq(parameters.hasBuild, true) }}:
       - script: |
           set -euo pipefail
@@ -86,7 +74,6 @@ steps:
           npm run build
         displayName: 'Production build — ${{ parameters.name }}'
 
-  # SCA on the source tree (sees devDependencies/lockfile, unlike the Package stage's image scan).
   - task: Cache@2
     displayName: 'Cache Trivy DB'
     inputs:

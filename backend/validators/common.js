@@ -1,8 +1,6 @@
 const { body } = require("express-validator");
 const { AREA_NAMES } = require("../services/areas");
 
-// Indian mobile number: optional +91 / 0 prefix, then 10 digits starting 6-9.
-// Normalised to the bare 10 digits.
 const mobileNumber = (field = "contactNumber") =>
   body(field)
     .trim()

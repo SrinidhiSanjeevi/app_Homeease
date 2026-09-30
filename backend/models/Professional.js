@@ -76,12 +76,7 @@ const professionalSchema = new mongoose.Schema(
       min: 0
     },
 
-    // Home service area (services/areas.js); assignment prefers the
-    // professional whose area is nearest the customer's. `location` is a
-    // legacy field, no longer used.
     locality: { type: String, trim: true, default: null },
-    // Areas this professional travels to (1–5, names from services/areas.js).
-    // Empty on older records: they then cover only their home `locality`.
     serviceAreas: { type: [{ type: String, trim: true }], default: [] },
     location: {
       type: {
@@ -109,8 +104,6 @@ professionalSchema.index({
   ratingCount: -1
 });
 
-// Sparse: only professionals with a `location` set are indexed, so this
-// is cheap even though most existing seed data predates this feature.
 professionalSchema.index({ location: "2dsphere" }, { sparse: true });
 
 module.exports =

@@ -1,14 +1,3 @@
-/**
- * Booking Service HTTP Client Adapter
- *
- * Exclusively handles network communication between Payment Service and
- * Booking Service (today's `backend`). Contains NO business logic — that
- * stays in services/paymentService.js.
- *
- * Modeled exactly on admin-backend/services/bookingServiceClient.js /
- * backend/services/payment/paymentClient.js.
- */
-
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
 
@@ -59,17 +48,8 @@ async function makeRequest(path, options = {}) {
   }
 }
 
-// GET /api/internal/bookings/:id — minimal projection. Throws a 404
-// AppError (via makeRequest) when the booking doesn't exist, same as a
-// local Booking.findById returning null used to be handled by callers.
 const getBooking = async (bookingId) => makeRequest(`/api/internal/bookings/${bookingId}`, { method: "GET" });
 
-// POST /api/internal/bookings/:id/settle-payment — atomic conditional
-// update. A 409 conflict (the booking wasn't in the expected pre-settlement
-// state) is an ordinary, expected outcome here — not an error — so it's
-// translated into { settled: false } instead of being thrown, letting
-// settleGenuinePayment's existing "fall through to refund" logic keep
-// working unchanged. Any other failure (timeout, 5xx, etc.) still throws.
 const settlePayment = async (bookingId, body) => {
   try {
     const data = await makeRequest(`/api/internal/bookings/${bookingId}/settle-payment`, {

@@ -12,9 +12,6 @@ export default defineConfig({
         changeOrigin: true,
         secure: false
       },
-      // Login + MFA verification live on the shared auth backend, not
-      // admin-backend — this is the only customer-backend route this
-      // app needs.
       "/api/auth": {
         target: "http://localhost:5000",
         changeOrigin: true,

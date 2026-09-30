@@ -1,20 +1,7 @@
-/**
- * HomeEase Admin Pagination Utility
- *
- * Provides safe, bounded pagination parsing and metadata formatting for admin list queries.
- */
-
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 
-/**
- * Parses and bounds `page` and `limit` from request query params.
- * Enforces `MAX_LIMIT` to prevent unbounded in-memory collection scans.
- *
- * @param {Object} query - req.query object
- * @returns {{ page: number, limit: number, skip: number, maxLimit: number }}
- */
 function parsePagination(query = {}) {
   let page = parseInt(query.page, 10);
   if (isNaN(page) || page < 1) {
@@ -38,12 +25,6 @@ function parsePagination(query = {}) {
   };
 }
 
-/**
- * Formats standardized pagination metadata.
- *
- * @param {{ page: number, limit: number, total: number }} params
- * @returns {{ page: number, limit: number, total: number, totalPages: number }}
- */
 function formatPaginationResult({ page, limit, total }) {
   const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
   return {

@@ -6,8 +6,6 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      // Admin management lives entirely in admin-frontend now — this
-      // app only ever talks to the customer backend.
       "/api": {
         target: "http://localhost:5000",
         changeOrigin: true,

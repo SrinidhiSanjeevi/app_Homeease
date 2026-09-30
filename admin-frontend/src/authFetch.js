@@ -1,11 +1,3 @@
-// Transparent access-token refresh.
-//
-// Access tokens are short-lived (15 min). When any /api call comes back
-// 401, this swaps the stored refresh token for a new pair once (shared by
-// concurrent calls), retries the request with the new token, and tells
-// the app via a "homeease:token" event so its state stays in sync.
-// If the refresh fails, the app gets "homeease:logout".
-
 let refreshing = null;
 
 async function refreshTokens(originalFetch) {

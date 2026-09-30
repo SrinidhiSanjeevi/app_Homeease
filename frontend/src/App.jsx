@@ -12,20 +12,12 @@ import Footer from "./components/Footer";
 import AreaPicker from "./components/AreaPicker";
 import usePolling from "./hooks/usePolling";
 
-// ============================================================
-// URL HELPERS — /services/:id deep links to a service page
-// ============================================================
-
 const SERVICE_PATH = /^\/services\/([a-f0-9]{24})\/?$/i;
 
 const getServiceIdFromUrl = () => {
   const match = window.location.pathname.match(SERVICE_PATH);
   return match ? match[1] : null;
 };
-
-// ============================================================
-// SAFE LOCAL STORAGE HELPERS
-// ============================================================
 
 const getStoredUser = () => {
   try {
@@ -53,10 +45,6 @@ export default function App() {
   const [activeTab, setActiveTab] =
     useState("dashboard");
 
-  // ============================================================
-  // CORE DATA
-  // ============================================================
-
   const [services, setServices] = useState([]);
   const [professionals, setProfessionals] =
     useState([]);
@@ -64,18 +52,12 @@ export default function App() {
   const [activeEmergencies, setActiveEmergencies] =
     useState([]);
 
-  // ============================================================
-  // MODALS / ALERTS
-  // ============================================================
-
   const [bookingService, setBookingService] =
     useState(null);
 
   const [bookingProduct, setBookingProduct] =
     useState(null);
 
-  // Id of the service whose detail page is open (null = service grid).
-  // Kept in sync with the URL so refresh, sharing and Back all work.
   const [viewServiceId, setViewServiceId] =
     useState(() => getServiceIdFromUrl());
 
@@ -87,7 +69,6 @@ export default function App() {
 
   const closeService = ({ useHistory = true } = {}) => {
     if (useHistory && window.history.state?.serviceId) {
-      // We pushed this entry ourselves — pop it so Back/Forward stay sane.
       window.history.back();
       return;
     }
@@ -104,10 +85,6 @@ export default function App() {
   }, []);
 
   const [toast, setToast] = useState(null);
-
-  // ============================================================
-  // SERVICE AREA — chosen once, remembered on this device
-  // ============================================================
 
   const AREA_KEY = "homeease.area";
   const [areas, setAreas] = useState([]);
@@ -126,7 +103,6 @@ export default function App() {
     try {
       localStorage.setItem(AREA_KEY, name);
     } catch {
-      /* storage blocked — keep it for this session only */
     }
   };
 
@@ -135,10 +111,6 @@ export default function App() {
     if (!area) setAreaPickerOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ============================================================
-  // GUEST BROWSING — sign-in only when an action needs it
-  // ============================================================
 
   const [authOpen, setAuthOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
@@ -172,10 +144,6 @@ export default function App() {
     };
   }, []);
 
-  // ============================================================
-  // TOAST
-  // ============================================================
-
   const showToast = (
     message,
     type = "success"
@@ -185,10 +153,6 @@ export default function App() {
       type
     });
   };
-
-  // ============================================================
-  // LOGIN
-  // ============================================================
 
   const handleLoginSuccess = (
     userData,
@@ -206,7 +170,6 @@ export default function App() {
     setToken(userToken);
     setAuthOpen(false);
 
-    // Continue whatever the guest was trying to do (book, open a tab…).
     if (pendingAction) {
       const action = pendingAction;
       setPendingAction(null);
@@ -215,10 +178,6 @@ export default function App() {
       setActiveTab("dashboard");
     }
   };
-
-  // ============================================================
-  // LOGOUT
-  // ============================================================
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -240,10 +199,6 @@ export default function App() {
       "success"
     );
   };
-
-  // ============================================================
-  // FETCH SERVICES
-  // ============================================================
 
   const fetchServices = async () => {
     try {
@@ -274,10 +229,6 @@ export default function App() {
     }
   };
 
-  // ============================================================
-  // FETCH PROFESSIONALS
-  // ============================================================
-
   const fetchProfessionals = async () => {
     try {
       const response = await fetch(
@@ -306,10 +257,6 @@ export default function App() {
       );
     }
   };
-
-  // ============================================================
-  // FETCH USER / PROFESSIONAL BOOKINGS
-  // ============================================================
 
   const fetchBookings = async () => {
     if (!token || !user) {
@@ -349,19 +296,8 @@ export default function App() {
         error
       );
 
-      /*
-       * Do not call a generic /api/bookings fallback.
-       *
-       * The backend already provides role-specific
-       * endpoints and the generic fallback could expose
-       * unexpected booking data.
-       */
     }
   };
-
-  // ============================================================
-  // FETCH ACTIVE EMERGENCIES
-  // ============================================================
 
   const fetchEmergencies = async () => {
     if (!token) {
@@ -401,10 +337,6 @@ export default function App() {
     }
   };
 
-  // ============================================================
-  // INITIAL LOAD
-  // ============================================================
-
   const fetchAreas = async () => {
     try {
       const response = await fetch("/api/services/areas");
@@ -421,10 +353,6 @@ export default function App() {
     fetchAreas();
   }, []);
 
-  // ============================================================
-  // LIVE UPDATES — no manual refresh needed
-  // ============================================================
-
   usePolling(() => {
     fetchBookings();
     fetchEmergencies();
@@ -436,10 +364,6 @@ export default function App() {
     fetchAreas();
   }, 30000);
 
-  // ============================================================
-  // LOAD USER-SPECIFIC DATA
-  // ============================================================
-
   useEffect(() => {
     if (!token || !user) {
       return;
@@ -448,24 +372,6 @@ export default function App() {
     fetchBookings();
     fetchEmergencies();
   }, [token, user]);
-
-  // ============================================================
-  // CREATE BOOKING
-  //
-  // FIX: this must now:
-  //  1. RETURN the parsed response — BookingModal's Razorpay flow
-  //     needs `data.booking._id` to create the payment order. Without
-  //     a return value, BookingModal received `undefined` and threw
-  //     "Booking creation did not return a booking id".
-  //  2. NOT close the modal or refresh booking lists here for the
-  //     Razorpay path — the booking exists but is still "Pending"
-  //     until /api/payments/verify confirms it. BookingModal itself
-  //     calls onClose() only after cash confirmation or successful
-  //     Razorpay verification. Closing early would tear down the
-  //     modal before Razorpay's checkout popup even had a chance to
-  //     open, and refreshing "My Bookings" too early would show a
-  //     booking stuck at "Pending" with no visible next step.
-  // ============================================================
 
   const handleBookSubmit = async (
     bookingData
@@ -506,9 +412,6 @@ export default function App() {
       );
     }
 
-    // Cash bookings are fully confirmed immediately — refresh lists now.
-    // BookingModal stays open and shows the booking summary itself (for
-    // Razorpay too, once payment is verified).
     if (bookingData.paymentMethod === "Cash on Delivery") {
       await Promise.all([
         fetchBookings(),
@@ -516,12 +419,8 @@ export default function App() {
       ]);
     }
 
-    return data; // <-- the actual fix: BookingModal reads data.booking._id from this
+    return data;
   };
-
-  // ============================================================
-  // PROFESSIONAL ACCEPT BOOKING
-  // ============================================================
 
   const handleAcceptBooking = async (
     bookingId
@@ -575,10 +474,6 @@ export default function App() {
     }
   };
 
-  // ============================================================
-  // CANCEL BOOKING
-  // ============================================================
-
   const handleCancelBooking = async (
     bookingId
   ) => {
@@ -630,10 +525,6 @@ export default function App() {
       );
     }
   };
-
-  // ============================================================
-  // RATE BOOKING
-  // ============================================================
 
   const handleCompleteBooking = async (
     bookingId
@@ -746,10 +637,6 @@ export default function App() {
     }
   };
 
-  // ============================================================
-  // EMERGENCY DISPATCH
-  // ============================================================
-
   const handleDispatchEmergency =
     async (emergencyData) => {
       if (!token) {
@@ -810,15 +697,6 @@ export default function App() {
       }
     };
 
-  // ============================================================
-  // ADMIN ACCOUNTS DON'T BELONG IN THIS APP
-  //
-  // Admin management now lives in its own app (admin-frontend), its
-  // own deployment, its own microservice boundary. An admin token
-  // landing here (e.g. a stale session) is shown a plain notice and
-  // logged out — it is never routed into the customer experience.
-  // ============================================================
-
   if (user?.role === "admin") {
     return (
       <div
@@ -858,10 +736,6 @@ export default function App() {
       </div>
     );
   }
-
-  // ============================================================
-  // USER / PROFESSIONAL APPLICATION
-  // ============================================================
 
   const navigate = (tab) => {
     const go = () => {

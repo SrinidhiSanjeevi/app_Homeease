@@ -30,11 +30,7 @@ app.set("trust proxy", 1);
 
 app.use(helmet());
 
-// CORS: explicit allowlist, same pattern as backend/admin-backend.
-// `origin: true` reflects the request's Origin header for ANY caller while
-// still allowing credentials — that combination lets a malicious site read
 // cookie/auth-bearing responses cross-origin, which is what SonarCloud
-// flags here.
 const defaultOrigins = [
   "http://localhost:8080",
   "http://localhost:5173",
@@ -48,7 +44,6 @@ const allowedOrigins = Array.from(new Set([...defaultOrigins, ...envOrigins]));
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (curl, Postman, server-to-server, health checkers)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
     callback(null, false);
@@ -65,9 +60,6 @@ app.use((req, res, next) => {
   metrics.httpRequestsInFlight.inc();
   const end = metrics.httpRequestDurationSeconds.startTimer({ method: req.method });
   res.on("finish", () => {
-    // Unmatched requests (404s, or rejected by router-level middleware such as
-    // auth before a route matched) must not use the raw path: ids in it would
-    // create a new time series per request.
     const routeLabel = req.route ? (req.baseUrl + req.route.path) : (req.baseUrl ? `${req.baseUrl}/*` : "unmatched");
     metrics.httpRequestsInFlight.dec();
     metrics.httpRequestsTotal.inc({ method: req.method, route: routeLabel, code: res.statusCode });
@@ -106,9 +98,6 @@ app.get("/metrics", async (req, res) => {
 
 app.get("/", (req, res) => res.send("HomeEase Notification Service Running"));
 
-// Internal-only API (X-Internal-Token, no end-user JWT) — consumed by
-// backend for booking-lifecycle notifications it no longer dispatches
-// in-process.
 app.use("/api/internal/notifications", require("./routes/notificationRoutes"));
 
 // 404
@@ -133,8 +122,6 @@ if (process.env.NODE_ENV !== "test") {
     logger.info({ port: PORT }, "HomeEase Notification Service started");
   });
 
-  // Outbox retry sweep — picks up any due `Pending` notification whose first
-  // synchronous dispatch attempt failed, without a caller re-invoking /dispatch.
   const scheduler = require("./services/scheduler");
   scheduler.start();
 

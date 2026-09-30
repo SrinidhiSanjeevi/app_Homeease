@@ -1,8 +1,5 @@
 import { useEffect, useRef } from "react";
 
-// Calls `callback` every `intervalMs` while the tab is visible, and right
-// away when the tab regains focus — so lists stay live without a manual
-// refresh, and background tabs don't hammer the API.
 export default function usePolling(callback, intervalMs, enabled = true) {
   const saved = useRef(callback);
 

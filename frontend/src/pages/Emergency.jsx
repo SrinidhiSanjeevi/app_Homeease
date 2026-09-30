@@ -2,13 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { AreaChip } from "../components/AreaPicker";
 import Icon, { Star, Loader2, XCircle, Check, MapPin } from "../components/Icon";
 
-// ------------------------------------------------------------------
-// Static config
-// ------------------------------------------------------------------
-
-// Each emergency type knows the public service that
-// should be involved (if any), quick description chips and what the
-// customer should do while the specialist is on the way.
 const CATEGORIES = [
   {
     value: "Electrical",
@@ -53,7 +46,6 @@ const CATEGORIES = [
     value: "Fire",
     icon: "local_fire_department",
     defaultSeverity: "Critical",
-    // Life-safety: HomeEase never dispatches for this — call the public service.
     callOnly: true,
     publicService: { name: "Fire", number: "101", when: ["Low", "Medium", "High", "Critical"], note: "fire brigade" },
     chips: ["Kitchen fire", "Heavy smoke", "Gas smell", "Electrical fire", "People trapped"],
@@ -113,10 +105,6 @@ const formatClock = (ms) => {
   return `${m}:${String(s).padStart(2, "0")}`;
 };
 
-// ------------------------------------------------------------------
-// Page
-// ------------------------------------------------------------------
-
 export default function Emergency({
   activeEmergencies = [],
   onDispatchEmergency,
@@ -142,7 +130,6 @@ export default function Emergency({
   const callPublic = cat.publicService && cat.publicService.when.includes(severity);
   const isReady = description.trim() && contactNumber.trim() && address.trim();
 
-  // Live clock for ETA countdowns, only while something is active.
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (activeEmergencies.length === 0) return undefined;
@@ -441,10 +428,6 @@ export default function Emergency({
   );
 }
 
-// ------------------------------------------------------------------
-// Live request card with arrival countdown ring
-// ------------------------------------------------------------------
-
 function LiveCard({ emergency, now, cancelling, onCancel }) {
   const cat = CATEGORIES.find((c) => c.value === emergency.category) || CATEGORIES[0];
   const sev = SEVERITIES.find((s) => s.key === emergency.severity) || SEVERITIES[1];
@@ -577,10 +560,6 @@ function LiveCard({ emergency, now, cancelling, onCancel }) {
     </article>
   );
 }
-
-// ------------------------------------------------------------------
-// Styles (scoped with the em- prefix)
-// ------------------------------------------------------------------
 
 const STYLES = `
 .em-page { padding: 32px 0 48px; }

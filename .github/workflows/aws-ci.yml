@@ -1,27 +1,5 @@
-# ============================================================
-# HomeEase — CI Pipeline (GitHub Actions → Amazon ECR)
-#
-# Mirrors azure-pipelines.yml phase for phase, so the two clouds
-# produce equivalent artifacts from the same commit. Differences are
-# platform-native, not architectural:
-#
-#   * change detection uses dorny/paths-filter instead of a git-diff
-#     script, and drives a matrix
-#   * auth is GitHub OIDC → IAM role (no access keys, ever)
-#   * cosign signs KEYLESS here — Sigstore's Fulcio trusts the GitHub
-#     Actions OIDC issuer, so there is no key to manage
-#   * build cache uses type=gha, which is free and much faster than
-#     the local cache dance ADO needs
-#
-# Repository configuration required (Settings → Secrets and variables):
-#   Variables:  AWS_REGION, AWS_ACCOUNT_ID, AWS_CI_ROLE_ARN, PUSHGATEWAY_URL,
 #               SONAR_HOST_URL (not sensitive — the SonarCloud instance URL)
 #   Secrets:    SONAR_TOKEN
-#
-# AWS_CI_ROLE_ARN is an identifier, not a credential — keep it a
-# variable so it's visible in logs and obvious that nothing secret
-# is being stored.
-# ============================================================
 
 name: aws-ci
 
@@ -46,13 +24,9 @@ on:
       - '.github/workflows/aws-ci.yml'
   workflow_dispatch:
 
-# Least privilege by default. id-token is granted only to the job
-# that actually assumes the AWS role.
 permissions:
   contents: read
 
-# A new push to the same branch cancels the in-flight run. On a
-# metered runner budget this matters.
 concurrency:
   group: aws-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -64,10 +38,6 @@ env:
 
 jobs:
 
-  # ==========================================================
-  # 1. STATIC — repo-wide, plus the matrix for everything below
-  # ==========================================================
-
   static:
     name: Static analysis
     runs-on: ubuntu-latest
@@ -78,7 +48,6 @@ jobs:
       commit_created: ${{ steps.meta.outputs.commit_created }}
     steps:
       # Full history: gitleaks must see commits where a secret was
-      # added and later deleted.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -88,14 +57,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      # Findings are still printed at every severity for visibility, but
-      # only `error`-level rules (e.g. running as root, ADD instead of
       # COPY, missing USER) fail the job — hadolint's own
-      # --failure-threshold, not a suppressed exit code. Current findings
-      # across all 5 Dockerfiles are warning/info only (DL3018 unpinned
-      # apk versions, DL3025 shell-form HEALTHCHECK CMD, DL3059, DL3066),
-      # so this does not fail CI today; it starts catching real
-      # regressions from here on.
       - name: Hadolint — Dockerfile lint
         run: |
           set -euo pipefail
@@ -123,7 +85,6 @@ jobs:
         id: set-matrix
         run: |
           set -euo pipefail
-          # A workflow change, or a manual dispatch, rebuilds everything.
           if [[ "${{ steps.filter.outputs.workflow }}" == "true" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             SERVICES='["backend","admin-backend","frontend","admin-frontend","payment-service"]'
           else
@@ -150,24 +111,9 @@ jobs:
         id: meta
         run: |
           set -euo pipefail
-          # Same tag for every service built from this commit. On a PR,
-          # github.sha is the merge commit — use the head sha so the tag
-          # matches what will land on main.
           SHA="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
           echo "image_tag=${SHA:0:12}" >> "$GITHUB_OUTPUT"
           echo "commit_created=$(git show -s --format=%cI "$SHA")" >> "$GITHUB_OUTPUT"
-
-  # ==========================================================
-  # 1b. TRIVY DB WARMUP — one download, before validate/package fan
-  # out into up to 5 parallel matrix legs each. Without this, every
-  # leg races to fetch the DB from a cold cache at once and piles
-  # onto public.ecr.aws's anonymous-pull rate limit simultaneously
-  # (TOOMANYREQUESTS) — a thundering herd that can outlast the
-  # per-leg retry loop (see "Trivy fs"/"Trivy image scan" steps'
-  # comments) even though each leg's own retries are working
-  # correctly. One dedicated fetch here means every leg's cache
-  # restore (same key prefix) is a guaranteed hit instead of a race.
-  # ==========================================================
 
   trivy-db-warmup:
     name: Warm Trivy DB cache
@@ -217,10 +163,6 @@ jobs:
           done
           echo "::error::Trivy DB fetch still rate-limited after 5 attempts."
           exit 1
-
-  # ==========================================================
-  # 2. VALIDATE — per changed service
-  # ==========================================================
 
   validate:
     name: Validate ${{ matrix.service }}
@@ -277,19 +219,6 @@ jobs:
           fi
           trivy --version
 
-      # Source-tree SCA. Sees devDependencies, which the image scan
-      # never will — a compromised build-time dependency is still a
-      # supply-chain compromise.
-      #
-      # Direct CLI + a persistent cache + a targeted retry, not
-      # aquasecurity/trivy-action — that action re-downloads the vuln
-      # DB from scratch every run with no cache to fall back on, so a
-      # rate-limited download (public ECR anonymous pulls get
-      # TOOMANYREQUESTS'd hard on GitHub's shared runner IP pool) can
-      # never succeed long enough to seed its own cache. Mirrors
-      # azure-pipelines.yml's already-reliable Trivy setup. The retry
-      # only fires on the DB-fetch failure signature — a genuine
-      # HIGH/CRITICAL finding still fails immediately, no wasted retries.
       - name: Trivy fs
         env:
           TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
@@ -328,13 +257,7 @@ jobs:
         with:
           projectBaseDir: ${{ matrix.service }}
 
-      # Reports the Quality Gate result but does not block the build on
-      # it (continue-on-error) — no service here runs tests or uploads
-      # coverage yet, so the default gate's coverage-on-new-code
-      # condition fails every run. Remove continue-on-error once real
-      # test coverage is wired in and the gate should start blocking
       # for real. Mirrors azure-pipelines.yml's SonarCloudPublish@4
-      # (pollingTimeoutSec: 300), which still enforces the gate there.
       - name: SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1
         timeout-minutes: 5
@@ -343,10 +266,6 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           scanMetadataReportFile: ${{ matrix.service }}/.scannerwork/report-task.txt
-
-  # ==========================================================
-  # 3. PACKAGE — build, scan, SBOM, push, sign
-  # ==========================================================
 
   package:
     name: Package ${{ matrix.service }}
@@ -367,8 +286,6 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      # No access keys. The role's trust policy pins the subject to
-      # this repo and this ref — see terraform/aws/modules/ci-oidc.
       - name: Configure AWS credentials (OIDC)
         if: github.ref == 'refs/heads/main'
         uses: aws-actions/configure-aws-credentials@v4
@@ -388,9 +305,6 @@ jobs:
           REGISTRY="${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
           echo "ref=${REGISTRY}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.service }}:${{ needs.static.outputs.image_tag }}" >> "$GITHUB_OUTPUT"
 
-      # Build to the local daemon so it can be scanned before it is
-      # pushed. Pushing first and scanning after means an unscanned
-      # image was, however briefly, available to pull.
       - name: Build
         uses: docker/build-push-action@v6
         with:
@@ -427,9 +341,6 @@ jobs:
           fi
           trivy --version
 
-      # THE GATE. Nothing below runs if this fails. Direct CLI + cache +
-      # retry, same reasoning as the "Trivy fs" step in the validate job
-      # — see that step's comment.
       - name: Trivy image scan
         env:
           TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
@@ -482,7 +393,6 @@ jobs:
           echo "Pushed ${DIGEST} in ${DURATION}s"
           echo "### Pushed \`${DIGEST}\` in ${DURATION}s" >> "$GITHUB_STEP_SUMMARY"
 
-          # Best-effort. A monitoring outage must never fail a build.
           if [ -n "${{ vars.PUSHGATEWAY_URL }}" ]; then
             cat <<EOF | curl -fsS --max-time 10 --data-binary @- \
               "${{ vars.PUSHGATEWAY_URL }}/metrics/job/homeease_ci/service/${{ matrix.service }}/registry/ecr" || echo "Pushgateway unreachable"
@@ -493,10 +403,6 @@ jobs:
           EOF
           fi
 
-      # Keyless: the signature is bound to this repo + workflow + ref
-      # via the OIDC token, and recorded in the public Rekor log.
-      # No private key exists to leak. Kyverno can then require a
-      # matching signature before a pod is admitted.
       - name: Install cosign
         if: github.ref == 'refs/heads/main'
         uses: sigstore/cosign-installer@v3
@@ -505,15 +411,6 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: cosign sign --yes "${{ steps.push.outputs.digest }}"
 
-      # ──────────────────────────────────────────────────────────
-      # PROMOTE — bump this service's tag in Infrastructure_Homeease's
-      # fargate-dev environment. Same mechanism azure-pipelines.yml's
-      # Promote stage already uses against gitops_homeease's
-      # values-azure-dev.yaml: clone, edit one file, commit, push to
-      # main. A GitHub Environment-gated Terraform apply workflow in
-      # that repo picks the commit up from there — this step never
-      # runs `terraform apply` itself.
-      # ──────────────────────────────────────────────────────────
       - name: Promote tag to Infrastructure_Homeease (fargate-dev)
         if: github.ref == 'refs/heads/main'
         env:

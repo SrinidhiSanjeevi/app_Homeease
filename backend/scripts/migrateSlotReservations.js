@@ -1,27 +1,3 @@
-/**
- * One-time migration to slot-based availability.
- *
- * Before: booking a professional set their status to "Busy" until the job
- * was completed or cancelled — even for a booking weeks away.
- * After: each booking reserves (professional, date, time slot) in the
- * SlotReservation collection, and status only means "on duty / on an
- * emergency".
- *
- * This script:
- *   1. Creates a reservation for every active booking with a professional.
- *      If two active bookings clash on the same professional + slot, the
- *      older one keeps the professional; the newer one is put back to
- *      waiting so the scheduler assigns someone else.
- *   2. Sets professionals back to "Available" unless they are on an active
- *      emergency.
- *
- * Usage:
- *   node backend/scripts/migrateSlotReservations.js           # dry run
- *   node backend/scripts/migrateSlotReservations.js --apply
- *
- * Reads MONGO_URI the same way scripts/seedAdmin.js does.
- */
-
 require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const Booking = require("../models/Booking");

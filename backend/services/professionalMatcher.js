@@ -8,7 +8,6 @@ const { processNotificationSimulation } = require("./simulationService");
 const { localToday, currentSlot, hasScheduledTimeStarted } = require("./booking/bookingSchedule");
 const { areaDistanceKm } = require("./areas");
 
-// How many professionals to try (nearest area first) before giving up.
 const CANDIDATE_LIMIT = 15;
 
 // Emergency types use different names from professional categories.
@@ -23,9 +22,6 @@ function professionalCategoryFor(category) {
   return EMERGENCY_TO_PROFESSIONAL_CATEGORY[safe] || safe;
 }
 
-// A professional covers the areas listed in `serviceAreas` (set by the
-// admin, up to MAX_SERVICE_AREAS). Older records without that list are
-// treated as covering just their home area.
 function coversArea(pro, area) {
   if (!area) return false;
   const wanted = String(area).toLowerCase();
@@ -33,10 +29,6 @@ function coversArea(pro, area) {
   return areas.some((a) => typeof a === "string" && a.toLowerCase() === wanted);
 }
 
-// Available professionals in a category. Those who cover the customer's
-// area come first, nearest home area (km) first; then — only as a
-// fallback so a booking is never stranded — everyone else, nearest first.
-// Ties go to rating, completed jobs, experience. No area yet = last.
 async function findCandidates(category, excludeIds = [], customerArea = null) {
   const filter = {
     status: "Available",
@@ -62,15 +54,6 @@ async function findCandidates(category, excludeIds = [], customerArea = null) {
 
 const finiteKm = (km) => (Number.isFinite(km) ? km : null);
 
-// ------------------------------------------------------------------
-// Scheduled bookings: reserve a professional for one date + time slot
-// ------------------------------------------------------------------
-
-/**
- * Reserves the nearest professional covering the customer's area who is
- * free for this slot. A professional the customer picked is tried first.
- * Returns { professional, distanceKm } — professional null when nobody is free.
- */
 async function reserveProfessional({ category, area = null, date, timeSlot, bookingId, preferredProfessionalId = null }) {
   if (!category || !date || !timeSlot || !bookingId) {
     return { professional: null, distanceKm: null };
@@ -79,8 +62,6 @@ async function reserveProfessional({ category, area = null, date, timeSlot, book
   const taken = await SlotReservation.find({ date, timeSlot }).distinct("professional");
   const candidates = await findCandidates(category, taken, area);
 
-  // The customer's own pick wins whenever that professional is free,
-  // even if they don't list this area.
   if (preferredProfessionalId) {
     const index = candidates.findIndex((c) => c._id.toString() === String(preferredProfessionalId));
     if (index > 0) candidates.unshift(...candidates.splice(index, 1));
@@ -104,21 +85,12 @@ async function releaseBookingReservation(bookingId) {
   await SlotReservation.deleteMany({ booking: bookingId });
 }
 
-// Professionals busy with a scheduled job right now (today's current slot).
 async function professionalsInCurrentSlot(now = new Date()) {
   const slot = currentSlot(now);
   if (!slot) return [];
   return SlotReservation.find({ date: localToday(now), timeSlot: slot }).distinct("professional");
 }
 
-// ------------------------------------------------------------------
-// Emergencies: claim the nearest on-duty professional right now
-// ------------------------------------------------------------------
-
-/**
- * Claims (marks Busy) the nearest available professional for an
- * emergency, skipping anyone in the middle of a scheduled job.
- */
 async function claimProfessional(category, area = null) {
   if (!category) return { professional: null, distanceKm: null };
 
@@ -136,10 +108,6 @@ async function claimProfessional(category, area = null) {
 
   return { professional: null, distanceKm: null };
 }
-
-// ------------------------------------------------------------------
-// Waiting work — swept by services/scheduler.js every minute
-// ------------------------------------------------------------------
 
 function bookingCategory(booking) {
   return booking.isCustom ? booking.customCategory : booking.service?.category;
@@ -165,13 +133,11 @@ async function assignWaitingBooking(booking) {
   );
 
   if (!updated) {
-    // Booking changed meanwhile (cancelled / assigned elsewhere) — give the slot back.
     await releaseBookingReservation(booking._id);
     return false;
   }
 
   if (metrics && metrics.bookingsConfirmed) metrics.bookingsConfirmed.inc();
-  // Deferred assignment: the real wait is booking creation → now.
   if (metrics && metrics.professionalAssignmentTime && booking.createdAt) {
     const waitedSeconds = (Date.now() - new Date(booking.createdAt).getTime()) / 1000;
     if (waitedSeconds >= 0) metrics.professionalAssignmentTime.observe(waitedSeconds);
@@ -184,11 +150,6 @@ async function assignWaitingBooking(booking) {
 }
 
 async function reassignWaitingBookings() {
-  // "Confirmed" is included alongside "Assigned": the admin panel allows
-  // confirming a booking before a professional is attached (see
-  // bookingStateMachine's Assigned/Created -> Confirmed transitions), so a
-  // booking can reach "Confirmed" with professional still null. Without
-  // this, such a booking would never be picked up again.
   const pendingBookings = await Booking.find({ professional: null, status: { $in: ["Assigned", "Confirmed"] } })
     .populate("service")
     .sort({ createdAt: 1 })
@@ -222,9 +183,6 @@ async function reassignWaitingEmergencies() {
   }
 }
 
-// Called whenever someone frees up; sweeps all waiting work (cheap —
-// both queries are indexed and capped). The category argument is kept
-// for backward compatibility with existing callers.
 async function reassignWaitingWork() {
   await reassignWaitingBookings();
   await reassignWaitingEmergencies();

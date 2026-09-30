@@ -1,9 +1,6 @@
 const paymentClient = require("../services/payment/paymentClient");
 const logger = require("../utils/logger");
 
-// ============================================================
-// CREATE RAZORPAY ORDER (HTTP Handler)
-// ============================================================
 const createOrder = async (req, res) => {
   try {
     const { bookingId } = req.body;
@@ -30,9 +27,6 @@ const createOrder = async (req, res) => {
   }
 };
 
-// ============================================================
-// VERIFY RAZORPAY PAYMENT (HTTP Handler)
-// ============================================================
 const verifyPayment = async (req, res) => {
   try {
     const { bookingId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
@@ -49,8 +43,6 @@ const verifyPayment = async (req, res) => {
       razorpaySignature: razorpay_signature
     });
 
-    // payment-service responds with { success, booking, payment } — not the
-    // internal { isValid, ... } shape its service layer returns.
     return res.status(result.success ? 200 : 400).json({
       success: result.success === true,
       message: result.message,
@@ -66,16 +58,10 @@ const verifyPayment = async (req, res) => {
   }
 };
 
-// ============================================================
-// REFUND PAYMENT (Delegator for backward compatibility)
-// ============================================================
 const refundPayment = async (bookingId, amount) => {
   return paymentClient.refundPayment(bookingId, amount);
 };
 
-// ============================================================
-// HANDLE RAZORPAY WEBHOOK (HTTP Handler)
-// ============================================================
 const handleWebhook = async (req, res) => {
   try {
     const signature = req.headers["x-razorpay-signature"];

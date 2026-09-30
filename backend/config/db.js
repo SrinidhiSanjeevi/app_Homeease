@@ -17,7 +17,6 @@ const connectDB = async () => {
     process.exit(1);
   }
 
-  // Handle errors/disconnects that happen AFTER the initial connect.
   mongoose.connection.on("error", (err) => {
     logger.error({ err: err.message }, "MongoDB runtime error");
   });

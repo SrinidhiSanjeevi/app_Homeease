@@ -1,5 +1,3 @@
-// Pure logic behind professional assignment: area distances, service-area
-// validation and coverage. No database.
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { areaDistanceKm, normalizeServiceAreas, MAX_SERVICE_AREAS } = require("../services/areas");

@@ -10,9 +10,6 @@ const logger = require("../utils/logger");
 const toObjectId = (id) => new mongoose.Types.ObjectId(String(id));
 const cleanString = (value) => (typeof value === "string" ? value.trim() : "");
 
-// Fetches a booking from booking-service, treating "not found" as null
-// (same shape a local `Booking.findById(...)` returning null used to have)
-// instead of throwing — callers below decide what a missing booking means.
 async function getBookingSafe(bookingId) {
   try {
     const { booking } = await bookingServiceClient.getBooking(bookingId);
@@ -25,20 +22,12 @@ async function getBookingSafe(bookingId) {
   }
 }
 
-// ============================================================
-// CREATE ORDER
-// ============================================================
-// One open Razorpay order per booking: a second call returns the same
-// order instead of creating another one that could also be paid.
 const createOrder = async ({ bookingId, userId }) => {
   if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId) || !userId || !mongoose.Types.ObjectId.isValid(userId)) {
     throw new AppError("Invalid booking ID or user ID", 400);
   }
 
   const booking = await getBookingSafe(bookingId);
-  // Same message whether the booking doesn't exist or belongs to someone
-  // else — mirrors the old combined `Booking.findOne({_id, user})` query,
-  // which never distinguished the two either.
   if (!booking || String(booking.user) !== String(userId)) {
     throw new AppError("Booking not found", 404);
   }
@@ -86,14 +75,6 @@ const createOrder = async ({ bookingId, userId }) => {
   return { orderId: order.id, amount: order.amount, currency: order.currency, keyId };
 };
 
-// ============================================================
-// SETTLE A GENUINE RAZORPAY PAYMENT (shared by verify + webhook)
-// ============================================================
-// Called only once the payment is proven genuine (valid checkout signature
-// or signed webhook) AND its order is known to belong to this booking.
-//   - Booking still awaiting payment → mark it paid.
-//   - Booking expired / cancelled, or already paid by another payment →
-//     keep the money record and refund it straight away.
 async function settleGenuinePayment({ booking, orderRecord, paymentId, amountPaise, extra = {} }) {
   const already = await Payment.findOne({ transactionId: paymentId, status: { $in: ["Success", "Refunded", "Partially Refunded"] } });
   if (already) {
@@ -107,9 +88,6 @@ async function settleGenuinePayment({ booking, orderRecord, paymentId, amountPai
   }
   const amount = (amountPaise || expectedPaise) / 100;
 
-  // Only a booking that is still waiting for payment can become paid.
-  // booking-service applies this conditionally (same aggregation-pipeline
-  // update this used to run locally) and tells us whether it matched.
   const { settled, booking: paidBooking } = await bookingServiceClient.settlePayment(booking._id, {
     outcome: "paid",
     paymentId
@@ -132,7 +110,6 @@ async function settleGenuinePayment({ booking, orderRecord, paymentId, amountPai
     return { outcome: "paid", booking: paidBooking, payment };
   }
 
-  // Late or duplicate payment — give the money back.
   const current = await getBookingSafe(booking._id);
   logger.warn(
     { bookingId: booking._id, paymentId, bookingStatus: current?.status, paymentStatus: current?.paymentStatus },
@@ -142,9 +119,6 @@ async function settleGenuinePayment({ booking, orderRecord, paymentId, amountPai
   return { outcome: refunded ? "refunded" : "refund_failed", booking: current, payment };
 }
 
-// ============================================================
-// VERIFY PAYMENT (checkout callback)
-// ============================================================
 const verifyPayment = async ({ bookingId, userId, razorpayOrderId, razorpayPaymentId, razorpaySignature }) => {
   if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
     throw new AppError("Invalid booking ID", 400);
@@ -164,16 +138,11 @@ const verifyPayment = async ({ bookingId, userId, razorpayOrderId, razorpayPayme
     throw new AppError("Unauthorized to verify payment for this booking", 403);
   }
 
-  // The order must be one we created for THIS booking — stops a cheap
-  // payment being replayed against an expensive booking.
   const orderRecord = await Payment.findOne({ booking: booking._id, razorpayOrderId: orderId, paymentMethod: "Razorpay" });
   if (!orderRecord) {
     throw new AppError("This payment does not belong to this booking", 400);
   }
 
-  // Trim everything that feeds the HMAC — a stray newline/space in the
-  // secret (common with Kubernetes Secret / Key Vault CSI mounts)
-  // otherwise produces a mismatch for a genuine payment.
   const secret = (process.env.RAZORPAY_KEY_SECRET || "").trim();
   const expectedSignature = secret
     ? crypto.createHmac("sha256", secret).update(`${orderId}|${paymentId}`).digest("hex")
@@ -184,9 +153,6 @@ const verifyPayment = async ({ bookingId, userId, razorpayOrderId, razorpayPayme
     crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature));
 
   if (!isValid) {
-    // Record the failed attempt only. The booking is NOT cancelled: the
-    // customer can retry inside the same checkout, and an unpaid booking
-    // expires on its own after 15 minutes.
     await Payment.create({
       booking: booking._id,
       user: booking.user,
@@ -221,9 +187,6 @@ const verifyPayment = async ({ bookingId, userId, razorpayOrderId, razorpayPayme
   };
 };
 
-// ============================================================
-// REFUND PAYMENT
-// ============================================================
 async function refundSpecificPayment(payment, amount) {
   if (!payment || payment.paymentMethod !== "Razorpay" || !payment.transactionId || payment.transactionId.startsWith("ORDER-")) {
     return null;
@@ -243,8 +206,6 @@ async function refundSpecificPayment(payment, amount) {
   }
 }
 
-// Refunds the booking's successful payment — fully, or `amount` rupees
-// when a late-cancellation fee applies.
 const refundPayment = async (bookingId, amount) => {
   if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
     return null;
@@ -254,9 +215,6 @@ const refundPayment = async (bookingId, amount) => {
   return refundSpecificPayment(payment, amount);
 };
 
-// ============================================================
-// GET PAYMENT STATUS
-// ============================================================
 const getPaymentStatus = async ({ bookingId, transactionId }) => {
   const query = {};
   if (typeof transactionId === "string" && transactionId.trim()) {
@@ -274,14 +232,10 @@ const getPaymentStatus = async ({ bookingId, transactionId }) => {
   return payment;
 };
 
-// ============================================================
-// PROCESS WEBHOOK
-// ============================================================
 async function findOrderForWebhook(orderId, bookingIdFromNotes) {
   if (!orderId) return { orderRecord: null, booking: null };
   const orderRecord = await Payment.findOne({ razorpayOrderId: orderId, paymentMethod: "Razorpay" }).sort({ createdAt: 1 });
   if (!orderRecord) return { orderRecord: null, booking: null };
-  // The order's booking is authoritative; notes must agree if present.
   if (bookingIdFromNotes && orderRecord.booking.toString() !== bookingIdFromNotes) {
     logger.error({ orderId, bookingIdFromNotes }, "[PaymentService Webhook] Order/booking mismatch");
     return { orderRecord: null, booking: null };
@@ -338,7 +292,6 @@ const processWebhook = async ({ rawPayload, signature, webhookSecret, eventHeade
     return { statusCode: 404, success: false, message: "Associated booking not found" };
   }
 
-  // ─── payment.failed: record it, never cancel (customer can retry) ─────
   if (eventType === "payment.failed") {
     await Payment.findOneAndUpdate(
       { transactionId: `FAILED-${paymentId}` },

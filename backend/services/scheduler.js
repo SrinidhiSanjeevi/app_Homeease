@@ -1,16 +1,3 @@
-/**
- * Background housekeeping, run every minute by each backend replica.
- * Every step uses conditional (atomic) updates, so replicas running it at
- * the same time can't double-process anything.
- *
- *   1. Expire online bookings not paid within UNPAID_EXPIRY_MINUTES,
- *      releasing the professional's slot.
- *   2. Cancel (and fully refund) bookings nobody could be assigned to
- *      before their slot started.
- *   3. Assign waiting bookings / emergencies to anyone who freed up.
- *   4. Retry refunds that failed earlier.
- */
-
 const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
 const { reassignWaitingWork } = require("./professionalMatcher");

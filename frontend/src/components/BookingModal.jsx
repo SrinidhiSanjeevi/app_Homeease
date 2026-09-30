@@ -25,15 +25,12 @@ const CUSTOM_CATEGORIES = [
   { value: "Repair", label: "General Cleaning & Repair" },
 ];
 
-// Minutes after midnight when a slot starts, e.g. "03:00 PM - 05:00 PM" → 900.
 const slotStartMinutes = (value) => {
   const m = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(value);
   if (!m) return 0;
   return ((Number(m[1]) % 12) + (m[3].toUpperCase() === "PM" ? 12 : 0)) * 60 + Number(m[2]);
 };
 
-// Does this professional travel to `area`? Older records have no
-// serviceAreas list and cover only their home area (same rule as the server).
 const servesArea = (prof, area) => {
   if (!area) return false;
   const areas = prof.serviceAreas && prof.serviceAreas.length ? prof.serviceAreas : [prof.locality];
@@ -63,7 +60,6 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
   const [paymentMethod, setPaymentMethod] = useState("Razorpay");
   const [processingPayment, setProcessingPayment] = useState(false);
   const [razorpayLoaded, setRazorpayLoaded] = useState(false);
-  // Set once the booking is placed (cash) or paid (Razorpay): { booking, message }.
   const [confirmed, setConfirmed] = useState(null);
 
   useEffect(() => {
@@ -84,7 +80,6 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
     document.body.appendChild(script);
   }, []);
 
-  // Close on Escape (unless a payment is in flight)
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape" && !processingPayment) onClose();
@@ -95,7 +90,6 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
 
   const activeCategory = service.isCustom ? customCategory : service.category;
 
-  // Slots that already started today can't be booked (the server rejects them too).
   const isToday = date === todayIso();
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
   const slotHasStarted = (value) => isToday && slotStartMinutes(value) <= nowMinutes;
@@ -108,7 +102,6 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
-  // Professionals already booked for the chosen date + slot.
   const [bookedIds, setBookedIds] = useState([]);
   useEffect(() => {
     if (!date || !timeSlot) {
@@ -125,14 +118,12 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
     };
   }, [date, timeSlot]);
 
-  // Why a professional can't be picked for this slot, or null if they can.
   const unavailableReason = (prof) => {
     if (prof.status !== "Available") return "Unavailable";
     if (bookedIds.includes(prof._id)) return "Booked";
     return null;
   };
 
-  // Every pro in this category; busy ones are shown but not selectable.
   const categoryProfessionals = useMemo(
     () =>
       professionals
@@ -147,7 +138,6 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
   const availableCount = categoryProfessionals.filter((p) => !unavailableReason(p)).length;
 
   useEffect(() => {
-    // Drop a stale choice if that pro is no longer free for this slot / in category
     if (selectedProfessional && !categoryProfessionals.some((p) => p._id === selectedProfessional && !unavailableReason(p))) {
       setSelectedProfessional("");
     }
@@ -193,8 +183,6 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
     area,
   });
 
-  // The saved booking with its professional populated (the create/verify
-  // responses may predate assignment). Falls back to what we already have.
   const loadBooking = async (bookingId, fallback) => {
     try {
       const res = await fetch("/api/bookings/my-bookings", {
@@ -285,8 +273,6 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
           }
         },
         modal: {
-          // Customer closed checkout without paying: release the slot now
-          // instead of holding the professional until the booking expires.
           ondismiss: async function () {
             if (!paid) {
               await fetch(`/api/bookings/${booking._id}/cancel`, {
@@ -302,9 +288,6 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
         theme: { color: "#0E5E4F" },
       });
 
-      // A declined attempt is NOT the end: Razorpay keeps the checkout open
-      // so the customer can retry with another method. The booking is only
-      // released when checkout is closed (ondismiss) or it expires unpaid.
       rzp.on("payment.failed", function (response) {
         console.warn("Razorpay payment attempt failed:", response.error?.description);
       });
@@ -689,12 +672,8 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
   );
 }
 
-// ------------------------------------------------------------------
-// Shown in place of the stepper once the booking is placed / paid.
-// ------------------------------------------------------------------
 function BookingConfirmed({ booking, message, service, area, professionals, onClose, onViewBookings }) {
   const pro = booking?.professional && typeof booking.professional === "object" ? booking.professional : null;
-  // The populated professional has no signed image URL; the list does.
   const proCard = pro ? professionals.find((p) => p._id === pro._id) || pro : null;
   const km = booking?.assignedDistanceKm;
   const bookingArea = booking?.area || area;

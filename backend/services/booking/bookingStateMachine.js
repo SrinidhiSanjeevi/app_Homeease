@@ -26,12 +26,6 @@ const ALLOWED_TRANSITIONS = Object.freeze({
   [BOOKING_STATUSES.CANCELLED]: []
 });
 
-// Statuses that mean "the customer is being told a professional is handling
-// this job." Reaching either one with no professional actually assigned is
-// exactly the "Completed without ever being assigned" bug this guards
-// against — so it's enforced once, here, rather than trusting every caller
-// (admin console, customer self-service, the auto-reassignment sweep) to
-// remember the check individually.
 const REQUIRES_PROFESSIONAL = new Set([
   BOOKING_STATUSES.CONFIRMED,
   BOOKING_STATUSES.COMPLETED

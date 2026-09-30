@@ -14,7 +14,6 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   exit 1
 fi
 
-# ── Source credentials (never echo them) ─────────────────────
 # shellcheck source=/dev/null
 set -a
 source "${ENV_FILE}"
@@ -56,9 +55,7 @@ for SERVICE in "${SERVICES[@]}"; do
   echo "Scanning: ${SERVICE}"
   echo "──────────────────────────────────────────────────────"
 
-  # Mount the entire repo root so the scanner can see .git for
   # SCM blame information. sonar.projectBaseDir points the scanner
-  # at the specific service subfolder within the mounted volume.
   if docker run --rm \
       --network host \
       -e SONAR_TOKEN \

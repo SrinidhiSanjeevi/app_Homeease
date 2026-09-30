@@ -1,6 +1,3 @@
-# ==========================================================
-# Stage 1: Build & install production dependencies
-# ==========================================================
 FROM node:22-alpine AS deps
 
 WORKDIR /app
@@ -12,17 +9,10 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund \
     && npm cache clean --force
 
-# ==========================================================
-# Stage 2: Production runtime image
-# ==========================================================
 FROM node:22-alpine AS runtime
 
-# Patch OS-level packages so Trivy doesn't flag known CVEs already
-# fixed upstream in Alpine's repos — this is the single highest-value
-# line for a clean Trivy HIGH/CRITICAL scan on an Alpine base image.
 RUN apk update && apk upgrade --no-cache
 
-# Install dumb-init for PID 1 signal handling & wget for health checks
 RUN apk add --no-cache dumb-init wget
 
 # Remove npm and npx from production runtime image
@@ -40,7 +30,6 @@ ENV NODE_ENV=production
 ENV PORT=5003
 ENV NOTIFICATION_SERVICE_PORT=5003
 
-# Copy production dependencies and application code with correct ownership
 COPY --from=deps --chown=homeease:homeease /app/node_modules ./node_modules
 COPY --chown=homeease:homeease . .
 

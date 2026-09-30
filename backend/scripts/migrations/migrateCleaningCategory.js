@@ -1,20 +1,3 @@
-/**
- * Split the old catch-all "Repair" category into:
- *   - Cleaning : house / sofa / upholstery cleaning
- *   - Repair   : appliance repair (AC, fan, TV, fridge, washing machine...)
- *
- * Moves the matching services and one existing professional so every
- * category that has services still has someone to assign bookings to.
- *
- * Deploy the backend + admin-backend with "Cleaning" in the Service enum
- * BEFORE running with --apply, otherwise old pods fail validation when
- * they save these services.
- *
- * Usage:
- *   node scripts/migrations/migrateCleaningCategory.js          # dry run
- *   node scripts/migrations/migrateCleaningCategory.js --apply  # write
- */
-
 const mongoose = require("mongoose");
 require("dotenv").config();
 

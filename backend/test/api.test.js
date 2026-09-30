@@ -1,7 +1,3 @@
-// HTTP-level tests for the backend Express app. No database is needed:
-// NODE_ENV=test makes server.js skip connectDB, the metrics collector,
-// the scheduler and app.listen, and every route tested here answers
-// before touching MongoDB (health, validation, auth, metrics, 404).
 process.env.NODE_ENV = "test";
 process.env.MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:1/homeease-test";
 process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret";
@@ -16,7 +12,7 @@ let server;
 let base;
 
 before(async () => {
-  mongoose.set("bufferCommands", false); // fail fast instead of hanging if a route hits the DB
+  mongoose.set("bufferCommands", false);
   server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${server.address().port}`;
