@@ -1,38 +1,4 @@
 #!/usr/bin/env node
-/**
- * split-by-service.js
- *
- * One-time local data migration: fans a single seed database
- * (`homeease_seed`, populated beforehand via `mongodump`/`mongorestore`
- * from a real snapshot) out into the 4 per-service databases the
- * split microservices now own, by collection ownership:
- *
- *   homeease_booking:      users, bookings, professionals, services,
- *                          emergencyrequests, slotreservations
- *   homeease_payment:      payments
- *   homeease_notification: notifications
- *   homeease_admin:        auditlogs
- *
- * Uses the raw `mongodb` driver (not Mongoose) so copying is not subject
- * to any service's schema validation. For each collection it reads every
- * document from `homeease_seed.<collection>` and drop+insertMany's it
- * into the owning target database's collection of the same name — every
- * `_id` and every cross-collection ObjectId reference is copied
- * byte-for-byte, untouched. Re-running is safe (drop+insertMany makes
- * each collection idempotent).
- *
- * Indexes are NOT hand-copied here: each service's own Mongoose models
- * declare their own `schema.index(...)`, and `autoIndex: true` (the
- * default, unchanged anywhere in this codebase) rebuilds them on first
- * connect.
- *
- * Usage:
- *   node scripts/local-db-split/split-by-service.js
- *   MONGO_URI="mongodb://127.0.0.1:27017" node scripts/local-db-split/split-by-service.js
- *
- * Source database name can be overridden with SEED_DB_NAME (defaults to
- * "homeease_seed").
- */
 
 "use strict";
 
@@ -41,7 +7,6 @@ const { MongoClient } = require("mongodb");
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017";
 const SEED_DB_NAME = process.env.SEED_DB_NAME || "homeease_seed";
 
-// Target database -> collections it owns, copied verbatim from the plan.
 const OWNERSHIP = {
   homeease_booking: [
     "users",
@@ -62,8 +27,6 @@ async function splitCollection(seedDb, targetDb, collectionName) {
 
   const targetCollection = targetDb.collection(collectionName);
 
-  // Idempotent: drop the target collection (if it exists) before
-  // re-inserting, so re-running this script is always safe.
   const existing = await targetDb
     .listCollections({ name: collectionName })
     .toArray();

@@ -1,5 +1,3 @@
-# Approval-gated promotion demo: prints what promoting verified DEV tags to the target would change (dryRun: true by default; false writes for real).
-
 parameters:
   - name: targetName        # STAGING / PROD — shown in the log
     type: string
@@ -22,7 +20,6 @@ jobs:
       runOnce:
         deploy:
           steps:
-            # Deployment jobs auto-download every pipeline artifact by default.
             - download: none
 
             - script: |
@@ -67,7 +64,6 @@ jobs:
                 - script: |
                     set -euo pipefail
 
-                    # GITOPS_PAT: scoped to Contents:write on Gitops_Homeease (see .azuredevops/README.md).
                     if [ -z "${GITOPS_PAT:-}" ]; then
                       echo "##vso[task.logissue type=error]GITOPS_PAT is not set. Add it as a secret variable in the homeease-ci variable group (see .azuredevops/README.md)."
                       exit 1
@@ -80,8 +76,6 @@ jobs:
                     echo "GitOps repo:   $(gitopsRepo)"
                     echo "GitOps branch: $(gitopsBranch)"
 
-                    # Read-only auth check, before anything destructive —
-                    # same as the Promote stage.
                     if ! git ls-remote --exit-code \
                          "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" \
                          "refs/heads/$(gitopsBranch)" > /tmp/ls-remote.out 2>/tmp/ls-remote.err; then

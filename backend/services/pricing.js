@@ -1,18 +1,6 @@
-/**
- * Server-side booking price. The client's totalPrice is never trusted —
- * the amount a customer pays is always computed here from the service
- * catalogue (must match the breakdown shown in frontend BookingModal).
- */
-
 const GST_RATE = 0.18;
-// Base price of a "Custom Service Request" (frontend Dashboard.jsx).
 const CUSTOM_REQUEST_PRICE = Number(process.env.CUSTOM_REQUEST_PRICE) || 999;
 
-/**
- * @param {object|null} service   Service document (null for custom requests)
- * @param {object|null} selectedProduct  { name, brand } chosen by the customer
- * @returns {{ ok: true, subtotal, gst, total, product } | { ok: false, message }}
- */
 function calculateBookingPrice(service, selectedProduct, isCustom) {
   let base;
   let product = null;

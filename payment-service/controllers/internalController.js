@@ -1,20 +1,7 @@
-/**
- * Internal Payments Controller
- *
- * Backs the /api/internal/payments/* routes that `backend` (booking-service)
- * calls over HTTP for Cash-on-Delivery bookings, instead of writing directly
- * to payment-service's Payment collection. Gated solely by
- * requireInternalToken — no end-user JWT.
- */
-
 const mongoose = require("mongoose");
 const Payment = require("../models/Payment");
 const logger = require("../utils/logger");
 
-// POST /api/internal/payments/cod — creates the Cash-on-Delivery Payment
-// record for a booking. Mirrors, field-for-field, the Payment.create(...)
-// call that used to live in backend/controllers/bookingController.js's
-// createBooking (Cash-on-Delivery branch).
 const createCodPayment = async (req, res) => {
   try {
     const { bookingId, userId, amount } = req.body || {};
@@ -43,11 +30,6 @@ const createCodPayment = async (req, res) => {
   }
 };
 
-// PUT /api/internal/payments/cod/:bookingId/settle — flips a Cash-on-Delivery
-// payment to "Success" on completeBooking. Mirrors the original
-// Payment.findOneAndUpdate({ booking, paymentMethod: "Cash on Delivery" },
-// { status: "Success" }) call, including its original behavior of never
-// erroring when no such Payment record exists yet (fire-and-forget).
 const settleCodPayment = async (req, res) => {
   try {
     const { bookingId } = req.params;
@@ -73,9 +55,6 @@ const settleCodPayment = async (req, res) => {
   }
 };
 
-// GET /api/internal/payments/booking/:bookingId — replaces the direct
-// Payment.find({ booking }) calls in backend's getUserBookings /
-// getProfessionalBookings.
 const getPaymentsForBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;

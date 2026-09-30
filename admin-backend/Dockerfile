@@ -1,6 +1,3 @@
-# ==========================================================
-# Stage 1: Build & install production dependencies
-# ==========================================================
 FROM node:22-alpine AS deps
 
 WORKDIR /app
@@ -12,14 +9,10 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund \
     && npm cache clean --force
 
-# ==========================================================
-# Stage 2: Production runtime image
-# ==========================================================
 FROM node:22-alpine AS runtime
 
 RUN apk update && apk upgrade --no-cache
 
-# Install dumb-init for PID 1 signal handling & wget for health checks
 RUN apk add --no-cache dumb-init wget
 
 # Remove npm and npx from production runtime image
@@ -36,7 +29,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=5001
 
-# Copy production dependencies and application code with correct ownership
 COPY --from=deps --chown=homeease:homeease /app/node_modules ./node_modules
 COPY --chown=homeease:homeease . .
 
@@ -46,8 +38,6 @@ USER homeease
 # Expose internal admin-backend port
 EXPOSE 5001
 
-# Liveness only (like the Kubernetes livenessProbe): /api/health also fails
-# while MongoDB is unreachable, which would mark a working process unhealthy.
 HEALTHCHECK \
     --interval=15s \
     --timeout=5s \

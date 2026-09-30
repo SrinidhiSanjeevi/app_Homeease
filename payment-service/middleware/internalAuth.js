@@ -1,9 +1,6 @@
 const crypto = require("crypto");
 const logger = require("../utils/logger");
 
-// Service-to-service auth: the backend sends X-Internal-Token on every
-// call. When INTERNAL_SERVICE_TOKEN is not set (local development), the
-// check is skipped with a warning — production must set it.
 const TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 
 if (!TOKEN) {

@@ -1,13 +1,3 @@
-/**
- * Booking Service HTTP Client Adapter
- *
- * Exclusively handles network communication between Admin Service and
- * Booking Service (today's `backend`). Contains NO business logic — that
- * all moved to backend/controllers/internal/adminBookingController.js.
- *
- * Modeled exactly on backend/services/payment/paymentClient.js.
- */
-
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
 

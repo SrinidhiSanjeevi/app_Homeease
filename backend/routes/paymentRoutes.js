@@ -6,7 +6,6 @@ const { paymentLimiter } = require("../middleware/rateLimiter");
 const validate = require("../middleware/validate");
 const { createOrderRules, verifyPaymentRules } = require("../validators/paymentValidators");
 
-// ─── Public Webhook (Authenticated via HMAC-SHA256 signature, not user JWT) ─
 router.post("/webhook", handleWebhook);
 
 // ─── Protected Routes (Require User JWT) ────────────────────────────────────

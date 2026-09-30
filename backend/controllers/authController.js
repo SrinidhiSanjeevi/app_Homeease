@@ -11,16 +11,10 @@ const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-/**
- * Helper to hash refresh token before storing in MongoDB
- */
 const hashToken = (token) => {
   return crypto.createHash("sha256").update(token).digest("hex");
 };
 
-/**
- * Helper to generate access & refresh tokens
- */
 const generateTokens = async (user, req = null) => {
   const accessToken = jwt.sign(
     { id: user._id, role: user.role, permissions: user.permissions || [] },
@@ -263,7 +257,6 @@ const verifyMfa = async (req, res) => {
   }
 };
 
-// SETUP MFA (Generate TOTP secret and QR code URI for admin)
 const setupMfa = async (req, res) => {
   try {
     const user = await User.findById(req.user._id || req.user.id);
@@ -271,8 +264,6 @@ const setupMfa = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Re-keying an already-enabled authenticator requires a valid code
-    // from the current one — a stolen session can't swap in its own.
     if (user.isMfaEnabled && user.mfaSecret) {
       const { code } = req.body || {};
       if (!code || !verifyTotp(code, user.mfaSecret)) {
@@ -286,8 +277,6 @@ const setupMfa = async (req, res) => {
     const secret = generateSecret();
     const otpAuthUrl = getOtpAuthUrl(user.email, secret, "HomeEase");
 
-    // Kept separate until confirmed, so the current authenticator keeps
-    // working if the new setup is abandoned.
     user.mfaPendingSecret = secret;
     await user.save();
 
@@ -333,7 +322,6 @@ const confirmMfa = async (req, res) => {
   }
 };
 
-// REFRESH TOKEN (Rotates refresh token and issues new short-lived access token)
 const refreshToken = async (req, res) => {
   try {
     const { refreshToken: rawRefreshToken } = req.body;

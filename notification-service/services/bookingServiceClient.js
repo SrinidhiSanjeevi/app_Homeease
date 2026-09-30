@@ -1,14 +1,3 @@
-/**
- * Booking Service HTTP Client Adapter
- *
- * Exclusively handles network communication between Notification Service and
- * Booking Service (today's `backend`). Contains NO business logic — that
- * stays in services/notificationService.js.
- *
- * Modeled exactly on payment-service/services/bookingServiceClient.js /
- * admin-backend/services/bookingServiceClient.js.
- */
-
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
 
@@ -59,18 +48,11 @@ async function makeRequest(path, options = {}) {
   }
 }
 
-// GET /api/internal/bookings/:id — widened projection (includes date,
-// timeSlot, address alongside paymentMethod/totalPrice) needed for template
-// rendering. Throws a 404 AppError (via makeRequest) when the booking
-// doesn't exist, same as a local Booking.findById returning null used to be
-// handled by callers.
 const getBooking = async (bookingId) => {
   const data = await makeRequest(`/api/internal/bookings/${bookingId}`, { method: "GET" });
   return data.booking;
 };
 
-// GET /api/internal/users/:id — minimal, safe projection: only { _id, name,
-// email }. Never password/permissions/mfa fields.
 const getUser = async (userId) => {
   const data = await makeRequest(`/api/internal/users/${userId}`, { method: "GET" });
   return data.user;

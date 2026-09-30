@@ -1,10 +1,3 @@
-/**
- * Payment Service HTTP Client Adapter
- *
- * Exclusively handles network communication between Customer API and Payment Service.
- * Contains NO business logic.
- */
-
 const AppError = require("../../utils/AppError");
 const logger = require("../../utils/logger");
 
@@ -138,9 +131,6 @@ const processWebhook = async ({ rawPayload, signature, webhookSecret: _webhookSe
   }
 };
 
-// Cash-on-Delivery payment record creation — replaces the direct
-// Payment.create(...) that used to live in bookingController.js's
-// createBooking (Cash-on-Delivery branch).
 const createCodPayment = async ({ bookingId, userId, amount }) => {
   return makeRequest("/api/internal/payments/cod", {
     method: "POST",
@@ -148,9 +138,6 @@ const createCodPayment = async ({ bookingId, userId, amount }) => {
   });
 };
 
-// Flips a Cash-on-Delivery payment to "Success" — replaces the direct
-// Payment.findOneAndUpdate(...) that used to live in
-// bookingController.js's completeBooking.
 const settleCodPayment = async (bookingId) => {
   return makeRequest(`/api/internal/payments/cod/${bookingId}/settle`, {
     method: "PUT",
@@ -158,8 +145,6 @@ const settleCodPayment = async (bookingId) => {
   });
 };
 
-// Replaces the direct local Payment.find({ booking }) calls in
-// getUserBookings / getProfessionalBookings.
 const getPaymentsForBooking = async (bookingId) => {
   return makeRequest(`/api/internal/payments/booking/${bookingId}`, {
     method: "GET"

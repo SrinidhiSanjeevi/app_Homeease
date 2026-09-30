@@ -37,8 +37,6 @@ export default function ServiceDetail({
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [serviceId]);
 
-  // Always fetch the latest copy — covers deep links / refresh and keeps
-  // price, rating and options fresh even when the grid data is stale.
   useEffect(() => {
     const controller = new AbortController();
 
@@ -59,7 +57,6 @@ export default function ServiceDetail({
       .catch((err) => {
         if (err.name === "AbortError") return;
         console.error("Fetch service error:", err);
-        // Keep showing grid data if we have it; otherwise surface the error.
         setStatus((prev) => (prev === "ready" ? prev : "error"));
       });
 

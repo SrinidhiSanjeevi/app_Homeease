@@ -17,11 +17,8 @@ const logger = require("../utils/logger");
 
 // Categories a custom request can target (Service.category enum).
 const CUSTOM_CATEGORIES = ["Spa", "Electrician", "Carpentry", "Plumbing", "Security", "Repair", "Cleaning"];
-// Unpaid online bookings a customer may hold at once (each one reserves a slot).
 const MAX_UNPAID_BOOKINGS = 3;
 
-// Populated services only carry imageKey; attach the signed imageUrl so
-// each booking card shows its own service image instead of a placeholder.
 async function withServiceImageUrl(service) {
   if (!service || !service.imageKey) return service;
   try {
@@ -32,9 +29,6 @@ async function withServiceImageUrl(service) {
   }
 }
 
-// ============================================================
-// CREATE NEW BOOKING
-// ============================================================
 const createBooking = async (req, res) => {
   let queueIncremented = false;
 
@@ -50,7 +44,6 @@ const createBooking = async (req, res) => {
     }
     const userId = req.user._id;
 
-    // Real dates and slots only: no past dates, no slot that already started.
     const schedule = validateSchedule(date, timeSlot);
     if (!schedule.ok) {
       return res.status(400).json({ success: false, message: schedule.message });
@@ -71,7 +64,6 @@ const createBooking = async (req, res) => {
       category = service.category;
     }
 
-    // The price is always computed here — the client's total is ignored.
     const price = calculateBookingPrice(service, isCustom ? null : selectedProduct, Boolean(isCustom));
     if (!price.ok) {
       return res.status(400).json({ success: false, message: price.message });
@@ -94,8 +86,6 @@ const createBooking = async (req, res) => {
       queueIncremented = true;
     }
 
-    // Online bookings stay "Created" (holding the slot) until payment is
-    // verified; unpaid ones expire after 15 minutes (services/scheduler.js).
     let booking = await Booking.create({
       user: userId,
       service: service ? service._id : null,
@@ -127,9 +117,6 @@ const createBooking = async (req, res) => {
       }
     }
 
-    // Professional in the nearest area who is free for this date + slot
-    // (the customer's own pick is tried first). Nobody free → the booking waits
-    // and the scheduler keeps trying until the slot starts.
     const { professional, distanceKm } = await reserveProfessional({
       category,
       area,
@@ -194,9 +181,6 @@ const createBooking = async (req, res) => {
   }
 };
 
-// ============================================================
-// GET USER BOOKINGS
-// ============================================================
 const getUserBookings = async (req, res) => {
   try {
     if (!req.user || !req.user._id) {
@@ -234,9 +218,6 @@ const getUserBookings = async (req, res) => {
   }
 };
 
-// ============================================================
-// GET ASSIGNED BOOKINGS FOR PROFESSIONAL
-// ============================================================
 const getProfessionalBookings = async (req, res) => {
   try {
     if (!req.user || !req.user._id) {
@@ -279,9 +260,6 @@ const getProfessionalBookings = async (req, res) => {
   }
 };
 
-// ============================================================
-// ACCEPT BOOKING
-// ============================================================
 const acceptBooking = async (req, res) => {
   try {
     if (!req.user || !req.user._id) {
@@ -326,9 +304,6 @@ const acceptBooking = async (req, res) => {
   }
 };
 
-// ============================================================
-// COMPLETE BOOKING
-// ============================================================
 const completeBooking = async (req, res) => {
   try {
     if (!req.user || !req.user._id) {
@@ -342,8 +317,6 @@ const completeBooking = async (req, res) => {
       return res.status(404).json({ success: false, message: "Booking not found" });
     }
 
-    // Admins can complete a booking at any time. The customer who owns the
-    // booking can only complete it once its booked time slot has ended.
     const isAdmin = req.user.role === "admin";
     const isOwner = booking.user && booking.user.toString() === req.user._id.toString();
 
@@ -379,7 +352,6 @@ const completeBooking = async (req, res) => {
       });
     }
 
-    // Atomic Confirmed → Completed, so a double click can't complete twice.
     const updated = await Booking.findOneAndUpdate(
       { _id: booking._id, status: booking.status },
       { $set: { status: "Completed", ...(isCash ? { paymentStatus: "Paid (Cash Collected)" } : {}) } },
@@ -394,7 +366,6 @@ const completeBooking = async (req, res) => {
       if (metrics && metrics.paymentSuccess) metrics.paymentSuccess.inc();
     }
 
-    // The professional's slot is free again, and their job count goes up.
     await releaseBookingReservation(updated._id);
     if (updated.professional) {
       await Professional.updateOne({ _id: updated.professional }, { $inc: { completedJobs: 1 } });
@@ -426,11 +397,6 @@ const completeBooking = async (req, res) => {
   }
 };
 
-// ============================================================
-// CANCEL BOOKING
-// ============================================================
-// Free until FREE_CANCEL_HOURS before the slot; a late cancellation keeps
-// a fee; no customer cancellation once the visit has started.
 const cancelBooking = async (req, res) => {
   try {
     if (!req.user || !req.user._id) {
@@ -473,7 +439,6 @@ const cancelBooking = async (req, res) => {
   }
 };
 
-// GET /api/bookings/:id/cancel-quote — what cancelling now would cost.
 const getCancellationQuote = async (req, res) => {
   try {
     const booking = await Booking.findOne({ _id: req.params.id, user: req.user._id });
@@ -487,9 +452,6 @@ const getCancellationQuote = async (req, res) => {
   }
 };
 
-// ============================================================
-// RATE AND REVIEW BOOKING
-// ============================================================
 const rateBooking = async (req, res) => {
   try {
     if (!req.user || !req.user._id) {
@@ -515,7 +477,6 @@ const rateBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: "Only completed bookings can be rated" });
     }
 
-    // Atomic "rate once": only succeeds if nobody rated it yet.
     const rated = await Booking.findOneAndUpdate(
       { _id: booking._id, userRating: { $exists: false } },
       { $set: { userRating: numericRating, userReview: typeof review === "string" ? review.trim() : "" } },
@@ -559,8 +520,6 @@ const rateBooking = async (req, res) => {
               }
             }
           ],
-          // Mongoose 9 rejects aggregation-pipeline updates without this flag
-          // (which is why service ratings silently never updated before).
           { updatePipeline: true }
         );
       } catch (serviceUpdateError) {
@@ -571,7 +530,6 @@ const rateBooking = async (req, res) => {
       }
     }
 
-    // The professional's own rating follows the same running average.
     if (booking.professional) {
       try {
         await Professional.updateOne({ _id: booking.professional }, [

@@ -1,11 +1,7 @@
-// Booking dates arrive as "YYYY-MM-DD" (stored as UTC midnight) and time
-// slots as "09:00 AM - 11:00 AM" in the customer's local time. Slots are
-// IST by default; override with BOOKING_TZ_OFFSET_MINUTES if needed.
 const TZ_OFFSET_MINUTES = Number.isFinite(Number(process.env.BOOKING_TZ_OFFSET_MINUTES))
   ? Number(process.env.BOOKING_TZ_OFFSET_MINUTES)
   : 330;
 
-// The only slots customers can book (must match frontend BookingModal).
 const TIME_SLOTS = Object.freeze([
   "09:00 AM - 11:00 AM",
   "12:00 PM - 02:00 PM",
@@ -39,20 +35,12 @@ function atLocalMinutes(date, minutes) {
   return new Date(midnight + (minutes - TZ_OFFSET_MINUTES) * 60 * 1000);
 }
 
-/**
- * Returns the moment the booked slot starts, or null if it can't be parsed.
- */
 function getScheduledStart(booking) {
   if (!booking || !booking.date) return null;
   const times = slotMinutes(booking.timeSlot);
   return atLocalMinutes(booking.date, times.length ? times[0] : 0);
 }
 
-/**
- * Returns the moment the booked slot ends, or null if it can't be parsed.
- * A slot without an end time ("09:00 AM") falls back to its start time;
- * a date with no parsable slot falls back to the end of that day.
- */
 function getScheduledEnd(booking) {
   if (!booking || !booking.date) return null;
   const times = slotMinutes(booking.timeSlot);
@@ -69,14 +57,11 @@ function hasScheduledTimeStarted(booking, now = new Date()) {
   return !start || now >= start;
 }
 
-// Today's date in the service timezone, as the UTC-midnight Date that
-// bookings store, e.g. 2026-09-25T00:00:00Z.
 function localToday(now = new Date()) {
   const local = new Date(now.getTime() + TZ_OFFSET_MINUTES * 60 * 1000);
   return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()));
 }
 
-// The slot happening right now in the service timezone, or null.
 function currentSlot(now = new Date()) {
   const today = localToday(now);
   return TIME_SLOTS.find((slot) => {
@@ -86,10 +71,6 @@ function currentSlot(now = new Date()) {
   }) || null;
 }
 
-/**
- * Validates a customer-supplied date ("YYYY-MM-DD") + time slot.
- * Returns { ok: true, date } (UTC midnight Date) or { ok: false, message }.
- */
 function validateSchedule(dateInput, timeSlot, now = new Date()) {
   if (typeof dateInput !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
     return { ok: false, message: "Please pick a valid date (YYYY-MM-DD)." };

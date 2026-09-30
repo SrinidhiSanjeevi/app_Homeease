@@ -3,7 +3,6 @@ const logger = require("../utils/logger");
 const { mongodbConnectionState } = require("../metrics");
 const metricsPlugin = require("./metricsPlugin");
 
-// Register global Mongoose metrics plugin before any model is compiled
 mongoose.plugin(metricsPlugin);
 
 // Connection lifecycle event listeners

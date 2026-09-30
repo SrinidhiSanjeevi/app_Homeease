@@ -11,11 +11,6 @@ let blobServiceClient = null;
 let cachedUserDelegationKey = null;
 let cachedDelegationKeyExpiresAt = 0;
 
-/**
- * Validates and extracts containerName and blobName from imageKey.
- * Expected format: "<containerName>/<blobName>"
- * Rejects path traversal and empty names.
- */
 function parseImageKey(imageKey) {
   if (!imageKey || typeof imageKey !== "string") {
     return null;
@@ -33,10 +28,6 @@ function parseImageKey(imageKey) {
   return { containerName, blobName };
 }
 
-/**
- * Returns a singleton BlobServiceClient instance.
- * Prefers DefaultAzureCredential for Entra ID auth.
- */
 function getBlobServiceClient() {
   if (blobServiceClient) {
     return blobServiceClient;
@@ -66,10 +57,6 @@ function getBlobServiceClient() {
   return blobServiceClient;
 }
 
-/**
- * In-memory cached retrieval of User Delegation Key for Entra ID.
- * Avoids repeated network round-trips for every image.
- */
 async function getUserDelegationKeyCached(client, _accountName) {
   const now = Date.now();
   // Reuse key if at least 5 minutes remaining
@@ -86,11 +73,6 @@ async function getUserDelegationKeyCached(client, _accountName) {
   return delegationKey;
 }
 
-/**
- * Generates a short-lived, read-only HTTPS SAS URL for an imageKey.
- * Never logs the full SAS URL or any credentials.
- * Returns null if generation fails or imageKey is invalid.
- */
 async function generateImageUrl(imageKey, expiresInMinutes = 15) {
   if (!imageKey) {
     return null;
@@ -179,10 +161,6 @@ async function generateImageUrl(imageKey, expiresInMinutes = 15) {
   }
 }
 
-/**
- * Enriches a list of items with their imageUrl.
- * Preserves the original record fields while adding imageUrl.
- */
 async function attachImageUrls(items, expiresInMinutes = 15) {
   if (!Array.isArray(items) || items.length === 0) {
     return [];
@@ -201,22 +179,10 @@ async function attachImageUrls(items, expiresInMinutes = 15) {
   );
 }
 
-/**
- * Uploads a Buffer to Azure Blob Storage.
- * @param {Buffer} buffer - File contents
- * @param {string} containerName - Destination container (e.g. "services")
- * @param {string} blobName - Destination blob name (e.g. "abc-123.jpg")
- * @param {string} contentType - MIME type (e.g. "image/jpeg")
- * @returns {Promise<string>} The blob's base URL (no SAS token)
- */
 async function uploadBuffer(buffer, containerName, blobName, contentType) {
   const client = getBlobServiceClient();
   const containerClient = client.getContainerClient(containerName);
 
-  // Create container if it doesn't exist (idempotent, no-op when already present).
-  // Must stay private: the storage account disallows public access, so
-  // requesting { access: "blob" } fails with 409 PublicAccessNotPermitted.
-  // Images are served to the browser via short-lived SAS URLs instead.
   await containerClient.createIfNotExists();
 
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);

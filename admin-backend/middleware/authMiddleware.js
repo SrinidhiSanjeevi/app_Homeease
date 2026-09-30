@@ -1,7 +1,5 @@
 const jwt = require("jsonwebtoken");
 const logger = require("../utils/logger");
-// admin-backend no longer holds a local User model/DB (Stage 1 split) —
-// the authenticated user is fetched from booking-service instead.
 const bookingServiceClient = require("../services/bookingServiceClient");
 
 const protect = async (req, res, next) => {
@@ -29,8 +27,6 @@ const protect = async (req, res, next) => {
             process.env.JWT_SECRET
         );
 
-        // A "password OK, MFA pending" token is only good for /mfa/verify —
-        // never as a login, or MFA could be skipped entirely.
         if (decoded.mfaPending) {
             return res.status(401).json({
                 success: false,
@@ -48,8 +44,6 @@ const protect = async (req, res, next) => {
                     message: "Not authorized, user not found"
                 });
             }
-            // Network/service errors (e.g. booking-service unreachable) fall
-            // through to the outer catch below.
             throw fetchError;
         }
 
@@ -62,8 +56,6 @@ const protect = async (req, res, next) => {
             });
         }
 
-        // Deactivated accounts lose access immediately, not when the
-        // access token expires.
         if (req.user.active === false) {
             return res.status(401).json({
                 success: false,

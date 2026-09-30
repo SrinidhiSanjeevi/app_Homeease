@@ -25,7 +25,6 @@ const {
 } = require("../controllers/adminController");
 const { uploadImage } = require("../controllers/uploadController");
 
-// All routes are protected by JWT auth + admin role check
 const guard = [protect, adminOnly];
 
 // Image upload → Azure Blob Storage

@@ -1,14 +1,3 @@
-/**
- * Secure Admin Account Bootstrapping Script
- * 
- * Usage:
- *   INITIAL_ADMIN_EMAIL="admin@homeease.com" INITIAL_ADMIN_PASSWORD="YourStrongPassword123!" node scripts/seedAdmin.js
- * 
- * In Production:
- *   Invoked via CI/CD, Kubernetes Job, or deployment hook reading from Azure Key Vault / AWS Secrets Manager.
- *   NO passwords are ever committed to git.
- */
-
 require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");

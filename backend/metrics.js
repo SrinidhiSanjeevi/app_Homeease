@@ -1,15 +1,8 @@
 const client = require('prom-client');
 
-// Dedicated Registry — matches admin-backend's pattern, keeps this
-// service's metrics isolated from anything else that might register
-// into the default global registry.
 const register = new client.Registry();
 client.collectDefaultMetrics({ register });
 
-// ─── HTTP Metrics (RED method) ────────────────────────────────────────────────
-// Previously missing entirely from backend despite admin-backend having
-// them — every service should expose baseline Rate/Errors/Duration
-// regardless of its business logic.
 const httpRequestDurationSeconds = new client.Histogram({
   name: 'http_request_duration_seconds',
   help: 'Duration of HTTP requests in seconds',
@@ -89,19 +82,12 @@ const notificationFailures = new client.Counter({
   registers: [register]
 });
 
-// ─── Active bookings (DB count, set by metricsCollector.js) ─────────────────────
-// Was an in-process inc/dec gauge: online bookings are confirmed inside
-// payment-service (never incremented here) but were decremented on
-// completion/cancel, and every pod restart reset it — so it went negative.
 const activeBookings = new client.Gauge({
   name: 'serviceexpress_active_bookings',
   help: 'Bookings in status Created, Assigned or Confirmed (DB count)',
   registers: [register]
 });
 
-// ─── Live gauge (in-process, per-pod) ─────────────────────────────────────────
-// Counts createBooking requests this pod is processing right now. It is NOT
-// the assignment backlog; that is serviceexpress_bookings_by_status{status="Assigned"}.
 const queueLength = new client.Gauge({
   name: 'serviceexpress_queue_length',
   help: 'createBooking requests currently in flight on this pod (not the assignment backlog)',
@@ -111,9 +97,6 @@ const queueLength = new client.Gauge({
 // ─── Histograms ───────────────────────────────────────────────────────────────
 const professionalAssignmentTime = new client.Histogram({
   name: 'serviceexpress_professional_assignment_time_seconds',
-  // Observed when a booking gets its professional: immediately in
-  // createBooking (sub-second) or later by the scheduler sweep (minutes to
-  // hours), so the buckets span both.
   help: 'Time from booking creation until a professional is assigned (seconds)',
   buckets: [0.05, 0.1, 0.25, 0.5, 1, 5, 30, 60, 300, 900, 1800, 3600, 7200, 21600],
   registers: [register]
@@ -121,18 +104,11 @@ const professionalAssignmentTime = new client.Histogram({
 
 const averageBookingLatency = new client.Histogram({
   name: 'serviceexpress_booking_latency_seconds',
-  // Completion is only allowed after the booked slot, which is often days
-  // after booking — buckets run from 1 hour to 14 days.
   help: 'End-to-end latency of a booking from creation to completion (seconds)',
   buckets: [3600, 10800, 21600, 43200, 86400, 172800, 345600, 604800, 1209600],
   registers: [register]
 });
 
-// ─── DB-truth Gauges ───────────────────────────────────────────────────────────
-// NOTE: these are only set by metricsCollector.js. It runs unless
-// METRICS_COLLECTOR_ENABLED is exactly "false" (server.js), i.e. in every
-// backend replica. Each replica exports the same DB-derived values, so
-// dashboards must aggregate them with max(), never sum().
 const totalServicesGauge = new client.Gauge({
   name: 'serviceexpress_total_services',
   help: 'Total number of service offerings in the catalog',

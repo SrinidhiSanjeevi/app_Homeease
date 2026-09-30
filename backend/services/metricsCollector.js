@@ -31,8 +31,6 @@ async function collectDbMetrics() {
       User.countDocuments({ role: "user" }),
       EmergencyRequest.countDocuments(),
       EmergencyRequest.countDocuments({ status: { $nin: ["Resolved", "Cancelled"] } }),
-      // Money actually received — same rule as the admin dashboard:
-      // paid online, cash collected, or the fee kept on a late cancellation.
       Booking.aggregate([
         { $match: { paymentStatus: { $in: ["Paid", "Paid (Cash Collected)", "Partially Refunded"] } } },
         {
@@ -74,7 +72,7 @@ async function collectDbMetrics() {
 }
 
 function startMetricsCollector() {
-  collectDbMetrics(); // run once immediately on boot, don't wait 30s for first data
+  collectDbMetrics();
   setInterval(collectDbMetrics, POLL_INTERVAL_MS);
 }
 

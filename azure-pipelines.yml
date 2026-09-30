@@ -1,5 +1,3 @@
-# HomeEase CI/CD: Static -> Validate -> Package -> Promote (GitOps) -> Verify DEV -> Report -> Promote Staging/Prod (preview) -> Promote Prod.
-
 trigger:
   branches:
     include:
@@ -32,8 +30,6 @@ pr:
 
 pool:
   vmImage: 'ubuntu-latest'
-
-# Service catalogue: the single source of truth for all per-service jobs below.
 
 parameters:
   - name: services
@@ -83,7 +79,6 @@ parameters:
         sonarProjectKey: homeease-admin-frontend
 
 variables:
-  # PUSHGATEWAY_URL (used by Package/Report stages) comes from this group.
   - group: homeease-ci
 
   - name: acrName
@@ -91,7 +86,6 @@ variables:
   - name: acrLoginServer
     value: '$(acrName).azurecr.io'
 
-  # Repository namespace inside the registry, e.g. .../homeease/backend
   - name: imageNamespace
     value: 'homeease'
 
@@ -103,11 +97,9 @@ variables:
     value: '0.74.0'
   - name: syftVersion
     value: '1.51.1'
-  # Pinned. Used only by the Promote stage to edit values-azure-dev.yaml.
   - name: yqVersion
     value: '4.48.1'
 
-  # Only main produces pushed artifacts. PRs build and scan, then discard.
   - name: isMain
     value: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
 
@@ -117,17 +109,14 @@ variables:
   - name: gitopsBranch
     value: 'main'
 
-  # Compile-time switch: when 'false', the real Promote PROD stage (7) is not compiled into the run at all.
   - name: enableProdPromotion
     value: 'false'
 
-  # Compile-time switch: enables the preview-only, approval-gated Staging/Prod demo stages (7a/7c).
   - name: enableStagingPromotion
     value: 'true'
 
 stages:
 
-# Stage 1: secret scan, Dockerfile lint, and change detection (repo-wide, no dependencies needed).
 - stage: Static
   displayName: '1. Static Analysis'
   jobs:
@@ -138,7 +127,6 @@ stages:
       steps:
 
         # Full history is required: gitleaks must see deleted commits.
-        # A secret removed in a later commit is still a leaked secret.
         - checkout: self
           fetchDepth: 0
 
@@ -170,9 +158,6 @@ stages:
               docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
                 hadolint --no-fail - < "${f}/Dockerfile" || FAILED=1
             done
-            # Reported, not gated. Promote to `exit $FAILED` once the
-            # existing findings (unpinned apk packages, mutable base tags)
-            # are cleared.
             exit 0
           displayName: 'Hadolint — Dockerfile lint (report only)'
 
@@ -184,7 +169,6 @@ stages:
               git fetch --no-tags origin "$(System.PullRequest.TargetBranch)"
               RANGE="${BASE}...HEAD"
             else
-              # Diff against the last SUCCESSFUL main build, not HEAD~1, so a multi-commit push doesn't hide earlier changes.
               LAST_GOOD=$(curl -fsS -H "Authorization: Bearer ${SYSTEM_ACCESSTOKEN}" \
                 "$(System.CollectionUri)$(System.TeamProject)/_apis/build/builds?definitions=$(System.DefinitionId)&branchName=refs/heads/main&resultFilter=succeeded&statusFilter=completed&queryOrder=finishTimeDescending&\$top=1&api-version=7.1" \
                 | jq -r '.value[0].sourceVersion // empty' 2>/dev/null || true)
@@ -207,9 +191,6 @@ stages:
             fi
             echo "Changed files:"; echo "$CHANGED"
 
-            # Only changed services are validated, packaged and promoted.
-            # A pipeline/template change, the first run, or a manual
-            # "Run pipeline" rebuilds everything.
             if echo "$CHANGED" | grep -qE '^(azure-pipelines\.yml|\.azuredevops/)' || [ "$CHANGED" = "ALL" ] || [ "$(Build.Reason)" = "Manual" ]; then
               FORCE_ALL=true
             else
@@ -227,7 +208,6 @@ stages:
               fi
             done
 
-            # Same tag for every service built from this commit.
             SHA=$(git rev-parse --short=12 HEAD)
             echo "##vso[task.setvariable variable=imageTag;isOutput=true]${SHA}"
             echo "##vso[task.setvariable variable=commitCreated;isOutput=true]$(git show -s --format=%cI HEAD)"
@@ -242,7 +222,6 @@ stages:
           condition: always()
           displayName: 'Publish SARIF reports'
 
-# Stage 2: per-service lint/test/audit/scan, skipped for services this commit did not touch.
 - stage: Validate
   displayName: '2. Validate Services'
   dependsOn: Static
@@ -252,7 +231,6 @@ stages:
         - job: Validate_${{ replace(service.name, '-', '_') }}
           displayName: 'Validate ${{ service.name }}'
           timeoutInMinutes: 15
-          # Skipped when this service did not change (see Static › detect).
           condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
           steps:
             - template: .azuredevops/templates/validate-service.yml
@@ -265,7 +243,6 @@ stages:
                 nodeVersion: $(nodeVersion)
                 trivyVersion: $(trivyVersion)
 
-# Stage 3: build, scan, SBOM and push, one job per service (push only on main).
 - stage: Package
   displayName: '3. Build, Scan & Push'
   dependsOn:
@@ -277,7 +254,6 @@ stages:
         - job: Package_${{ replace(service.name, '-', '_') }}
           displayName: 'Package ${{ service.name }}'
           timeoutInMinutes: 25
-          # Skipped when this service did not change (see Static › detect).
           condition: eq(stageDependencies.Static.Changes.outputs['detect.changed_${{ replace(service.name, '-', '_') }}'], 'true')
           variables:
             imageTag: $[ stageDependencies.Static.Changes.outputs['detect.imageTag'] ]
@@ -294,7 +270,6 @@ stages:
                 trivyVersion: $(trivyVersion)
                 syftVersion: $(syftVersion)
 
-# Stage 4: bump image.tag for all changed services in Gitops_Homeease in one commit (main only).
 - stage: Promote
   displayName: '4. Promote to GitOps'
   dependsOn:
@@ -328,7 +303,6 @@ stages:
         - script: |
             set -euo pipefail
 
-            # GITOPS_PAT: a GitHub PAT scoped to Contents:write on Gitops_Homeease only (see .azuredevops/README.md).
             if [ -z "${GITOPS_PAT:-}" ]; then
               echo "##vso[task.logissue type=error]GITOPS_PAT is not set. Add it as a secret variable in the homeease-ci variable group (see .azuredevops/README.md)."
               exit 1
@@ -337,7 +311,6 @@ stages:
             echo "GitOps repo:   $(gitopsRepo)"
             echo "GitOps branch: $(gitopsBranch)"
 
-            # Read-only auth check before anything destructive, so a failure here is unambiguously a token/repo problem.
             if ! git ls-remote --exit-code \
                  "https://x-access-token:${GITOPS_PAT}@$(gitopsRepo)" \
                  "refs/heads/$(gitopsBranch)" > /tmp/ls-remote.out 2>/tmp/ls-remote.err; then
@@ -385,8 +358,6 @@ stages:
 
             if [ ${#BUMPED[@]} -eq 0 ]; then
               echo "Nothing to promote — no changed service is behind $(imageTag)."
-              # Still publish which GitOps commit DEV is at — Verify DEV
-              # and Promote PROD read the DEV tags from exactly this commit.
               DEV_COMMIT=$(git rev-parse HEAD)
               echo "##vso[task.setvariable variable=devCommit;isOutput=true]${DEV_COMMIT}"
               exit 0
@@ -423,7 +394,6 @@ stages:
             GITOPS_PAT: $(GITOPS_PAT)
             IMAGE_TAG: $(imageTag)
 
-# Stage 5: wait for DEV to actually run the promoted tag, then health/smoke-test it (main only).
 - stage: DevVerify
   displayName: '5. Verify DEV'
   dependsOn:
@@ -467,11 +437,8 @@ stages:
             ADMIN_FRONTEND_HOST=$(devval admin-frontend '.ingress.host')
             echo "Verifying DEV at Gitops_Homeease@${DEV_COMMIT} (backend expected at ${BACKEND_TAG})"
 
-            # One shared budget: Argo CD polls Git every ~3 min, and the
-            # backend startupProbe allows up to 2 min for a cold start.
             DEADLINE=$(( $(date +%s) + 15 * 60 ))
 
-            # 1. Rollout — wait for the promoted version to be serving.
             while :; do
               BODY=$(curl -sk --max-time 10 "https://${BACKEND_HOST}/health/live" || true)
               VERSION=$(echo "$BODY" | jq -r '.version // empty' 2>/dev/null || true)
@@ -479,7 +446,6 @@ stages:
                 echo "backend is serving ${BACKEND_TAG}"
                 break
               fi
-              # Older images without a versioned /health/live fall back to health-only checks.
               if { [ -z "$VERSION" ] && echo "$BODY" | jq -e '.status == "ok"' >/dev/null 2>&1; } || [ "$VERSION" = "unknown" ]; then
                 echo "##vso[task.logissue type=warning]backend /health/live does not report a version yet — rollout of ${BACKEND_TAG} NOT confirmed, only health is checked."
                 break
@@ -492,7 +458,6 @@ stages:
               sleep 15
             done
 
-            # 2 + 3. Health and smoke checks, same deadline.
             wait_for_200() {
               local url="$1"
               while :; do
@@ -517,7 +482,6 @@ stages:
             GITOPS_PAT: $(GITOPS_PAT)
             DEV_COMMIT: $(devCommit)
 
-# Stage 6: push CI duration/result metrics to Pushgateway; never fails the build.
 - stage: Report
   displayName: '6. Publish CI Metrics'
   dependsOn:
@@ -536,8 +500,6 @@ stages:
         - script: |
             set -uo pipefail
 
-            # Pipeline-native timings, free, no instrumentation needed.
-            # Requires "Allow scripts to access the OAuth token" on the job.
             curl -fsSL -H "Authorization: Bearer $(System.AccessToken)" \
               "$(System.CollectionUri)$(System.TeamProject)/_apis/build/builds/$(Build.BuildId)/timeline?api-version=7.1" \
               -o timeline.json || { echo "timeline fetch failed"; exit 0; }
@@ -571,7 +533,6 @@ stages:
             SYSTEM_ACCESSTOKEN: $(System.AccessToken)
           continueOnError: true
 
-# Stages 7a/7c: approval-gated preview of promoting verified DEV tags to STAGING then PROD (writes nothing).
 - ${{ if eq(variables.enableStagingPromotion, 'true') }}:
   - stage: PromoteStaging
     displayName: '7a. Promote to STAGING (preview, approval)'
@@ -601,7 +562,6 @@ stages:
           valuesFile: values-azure-prod.yaml
           dryRun: true
 
-# Stage 7: copy the verified DEV tags into values-azure-prod.yaml and push, gated on homeease-prod approval.
 - ${{ if eq(variables.enableProdPromotion, 'true') }}:
   - stage: PromoteProd
     displayName: '7. Promote to PROD (approval required)'
@@ -623,8 +583,6 @@ stages:
           runOnce:
             deploy:
               steps:
-                # Deployment jobs auto-download every pipeline artifact
-                # (SARIF, SBOMs) by default. This job needs none of them.
                 - download: none
 
                 - script: |
@@ -671,12 +629,10 @@ stages:
                       PROD_REPO=$(yq '.image.repository' "$PROD_FILE")
                       PROD_TAG=$(yq '.image.tag' "$PROD_FILE")
 
-                      # Only ever a 12-char git SHA — the only tag stage 1 produces.
                       if ! [[ "$VERIFIED_TAG" =~ ^[0-9a-f]{12}$ ]]; then
                         echo "##vso[task.logissue type=error]${svc}: DEV tag '${VERIFIED_TAG}' is not a 12-char commit SHA — refusing to promote it."
                         exit 1
                       fi
-                      # Build once: PROD must pull the very image DEV verified.
                       if [ "$VERIFIED_REPO" != "$PROD_REPO" ]; then
                         echo "##vso[task.logissue type=error]${svc}: PROD image.repository (${PROD_REPO}) differs from DEV (${VERIFIED_REPO}) — PROD would not run the verified image."
                         exit 1

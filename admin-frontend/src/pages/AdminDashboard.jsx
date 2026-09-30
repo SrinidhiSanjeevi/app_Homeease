@@ -30,7 +30,6 @@ import {
 
 const BASE = "/api/admin";
 
-// What to show in the specialist column when nobody is assigned.
 const unassignedLabel = (status) => {
   if (["Resolved", "Cancelled", "Completed"].includes(status)) {
     return { text: "Not assigned", color: "#9ca3af" };
@@ -38,9 +37,6 @@ const unassignedLabel = (status) => {
   return { text: "Waiting for a free specialist…", color: "#d97706" };
 };
 
-// Mirrors backend/services/booking/bookingStateMachine.js — only offer
-// statuses the API will accept. "Assigned" with no professional means the
-// booking is queued until a professional in that category frees up.
 const BOOKING_TRANSITIONS = {
   Created: ["Assigned", "Confirmed", "Cancelled"],
   Assigned: ["Confirmed", "Cancelled"],
@@ -167,12 +163,6 @@ const sel = {
   cursor: "pointer"
 };
 
-// ── IMAGE UPLOADER ───────────────────────────────────────────
-/**
- * Drag-and-drop / click-to-upload component that POSTs the file
- * to POST /api/admin/upload?folder=<folder> and calls onUploaded
- * with { imageKey, imageUrl } on success.
- */
 function ImageUploader({ currentUrl, folder = "services", onUploaded }) {
   const [dragging, setDragging] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
@@ -335,9 +325,6 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
     duration: ""
   };
 
-  // Normalize: the DB record stores `imageKey`; the API response adds `imageUrl`.
-  // Pre-fill the form's `image` field from whichever is available so the
-  // preview renders and the correct value is sent back on save.
   const normalizeInitial = (src) => {
     if (!src) return blank;
     return {
@@ -480,12 +467,8 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
   );
 }
 
-// ── PROFESSIONAL FORM ─────────────────────────────────────────
-// A professional serves at most this many areas, home area included
-// (the admin API enforces the same limit).
 const MAX_SERVICE_AREAS = 5;
 
-// Straight-line km between two area centres (areas come from /api/admin/areas).
 function areaKm(areas, fromName, toName) {
   const a = areas.find((x) => x.name === fromName);
   const b = areas.find((x) => x.name === toName);
@@ -497,7 +480,6 @@ function areaKm(areas, fromName, toName) {
   return Math.round(6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)) * 10) / 10;
 }
 
-// Home area first, then others; never more than MAX_SERVICE_AREAS.
 function withHomeArea(list, home) {
   const rest = (list || []).filter((a) => a && a !== home);
   return (home ? [home, ...rest] : rest).slice(0, MAX_SERVICE_AREAS);
@@ -514,9 +496,6 @@ function ProfessionalForm({ initial, onSave, onClose, loading, areas = [] }) {
     serviceAreas: []
   };
 
-  // Normalize: the DB record stores `imageKey`; the API response adds `imageUrl`.
-  // Pre-fill the form's `image` field from whichever is available so the
-  // preview renders and the correct value is sent back on save.
   const normalizeInitial = (src) => {
     if (!src) return blank;
     return {
@@ -880,8 +859,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
     fetchAreas();
   }, []);
 
-  // Live updates: quietly refresh every 10s while the tab is visible,
-  // and right away when the admin comes back to it — no manual Refresh.
   const refreshQuietly = useRef(null);
   refreshQuietly.current = () =>
     Promise.all([
@@ -1604,10 +1581,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
             {activeSection === "overview" &&
               stats && (
                 <div>
-                  {/* Separate, visibly distinct box so an admin can't
-                      miss active emergencies without scrolling into the
-                      Emergencies tab. Only rendered when there's
-                      something to act on. */}
                   {stats.activeEmergencies > 0 && (
                     <div
                       onClick={() => setActiveSection("emergencies")}

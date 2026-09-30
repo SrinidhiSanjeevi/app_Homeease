@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import Icon from "./Icon";
 
-// Distance between two { latitude, longitude } points in km (Haversine).
 const distanceKm = (a, b) => {
   const toRad = (d) => (d * Math.PI) / 180;
   const dLat = toRad(b.latitude - a.latitude);
@@ -12,13 +11,8 @@ const distanceKm = (a, b) => {
   return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 };
 
-// Farthest a detected position may be from an area centre to count as "in" it.
 const MAX_DETECT_KM = 12;
 
-/**
- * Chip showing the chosen area; opens a picker with the 10 service areas
- * and an optional "Detect my location" (GPS → nearest area).
- */
 export function AreaChip({ area, onClick, compact = false }) {
   return (
     <button type="button" className={`area-chip${area ? "" : " is-empty"}${compact ? " is-compact" : ""}`} onClick={onClick}>

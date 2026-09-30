@@ -21,9 +21,6 @@ const {
   updateEmergencyStatus,
 } = require("../../controllers/internal/adminBookingController");
 
-// Internal-only: every route here is gated solely by requireInternalToken
-// (X-Internal-Token), never an end-user JWT — the caller (admin-backend)
-// already did human-level admin auth before reaching us.
 router.use(requireInternalToken);
 
 // Stats

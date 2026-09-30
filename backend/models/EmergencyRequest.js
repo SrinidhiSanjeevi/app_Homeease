@@ -62,8 +62,6 @@ const emergencyRequestSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
-    // Optional — only set when the customer explicitly shared their
-    // location via the browser Geolocation API when dispatching.
     location: {
       latitude: Number,
       longitude: Number,
@@ -71,8 +69,6 @@ const emergencyRequestSchema = new mongoose.Schema(
     },
     // Service area the customer picked (services/areas.js).
     area: { type: String, default: null },
-    // Distance (km) to the assigned responder, when nearest-provider
-    // matching was used.
     assignedDistanceKm: {
       type: Number
     }

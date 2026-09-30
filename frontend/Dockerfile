@@ -1,6 +1,3 @@
-# ==========================================================
-# Stage 1: Build React/Vite application
-# ==========================================================
 FROM node:22-alpine AS build
 
 WORKDIR /app
@@ -11,13 +8,8 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npm run build
 
-# ==========================================================
-# Stage 2: Non-root Nginx production runtime
-# ==========================================================
 FROM nginxinc/nginx-unprivileged:1.31.2-alpine3.23-slim AS runtime
 
-# Same reasoning as the Node images — patch base OS packages before
-# Trivy scans, since this base image accumulates CVEs like any other.
 USER root
 RUN apk update && apk upgrade --no-cache
 USER nginx

@@ -1,16 +1,3 @@
-/**
- * Give every active professional without a home area one of the service
- * areas (services/areas.js), spread round-robin within each category so
- * each trade is covered across Gachibowli and nearby. Admins can change
- * any of them afterwards from the admin panel.
- *
- * Usage:
- *   node backend/scripts/assignProfessionalAreas.js           # dry run
- *   node backend/scripts/assignProfessionalAreas.js --apply
- *
- * Reads MONGO_URI the same way scripts/seedAdmin.js does.
- */
-
 require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const Professional = require("../models/Professional");

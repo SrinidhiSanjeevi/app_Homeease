@@ -1,12 +1,3 @@
-/**
- * Customer Core - Emergency Service Configuration & Severity Rules
- *
- * HomeEase dispatches home-service specialists (electricians, plumbers,
- * locksmiths). It is NOT a fire brigade or ambulance: fire and medical
- * emergencies are never "dispatched" here — the customer is sent straight
- * to the public emergency numbers instead, and no fake unit IDs are shown.
- */
-
 const SEVERITY_CONFIG = Object.freeze({
   Low: {
     fireEngineDispatched: false,
@@ -47,7 +38,6 @@ const PUBLIC_EMERGENCY_NUMBERS = Object.freeze({
   Medical: { number: "108", service: "Ambulance" }
 });
 
-// Shown to the customer alongside a dispatch when life may be at risk.
 const SAFETY_HINTS = Object.freeze({
   Electrical: "If there is smoke or fire, leave the building and call 101.",
   Plumbing: "If water is near sockets or wiring, switch off the main power first.",
@@ -62,7 +52,6 @@ const CATEGORY_DEFAULT_SEVERITY = Object.freeze({
 
 const VALID_EMERGENCY_CATEGORIES = Object.freeze([...DISPATCHABLE_CATEGORIES, ...Object.keys(PUBLIC_EMERGENCY_NUMBERS)]);
 
-// Allowed emergency status moves (no going back from Resolved/Cancelled).
 const EMERGENCY_TRANSITIONS = Object.freeze({
   Dispatched: ["OnTheWay", "Arrived", "Resolved", "Cancelled"],
   OnTheWay: ["Arrived", "Resolved", "Cancelled"],

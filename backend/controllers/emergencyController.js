@@ -19,8 +19,6 @@ const dispatchEmergency = async (req, res) => {
     const { category, severity, description, contactNumber, address, area } = req.body;
     const userId = req.user._id;
 
-    // Fire / medical: HomeEase is not an emergency service — send the
-    // customer to the real one instead of dispatching a handyman.
     if (PUBLIC_EMERGENCY_NUMBERS[category]) {
       const { number, service } = PUBLIC_EMERGENCY_NUMBERS[category];
       return res.status(422).json({
@@ -37,8 +35,6 @@ const dispatchEmergency = async (req, res) => {
       });
     }
 
-    // One live emergency per customer — stops one account from tying up
-    // every nearby specialist.
     const existing = await EmergencyRequest.findOne({ user: userId, status: { $in: ACTIVE_EMERGENCY_STATUSES } });
     if (existing) {
       return res.status(409).json({
@@ -50,9 +46,6 @@ const dispatchEmergency = async (req, res) => {
     const resolvedSeverity = SEVERITY_CONFIG[severity] ? severity : (CATEGORY_DEFAULT_SEVERITY[category] || "Medium");
     const severityConfig = SEVERITY_CONFIG[resolvedSeverity];
 
-    // Nearest (by area) on-duty specialist who isn't mid-way through a
-    // scheduled job.
-    // No match → the emergency waits and the scheduler retries every minute.
     const { professional, distanceKm } = await claimProfessional(category, area);
 
     const emergency = await EmergencyRequest.create({
@@ -118,7 +111,6 @@ const cancelEmergency = async (req, res) => {
       });
     }
 
-    // Atomic, so cancelling twice can't free the specialist twice.
     const cancelled = await EmergencyRequest.findOneAndUpdate(
       { _id: emergency._id, status: emergency.status },
       { $set: { status: "Cancelled", resolvedAt: new Date() } },

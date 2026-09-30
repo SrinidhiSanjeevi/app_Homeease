@@ -1,15 +1,3 @@
-/**
- * Outbox retry sweep, run periodically by each notification-service replica.
- * Picks up any `Pending` notification whose first synchronous dispatch
- * attempt failed (or was never retried), without requiring the original
- * caller to re-invoke /dispatch. Uses the same conditional/atomic claim
- * (`Notification.findOneAndUpdate`) processNotification already relies on,
- * so replicas running this at the same time can't double-send anything.
- *
- * Same `SCHEDULER_ENABLED=false` escape hatch and "don't start in test"
- * guard as backend/services/scheduler.js.
- */
-
 const mongoose = require("mongoose");
 const { processPendingOutbox } = require("./notificationService");
 const logger = require("../utils/logger");

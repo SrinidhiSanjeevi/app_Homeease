@@ -1,14 +1,3 @@
-/**
- * HomeEase service areas — neighbourhoods in and around Gachibowli,
- * Hyderabad. Customers pick one before booking; every professional has a
- * home area. Assignment prefers the professional whose area is closest to
- * the customer's (straight-line distance between area centres), so no
- * GPS or paid map API is needed.
- *
- * Sole copy as of the Stage 1 microservice split — admin-backend no longer
- * has its own copy; it reaches this via GET /api/internal/admin/areas.
- */
-
 const AREAS = Object.freeze([
   { name: "Gachibowli", latitude: 17.4401, longitude: 78.3489 },
   { name: "Khajaguda", latitude: 17.4185, longitude: 78.3710 },
@@ -40,10 +29,6 @@ function distanceKm(a, b) {
   return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
-/**
- * Km between two area names; Infinity when either is unknown/missing
- * (e.g. a professional with no area yet — tried last).
- */
 function areaDistanceKm(fromName, toName) {
   const from = findArea(fromName);
   const to = findArea(toName);
@@ -51,14 +36,8 @@ function areaDistanceKm(fromName, toName) {
   return Math.round(distanceKm(from, to) * 10) / 10;
 }
 
-// A professional serves at most this many areas (home area included).
 const MAX_SERVICE_AREAS = 5;
 
-/**
- * Validates an admin-supplied list of service areas. The home area is
- * always covered, so it is added first when missing. Returns
- * { areas: [canonical names] } or { error: message }.
- */
 function normalizeServiceAreas(input, homeArea) {
   const list = Array.isArray(input) ? input : [];
   const names = [];

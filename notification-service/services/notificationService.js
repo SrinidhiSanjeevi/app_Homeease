@@ -15,9 +15,6 @@ const {
 
 const MAX_RETRY_ATTEMPTS = 3;
 
-/**
- * Resolves template data based on notification type and booking.
- */
 function resolveTemplateData(type, booking, recipientName, recipientEmail) {
   const bookingRef = (booking._id || booking).toString().slice(-6).toUpperCase();
 
@@ -47,9 +44,6 @@ function resolveTemplateData(type, booking, recipientName, recipientEmail) {
   }
 }
 
-/**
- * Creates a persistent notification/outbox record with idempotency protection.
- */
 async function enqueueNotification({
   type,
   booking,
@@ -76,10 +70,6 @@ async function enqueueNotification({
     let recipientName = explicitName;
 
     if (!recipientEmail || !recipientName) {
-      // A missing/unreachable user must never block enqueueing the outbox
-      // record itself — fall back to generic recipient details, same
-      // resilience the old local `User.findById(...).lean()` (which never
-      // threw on a not-found id) gave callers.
       let userDoc = null;
       try {
         userDoc = await bookingServiceClient.getUser(userId);
@@ -124,9 +114,6 @@ async function enqueueNotification({
   }
 }
 
-/**
- * Delivers a single notification outbox record with retry and backoff logic.
- */
 async function processNotification(notificationId) {
   try {
     // ─── Atomically claim and lock the notification ───────────────────────────
@@ -153,9 +140,6 @@ async function processNotification(notificationId) {
       return existing;
     }
 
-    // Load booking (over HTTP, via booking-service) if available for
-    // template formatting — same fallback shape the old local
-    // `Booking.findById` catch block used when the lookup failed.
     let bookingDoc = null;
     try {
       bookingDoc = await bookingServiceClient.getBooking(notification.booking);
@@ -235,9 +219,6 @@ async function processNotification(notificationId) {
   }
 }
 
-/**
- * Sweeps all pending outbox notifications that are due for delivery.
- */
 async function processPendingOutbox({ limit = 10 } = {}) {
   try {
     const now = new Date();
@@ -260,9 +241,6 @@ async function processPendingOutbox({ limit = 10 } = {}) {
   }
 }
 
-/**
- * Dispatch notification entrypoint: persists outbox record, then triggers immediate delivery.
- */
 async function dispatchNotification({ type, booking, userId }) {
   const doc = await enqueueNotification({ type, booking, userId });
   if (doc && doc.status === NOTIFICATION_STATUS.PENDING) {
