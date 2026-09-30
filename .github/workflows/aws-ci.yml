@@ -158,12 +158,73 @@ jobs:
           echo "commit_created=$(git show -s --format=%cI "$SHA")" >> "$GITHUB_OUTPUT"
 
   # ==========================================================
+  # 1b. TRIVY DB WARMUP — one download, before validate/package fan
+  # out into up to 5 parallel matrix legs each. Without this, every
+  # leg races to fetch the DB from a cold cache at once and piles
+  # onto public.ecr.aws's anonymous-pull rate limit simultaneously
+  # (TOOMANYREQUESTS) — a thundering herd that can outlast the
+  # per-leg retry loop (see "Trivy fs"/"Trivy image scan" steps'
+  # comments) even though each leg's own retries are working
+  # correctly. One dedicated fetch here means every leg's cache
+  # restore (same key prefix) is a guaranteed hit instead of a race.
+  # ==========================================================
+
+  trivy-db-warmup:
+    name: Warm Trivy DB cache
+    needs: static
+    if: needs.static.outputs.any_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Install Trivy
+        run: |
+          set -euo pipefail
+          if ! command -v trivy >/dev/null 2>&1; then
+            curl -fsSL -o /tmp/trivy.deb \
+              "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.deb"
+            sudo dpkg -i /tmp/trivy.deb
+          fi
+          trivy --version
+
+      - name: Download Trivy DB
+        env:
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            set +e
+            OUTPUT=$(trivy image --download-db-only 2>&1)
+            STATUS=$?
+            set -e
+            echo "$OUTPUT"
+            if [ "$STATUS" -eq 0 ]; then
+              exit 0
+            fi
+            if echo "$OUTPUT" | grep -qE "TOOMANYREQUESTS|failed to download vulnerability DB"; then
+              echo "::warning::Trivy DB fetch was rate-limited (attempt ${attempt}/5) — retrying in 30s."
+              sleep 30
+              continue
+            fi
+            exit "$STATUS"
+          done
+          echo "::error::Trivy DB fetch still rate-limited after 5 attempts."
+          exit 1
+
+  # ==========================================================
   # 2. VALIDATE — per changed service
   # ==========================================================
 
   validate:
     name: Validate ${{ matrix.service }}
-    needs: static
+    needs: [static, trivy-db-warmup]
     if: needs.static.outputs.any_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
