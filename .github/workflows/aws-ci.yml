@@ -198,20 +198,66 @@ jobs:
         if: matrix.service == 'frontend' || matrix.service == 'admin-frontend'
         run: npm run build
 
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Install Trivy
+        run: |
+          set -euo pipefail
+          if ! command -v trivy >/dev/null 2>&1; then
+            curl -fsSL -o /tmp/trivy.deb \
+              "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.deb"
+            sudo dpkg -i /tmp/trivy.deb
+          fi
+          trivy --version
+
       # Source-tree SCA. Sees devDependencies, which the image scan
       # never will — a compromised build-time dependency is still a
       # supply-chain compromise.
+      #
+      # Direct CLI + a persistent cache + a targeted retry, not
+      # aquasecurity/trivy-action — that action re-downloads the vuln
+      # DB from scratch every run with no cache to fall back on, so a
+      # rate-limited download (public ECR anonymous pulls get
+      # TOOMANYREQUESTS'd hard on GitHub's shared runner IP pool) can
+      # never succeed long enough to seed its own cache. Mirrors
+      # azure-pipelines.yml's already-reliable Trivy setup. The retry
+      # only fires on the DB-fetch failure signature — a genuine
+      # HIGH/CRITICAL finding still fails immediately, no wasted retries.
       - name: Trivy fs
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: ${{ matrix.service }}
-          scanners: vuln,secret,misconfig
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
         env:
           TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            set +e
+            OUTPUT=$(trivy fs \
+              --scanners vuln,secret,misconfig \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --exit-code 1 \
+              --format table \
+              "${{ matrix.service }}" 2>&1)
+            STATUS=$?
+            set -e
+            echo "$OUTPUT"
+            if [ "$STATUS" -eq 0 ]; then
+              exit 0
+            fi
+            if echo "$OUTPUT" | grep -qE "TOOMANYREQUESTS|failed to download vulnerability DB"; then
+              echo "::warning::Trivy DB fetch was rate-limited (attempt ${attempt}/3) — retrying in 20s."
+              sleep 20
+              continue
+            fi
+            exit "$STATUS"
+          done
+          echo "::error::Trivy DB fetch still rate-limited after 3 attempts."
+          exit 1
 
       - name: SonarQube
         uses: SonarSource/sonarqube-scan-action@v4
@@ -302,17 +348,55 @@ jobs:
             org.opencontainers.image.version=${{ needs.static.outputs.image_tag }}
             org.opencontainers.image.title=homeease-${{ matrix.service }}
 
-      # THE GATE. Nothing below runs if this fails.
-      - name: Trivy image scan
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
         with:
-          image-ref: ${{ steps.img.outputs.ref }}
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
-          format: table
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Install Trivy
+        run: |
+          set -euo pipefail
+          if ! command -v trivy >/dev/null 2>&1; then
+            curl -fsSL -o /tmp/trivy.deb \
+              "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.deb"
+            sudo dpkg -i /tmp/trivy.deb
+          fi
+          trivy --version
+
+      # THE GATE. Nothing below runs if this fails. Direct CLI + cache +
+      # retry, same reasoning as the "Trivy fs" step in the validate job
+      # — see that step's comment.
+      - name: Trivy image scan
         env:
           TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            set +e
+            OUTPUT=$(trivy image \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --exit-code 1 \
+              --format table \
+              "${{ steps.img.outputs.ref }}" 2>&1)
+            STATUS=$?
+            set -e
+            echo "$OUTPUT"
+            if [ "$STATUS" -eq 0 ]; then
+              exit 0
+            fi
+            if echo "$OUTPUT" | grep -qE "TOOMANYREQUESTS|failed to download vulnerability DB"; then
+              echo "::warning::Trivy DB fetch was rate-limited (attempt ${attempt}/3) — retrying in 20s."
+              sleep 20
+              continue
+            fi
+            exit "$STATUS"
+          done
+          echo "::error::Trivy DB fetch still rate-limited after 3 attempts."
+          exit 1
 
       - name: Generate SBOM (CycloneDX)
         uses: anchore/sbom-action@v0.24.2
