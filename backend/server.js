@@ -28,6 +28,7 @@ const isTest = process.env.NODE_ENV === "test";
 if (!isTest) connectDB();
 
 if (isTest) {
+  // no-op — metrics collector never starts under test
 } else if (process.env.METRICS_COLLECTOR_ENABLED !== "false") {
   startMetricsCollector();
   logger.info("Metrics collector started (METRICS_COLLECTOR_ENABLED!=false)");
