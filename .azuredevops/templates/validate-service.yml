@@ -119,3 +119,19 @@ steps:
     displayName: 'SonarCloud Quality Gate — ${{ parameters.name }}'
     inputs:
       pollingTimeoutSec: '300'
+
+  # Enforce the gate (SonarCloudPublish only reports it), publish a findings summary, and push it to Loki.
+  - script: scripts/sonar-quality-report.sh '${{ parameters.name }}' '${{ parameters.path }}'
+    displayName: 'Sonar gate enforce + report — ${{ parameters.name }}'
+    env:
+      SONAR_TOKEN: $(SONAR_TOKEN)
+      LOKI_URL: $(LOKI_URL)
+      SONAR_REPORT_DIR: $(Build.ArtifactStagingDirectory)/sonar-report
+
+  - task: PublishPipelineArtifact@1
+    displayName: 'Publish Sonar report — ${{ parameters.name }}'
+    condition: always()
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/sonar-report'
+      artifact: 'sonar-report-${{ parameters.name }}'
+      publishLocation: 'pipeline'

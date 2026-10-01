@@ -89,7 +89,7 @@ h1, h2, h3, h4 {
 
 /* ---------- Icons ---------- */
 .material-symbols-rounded {
-  font-family: "Material Symbols Rounded";
+  font-family: "Material Symbols Rounded", sans-serif;
   font-weight: normal;
   font-style: normal;
   line-height: 1;

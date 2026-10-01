@@ -21,7 +21,7 @@ const metrics = require("./metrics");
 const requestIdMiddleware = require("./middleware/requestId");
 const errorHandler = require("./middleware/errorHandler");
 
-connectDB();
+void connectDB();
 
 const app = express();
 app.set("trust proxy", 1);

@@ -1,16 +1,7 @@
 import React, { useMemo, useState } from "react";
 import Icon from "../components/Icon";
 import { BrandMark } from "../components/Navbar";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// Keep in sync with backend/validators/authValidators.js (signupRules).
-const PASSWORD_RULES = [
-  { id: "length", label: "At least 8 characters", test: (p) => p.length >= 8 },
-  { id: "upper", label: "One uppercase letter", test: (p) => /[A-Z]/.test(p) },
-  { id: "lower", label: "One lowercase letter", test: (p) => /[a-z]/.test(p) },
-  { id: "number", label: "One number", test: (p) => /\d/.test(p) },
-];
+import { PASSWORD_RULES, isValidEmail, scorePassword } from "../utils/validators";
 
 const STRENGTH = [
   { label: "Too weak", color: "#d6334a" },
@@ -19,13 +10,6 @@ const STRENGTH = [
   { label: "Good", color: "#4f9d69" },
   { label: "Strong", color: "#15703a" },
 ];
-
-function scorePassword(p) {
-  if (!p) return 0;
-  let score = PASSWORD_RULES.filter((r) => r.test(p)).length; // 0–4
-  if (p.length >= 12 && /[^A-Za-z0-9]/.test(p)) score += 1;
-  return Math.min(4, Math.max(0, score - (p.length < 8 ? 1 : 0)));
-}
 
 export default function Auth({ onLoginSuccess, showToast }) {
   const [tab, setTab] = useState("login");
@@ -74,7 +58,7 @@ export default function Auth({ onLoginSuccess, showToast }) {
     }
 
     if (!normalizedEmail) next.email = "Email is required";
-    else if (!EMAIL_RE.test(normalizedEmail)) next.email = "Please enter a valid email address";
+    else if (!isValidEmail(normalizedEmail)) next.email = "Please enter a valid email address";
 
     if (!password) {
       next.password = "Password is required";
