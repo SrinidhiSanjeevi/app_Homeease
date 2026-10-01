@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Icon from "./Icon";
+import { toSafeDate } from "../utils/safeId";
 
 const STEPS = [
   { step: 1, label: "Schedule" },
@@ -104,12 +105,16 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
 
   const [bookedIds, setBookedIds] = useState([]);
   useEffect(() => {
-    if (!date || !timeSlot) {
+    // Only a validated calendar date and a known slot (allowlist lookup) may reach the request URL.
+    const safeDate = toSafeDate(date);
+    const safeSlot = TIME_SLOTS.find((slot) => slot.value === timeSlot);
+    if (!safeDate || !safeSlot) {
       setBookedIds([]);
       return undefined;
     }
     let alive = true;
-    fetch(`/api/services/professionals/availability?date=${encodeURIComponent(date)}&timeSlot=${encodeURIComponent(timeSlot)}`)
+    const query = new URLSearchParams({ date: safeDate, timeSlot: safeSlot.value });
+    fetch(`/api/services/professionals/availability?${query.toString()}`)
       .then((r) => r.json())
       .then((d) => alive && setBookedIds(d.success ? d.bookedProfessionalIds : []))
       .catch(() => alive && setBookedIds([]));
