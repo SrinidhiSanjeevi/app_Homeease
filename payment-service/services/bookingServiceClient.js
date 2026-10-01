@@ -6,6 +6,16 @@ const DEFAULT_TIMEOUT_MS = parseInt(process.env.BOOKING_SERVICE_TIMEOUT_MS || "5
 // Shared secret with booking-service (middleware/internalAuth.js).
 const INTERNAL_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 
+// Path segments come from callers (and, transitively, remote data): accept ObjectIds only, then encode.
+const OBJECT_ID_RE = /^[a-f\d]{24}$/i;
+const safeId = (id) => {
+  const value = String(id);
+  if (!OBJECT_ID_RE.test(value)) {
+    throw new AppError("Invalid identifier", 400);
+  }
+  return encodeURIComponent(value);
+};
+
 async function makeRequest(path, options = {}) {
   const url = `${BOOKING_SERVICE_URL}${path}`;
   const headers = {
@@ -48,11 +58,11 @@ async function makeRequest(path, options = {}) {
   }
 }
 
-const getBooking = async (bookingId) => makeRequest(`/api/internal/bookings/${bookingId}`, { method: "GET" });
+const getBooking = async (bookingId) => makeRequest(`/api/internal/bookings/${safeId(bookingId)}`, { method: "GET" });
 
 const settlePayment = async (bookingId, body) => {
   try {
-    const data = await makeRequest(`/api/internal/bookings/${bookingId}/settle-payment`, {
+    const data = await makeRequest(`/api/internal/bookings/${safeId(bookingId)}/settle-payment`, {
       method: "POST",
       body: JSON.stringify(body)
     });
