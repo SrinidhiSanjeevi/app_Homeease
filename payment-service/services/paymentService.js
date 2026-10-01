@@ -45,7 +45,7 @@ const createOrder = async ({ bookingId, userId }) => {
   const keyId = (process.env.RAZORPAY_KEY_ID || "rzp_placeholder_key").trim();
 
   const openOrder = await Payment.findOne({
-    booking: booking._id,
+    booking: { $eq: toObjectId(booking._id) },
     paymentMethod: "Razorpay",
     status: "Pending",
     razorpayOrderId: { $exists: true }
@@ -138,7 +138,7 @@ const verifyPayment = async ({ bookingId, userId, razorpayOrderId, razorpayPayme
     throw new AppError("Unauthorized to verify payment for this booking", 403);
   }
 
-  const orderRecord = await Payment.findOne({ booking: booking._id, razorpayOrderId: orderId, paymentMethod: "Razorpay" });
+  const orderRecord = await Payment.findOne({ booking: { $eq: toObjectId(booking._id) }, razorpayOrderId: { $eq: orderId }, paymentMethod: "Razorpay" });
   if (!orderRecord) {
     throw new AppError("This payment does not belong to this booking", 400);
   }
@@ -234,7 +234,7 @@ const getPaymentStatus = async ({ bookingId, transactionId }) => {
 
 async function findOrderForWebhook(orderId, bookingIdFromNotes) {
   if (!orderId) return { orderRecord: null, booking: null };
-  const orderRecord = await Payment.findOne({ razorpayOrderId: orderId, paymentMethod: "Razorpay" }).sort({ createdAt: 1 });
+  const orderRecord = await Payment.findOne({ razorpayOrderId: { $eq: String(orderId) }, paymentMethod: "Razorpay" }).sort({ createdAt: 1 });
   if (!orderRecord) return { orderRecord: null, booking: null };
   if (bookingIdFromNotes && orderRecord.booking.toString() !== bookingIdFromNotes) {
     logger.error({ orderId, bookingIdFromNotes }, "[PaymentService Webhook] Order/booking mismatch");

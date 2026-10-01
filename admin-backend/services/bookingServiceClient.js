@@ -6,6 +6,16 @@ const DEFAULT_TIMEOUT_MS = parseInt(process.env.BOOKING_SERVICE_TIMEOUT_MS || "5
 // Shared secret with booking-service (middleware/internalAuth.js).
 const INTERNAL_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 
+// Path segments come from callers (and, transitively, remote data): accept ObjectIds only, then encode.
+const OBJECT_ID_RE = /^[a-f\d]{24}$/i;
+const safeId = (id) => {
+  const value = String(id);
+  if (!OBJECT_ID_RE.test(value)) {
+    throw new AppError("Invalid identifier", 400);
+  }
+  return encodeURIComponent(value);
+};
+
 async function makeRequest(path, options = {}) {
   const url = `${BOOKING_SERVICE_URL}${path}`;
   const headers = {
@@ -63,14 +73,14 @@ const getStats = async () => makeRequest("/api/internal/admin/stats", { method: 
 
 const getAllUsers = async (query) => makeRequest(`/api/internal/admin/users${toQueryString(query)}`, { method: "GET" });
 
-const getUserById = async (id) => makeRequest(`/api/internal/admin/users/${id}`, { method: "GET" });
+const getUserById = async (id) => makeRequest(`/api/internal/admin/users/${safeId(id)}`, { method: "GET" });
 
-const deleteUser = async (id) => makeRequest(`/api/internal/admin/users/${id}`, { method: "DELETE" });
+const deleteUser = async (id) => makeRequest(`/api/internal/admin/users/${safeId(id)}`, { method: "DELETE" });
 
 const getAllBookings = async (query) => makeRequest(`/api/internal/admin/bookings${toQueryString(query)}`, { method: "GET" });
 
 const updateBookingStatus = async (id, status) =>
-  makeRequest(`/api/internal/admin/bookings/${id}/status`, {
+  makeRequest(`/api/internal/admin/bookings/${safeId(id)}/status`, {
     method: "PUT",
     body: JSON.stringify({ status })
   });
@@ -81,9 +91,9 @@ const createService = async (body) =>
   makeRequest("/api/internal/admin/services", { method: "POST", body: JSON.stringify(body) });
 
 const updateService = async (id, body) =>
-  makeRequest(`/api/internal/admin/services/${id}`, { method: "PUT", body: JSON.stringify(body) });
+  makeRequest(`/api/internal/admin/services/${safeId(id)}`, { method: "PUT", body: JSON.stringify(body) });
 
-const deleteService = async (id) => makeRequest(`/api/internal/admin/services/${id}`, { method: "DELETE" });
+const deleteService = async (id) => makeRequest(`/api/internal/admin/services/${safeId(id)}`, { method: "DELETE" });
 
 const getAllProfessionals = async (query) => makeRequest(`/api/internal/admin/professionals${toQueryString(query)}`, { method: "GET" });
 
@@ -91,14 +101,14 @@ const createProfessional = async (body) =>
   makeRequest("/api/internal/admin/professionals", { method: "POST", body: JSON.stringify(body) });
 
 const updateProfessional = async (id, body) =>
-  makeRequest(`/api/internal/admin/professionals/${id}`, { method: "PUT", body: JSON.stringify(body) });
+  makeRequest(`/api/internal/admin/professionals/${safeId(id)}`, { method: "PUT", body: JSON.stringify(body) });
 
-const deleteProfessional = async (id) => makeRequest(`/api/internal/admin/professionals/${id}`, { method: "DELETE" });
+const deleteProfessional = async (id) => makeRequest(`/api/internal/admin/professionals/${safeId(id)}`, { method: "DELETE" });
 
 const getAllEmergencies = async (query) => makeRequest(`/api/internal/admin/emergencies${toQueryString(query)}`, { method: "GET" });
 
 const updateEmergencyStatus = async (id, status) =>
-  makeRequest(`/api/internal/admin/emergencies/${id}/status`, {
+  makeRequest(`/api/internal/admin/emergencies/${safeId(id)}/status`, {
     method: "PUT",
     body: JSON.stringify({ status })
   });
