@@ -143,6 +143,7 @@ stages:
             echo "Scanning full git history for secrets"
             gitleaks detect \
               --source . \
+              --verbose \
               --redact \
               --report-format sarif \
               --report-path "$(Build.ArtifactStagingDirectory)/gitleaks.sarif" \
