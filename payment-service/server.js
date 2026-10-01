@@ -22,7 +22,7 @@ const connectDB = require("./config/db");
 const metrics = require("./metrics");
 
 if (process.env.NODE_ENV !== "test") {
-  connectDB();
+  void connectDB();
 }
 
 const app = express();

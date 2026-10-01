@@ -3,13 +3,13 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 
 function parsePagination(query = {}) {
-  let page = parseInt(query.page, 10);
-  if (isNaN(page) || page < 1) {
+  let page = Number.parseInt(query.page, 10);
+  if (Number.isNaN(page) || page < 1) {
     page = DEFAULT_PAGE;
   }
 
-  let limit = parseInt(query.limit, 10);
-  if (isNaN(limit) || limit < 1) {
+  let limit = Number.parseInt(query.limit, 10);
+  if (Number.isNaN(limit) || limit < 1) {
     limit = DEFAULT_LIMIT;
   } else if (limit > MAX_LIMIT) {
     limit = MAX_LIMIT;

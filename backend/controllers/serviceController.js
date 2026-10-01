@@ -194,7 +194,7 @@ const getProfessionalAvailability = async (req, res) => {
     if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !TIME_SLOTS.includes(timeSlot)) {
       return res.status(400).json({ success: false, message: "Valid date and timeSlot are required" });
     }
-    const bookedIds = await SlotReservation.find({ date: new Date(`${date}T00:00:00Z`), timeSlot }).distinct("professional");
+    const bookedIds = await SlotReservation.find({ date: { $eq: new Date(`${String(date)}T00:00:00Z`) }, timeSlot: { $eq: String(timeSlot) } }).distinct("professional");
     return res.status(200).json({ success: true, bookedProfessionalIds: bookedIds.map(String) });
   } catch (error) {
     logger.error({ err: error.message }, "Error fetching professional availability");

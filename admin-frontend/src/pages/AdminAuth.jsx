@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { isValidEmail } from "../utils/validators";
 import { Lock, Mail, ShieldCheck, KeyRound, ArrowLeft, ShieldAlert } from "lucide-react";
 
 const inputStyle = (hasError) => ({
@@ -41,12 +42,11 @@ export default function AdminAuth({ onLoginSuccess, showToast }) {
 
   const validateForm = () => {
     const newErrors = {};
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const normalizedEmail = email.trim().toLowerCase();
 
     if (!normalizedEmail) {
       newErrors.email = "Email is required";
-    } else if (!emailRegex.test(normalizedEmail)) {
+    } else if (!isValidEmail(normalizedEmail)) {
       newErrors.email = "Please enter a valid email address";
     }
 
@@ -249,7 +249,7 @@ export default function AdminAuth({ onLoginSuccess, showToast }) {
 
             <form onSubmit={handleMfaSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <div>
-                <label style={labelStyle}>6-DIGIT SECURITY CODE</label>
+                <label htmlFor="admin-mfa-code" style={labelStyle}>6-DIGIT SECURITY CODE</label>
                 <div style={{ position: "relative" }}>
                   <KeyRound
                     size={18}
@@ -259,7 +259,7 @@ export default function AdminAuth({ onLoginSuccess, showToast }) {
                     type="text"
                     inputMode="numeric"
                     maxLength={6}
-                    autoFocus
+                    id="admin-mfa-code"
                     placeholder="e.g., 123456"
                     value={mfaCode}
                     onChange={(event) => {
@@ -299,10 +299,11 @@ export default function AdminAuth({ onLoginSuccess, showToast }) {
         ) : (
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             <div>
-              <label style={labelStyle}>EMAIL ADDRESS</label>
+              <label htmlFor="admin-email" style={labelStyle}>EMAIL ADDRESS</label>
               <div style={{ position: "relative" }}>
                 <Mail size={17} style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: "#94a3b8" }} />
                 <input
+                  id="admin-email"
                   type="email"
                   placeholder="admin@homeease.com"
                   value={email}
@@ -322,10 +323,11 @@ export default function AdminAuth({ onLoginSuccess, showToast }) {
             </div>
 
             <div>
-              <label style={labelStyle}>PASSWORD</label>
+              <label htmlFor="admin-password" style={labelStyle}>PASSWORD</label>
               <div style={{ position: "relative" }}>
                 <Lock size={17} style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: "#94a3b8" }} />
                 <input
+                  id="admin-password"
                   type="password"
                   placeholder="••••••••"
                   value={password}

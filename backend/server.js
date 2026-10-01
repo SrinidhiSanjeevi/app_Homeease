@@ -25,7 +25,7 @@ const { generalLimiter } = require("./middleware/rateLimiter");
 
 const isTest = process.env.NODE_ENV === "test";
 
-if (!isTest) connectDB();
+if (!isTest) void connectDB();
 
 if (isTest) {
   // no-op — metrics collector never starts under test

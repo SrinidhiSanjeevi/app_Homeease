@@ -103,6 +103,7 @@ export default function App() {
     try {
       localStorage.setItem(AREA_KEY, name);
     } catch {
+      // storage unavailable (private mode): the area just won't be remembered
     }
   };
 
@@ -348,20 +349,20 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchServices();
-    fetchProfessionals();
-    fetchAreas();
+    void fetchServices();
+    void fetchProfessionals();
+    void fetchAreas();
   }, []);
 
   usePolling(() => {
-    fetchBookings();
-    fetchEmergencies();
+    void fetchBookings();
+    void fetchEmergencies();
   }, 10000, isLoggedIn);
 
   usePolling(() => {
-    fetchProfessionals();
-    fetchServices();
-    fetchAreas();
+    void fetchProfessionals();
+    void fetchServices();
+    void fetchAreas();
   }, 30000);
 
   useEffect(() => {
@@ -369,8 +370,8 @@ export default function App() {
       return;
     }
 
-    fetchBookings();
-    fetchEmergencies();
+    void fetchBookings();
+    void fetchEmergencies();
   }, [token, user]);
 
   const handleBookSubmit = async (
@@ -881,8 +882,8 @@ export default function App() {
     }}
     onSubmit={handleBookSubmit}
     onBookingSettled={() => {
-      fetchBookings();
-      fetchProfessionals();
+      void fetchBookings();
+      void fetchProfessionals();
     }}
     professionals={professionals}
     user={user}

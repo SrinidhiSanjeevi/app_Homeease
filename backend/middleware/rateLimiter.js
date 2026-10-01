@@ -4,7 +4,7 @@ const isTest = process.env.NODE_ENV === "test";
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_AUTH_MAX, 10) || 10,
+  max: Number.parseInt(process.env.RATE_LIMIT_AUTH_MAX, 10) || 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -16,7 +16,7 @@ const authLimiter = rateLimit({
 
 const paymentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_PAYMENT_MAX, 10) || 25,
+  max: Number.parseInt(process.env.RATE_LIMIT_PAYMENT_MAX, 10) || 25,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -28,7 +28,7 @@ const paymentLimiter = rateLimit({
 
 const emergencyLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_EMERGENCY_MAX, 10) || 30,
+  max: Number.parseInt(process.env.RATE_LIMIT_EMERGENCY_MAX, 10) || 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -40,7 +40,7 @@ const emergencyLimiter = rateLimit({
 
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_GENERAL_MAX, 10) || 200,
+  max: Number.parseInt(process.env.RATE_LIMIT_GENERAL_MAX, 10) || 200,
   standardHeaders: true,
   legacyHeaders: false,
   message: {

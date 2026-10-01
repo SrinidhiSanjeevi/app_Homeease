@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { toSafeId } from "../utils/safeId";
 import {
   ArrowLeft,
   Star,
@@ -39,8 +40,14 @@ export default function ServiceDetail({
 
   useEffect(() => {
     const controller = new AbortController();
+    const safeServiceId = toSafeId(serviceId);
+    if (!safeServiceId) {
+      setStatus("notfound");
+      setReviewsLoading(false);
+      return undefined;
+    }
 
-    fetch(`/api/services/${serviceId}`, { signal: controller.signal })
+    fetch(`/api/services/${safeServiceId}`, { signal: controller.signal })
       .then(async (res) => {
         if (res.status === 404) {
           setStatus("notfound");
@@ -60,7 +67,7 @@ export default function ServiceDetail({
         setStatus((prev) => (prev === "ready" ? prev : "error"));
       });
 
-    fetch(`/api/services/${serviceId}/reviews?limit=10`, { signal: controller.signal })
+    fetch(`/api/services/${safeServiceId}/reviews?limit=10`, { signal: controller.signal })
       .then((res) => res.json())
       .then((data) => {
         if (data.success) setReviewsData(data);

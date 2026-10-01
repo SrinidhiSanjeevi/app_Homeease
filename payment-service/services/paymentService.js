@@ -45,7 +45,7 @@ const createOrder = async ({ bookingId, userId }) => {
   const keyId = (process.env.RAZORPAY_KEY_ID || "rzp_placeholder_key").trim();
 
   const openOrder = await Payment.findOne({
-    booking: booking._id,
+    booking: { $eq: toObjectId(booking._id) },
     paymentMethod: "Razorpay",
     status: "Pending",
     razorpayOrderId: { $exists: true }
@@ -76,7 +76,7 @@ const createOrder = async ({ bookingId, userId }) => {
 };
 
 async function settleGenuinePayment({ booking, orderRecord, paymentId, amountPaise, extra = {} }) {
-  const already = await Payment.findOne({ transactionId: paymentId, status: { $in: ["Success", "Refunded", "Partially Refunded"] } });
+  const already = await Payment.findOne({ transactionId: { $eq: paymentId }, status: { $in: ["Success", "Refunded", "Partially Refunded"] } });
   if (already) {
     const fresh = await getBookingSafe(booking._id);
     return { outcome: already.status === "Success" ? "paid" : "refunded", booking: fresh, payment: already };
@@ -138,7 +138,7 @@ const verifyPayment = async ({ bookingId, userId, razorpayOrderId, razorpayPayme
     throw new AppError("Unauthorized to verify payment for this booking", 403);
   }
 
-  const orderRecord = await Payment.findOne({ booking: booking._id, razorpayOrderId: orderId, paymentMethod: "Razorpay" });
+  const orderRecord = await Payment.findOne({ booking: { $eq: toObjectId(booking._id) }, razorpayOrderId: { $eq: orderId }, paymentMethod: "Razorpay" });
   if (!orderRecord) {
     throw new AppError("This payment does not belong to this booking", 400);
   }
@@ -218,7 +218,7 @@ const refundPayment = async (bookingId, amount) => {
 const getPaymentStatus = async ({ bookingId, transactionId }) => {
   const query = {};
   if (typeof transactionId === "string" && transactionId.trim()) {
-    query.transactionId = transactionId.trim();
+    query.transactionId = { $eq: transactionId.trim() };
   } else if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
     query.booking = toObjectId(bookingId);
   } else {
@@ -234,7 +234,7 @@ const getPaymentStatus = async ({ bookingId, transactionId }) => {
 
 async function findOrderForWebhook(orderId, bookingIdFromNotes) {
   if (!orderId) return { orderRecord: null, booking: null };
-  const orderRecord = await Payment.findOne({ razorpayOrderId: orderId, paymentMethod: "Razorpay" }).sort({ createdAt: 1 });
+  const orderRecord = await Payment.findOne({ razorpayOrderId: { $eq: String(orderId) }, paymentMethod: "Razorpay" }).sort({ createdAt: 1 });
   if (!orderRecord) return { orderRecord: null, booking: null };
   if (bookingIdFromNotes && orderRecord.booking.toString() !== bookingIdFromNotes) {
     logger.error({ orderId, bookingIdFromNotes }, "[PaymentService Webhook] Order/booking mismatch");
