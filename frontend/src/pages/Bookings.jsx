@@ -43,7 +43,7 @@ export default function Bookings({ bookings, onCancelBooking, onRateBooking, onC
     let text = "Cancel this booking?";
     try {
       const token = localStorage.getItem("token");
-      const r = await fetch(`/api/bookings/${bookingId}/cancel-quote`, { headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetch(`/api/bookings/${encodeURIComponent(bookingId)}/cancel-quote`, { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
       if (d.success) {
         const q = d.quote;

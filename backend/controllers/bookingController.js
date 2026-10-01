@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
 const Service = require("../models/Service");
 const Professional = require("../models/Professional");
@@ -57,7 +58,8 @@ const createBooking = async (req, res) => {
       }
       category = customCategory;
     } else {
-      service = serviceId ? await Service.findOne({ _id: serviceId, active: true }) : null;
+      const safeServiceId = typeof serviceId === "string" && mongoose.Types.ObjectId.isValid(serviceId) ? serviceId : null;
+      service = safeServiceId ? await Service.findOne({ _id: { $eq: safeServiceId }, active: true }) : null;
       if (!service) {
         return res.status(404).json({ success: false, message: "This service is not available right now" });
       }

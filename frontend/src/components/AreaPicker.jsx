@@ -62,7 +62,7 @@ export default function AreaPicker({ open, areas, current, onSelect, onClose, re
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !required && onClose()}>
+    <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && !required && onClose()}>
       <div className="modal area-modal" role="dialog" aria-modal="true" aria-labelledby="area-title">
         <div className="modal-head">
           <div>

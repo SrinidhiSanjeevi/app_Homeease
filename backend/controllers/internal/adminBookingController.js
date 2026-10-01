@@ -107,10 +107,10 @@ const getAllUsers = async (req, res) => {
     const filter = {};
     const ALLOWED_ROLES = ["user", "admin", "professional"];
     if (typeof req.query.role === "string" && ALLOWED_ROLES.includes(req.query.role)) {
-      filter.role = req.query.role;
+      filter.role = { $eq: String(req.query.role) };
     }
     if (typeof req.query.search === "string" && req.query.search.trim()) {
-      const escaped = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escaped = String(req.query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.$or = [{ name: { $regex: escaped, $options: "i" } }, { email: { $regex: escaped, $options: "i" } }];
     }
 
@@ -186,19 +186,19 @@ const getAllBookings = async (req, res) => {
 
     const filter = {};
     if (typeof req.query.status === "string" && req.query.status.trim()) {
-      filter.status = req.query.status.trim();
+      filter.status = { $eq: String(req.query.status).trim() };
     }
     if (typeof req.query.paymentStatus === "string" && req.query.paymentStatus.trim()) {
-      filter.paymentStatus = req.query.paymentStatus.trim();
+      filter.paymentStatus = { $eq: String(req.query.paymentStatus).trim() };
     }
     if (typeof req.query.user === "string" && mongoose.Types.ObjectId.isValid(req.query.user)) {
-      filter.user = new mongoose.Types.ObjectId(req.query.user);
+      filter.user = { $eq: new mongoose.Types.ObjectId(String(req.query.user)) };
     }
     if (typeof req.query.professional === "string" && mongoose.Types.ObjectId.isValid(req.query.professional)) {
-      filter.professional = new mongoose.Types.ObjectId(req.query.professional);
+      filter.professional = { $eq: new mongoose.Types.ObjectId(String(req.query.professional)) };
     }
     if (typeof req.query.service === "string" && mongoose.Types.ObjectId.isValid(req.query.service)) {
-      filter.service = new mongoose.Types.ObjectId(req.query.service);
+      filter.service = { $eq: new mongoose.Types.ObjectId(String(req.query.service)) };
     }
 
     const [total, bookings] = await Promise.all([
@@ -307,13 +307,13 @@ const getAllServices = async (req, res) => {
 
     const filter = {};
     if (typeof req.query.category === "string" && req.query.category.trim()) {
-      filter.category = req.query.category.trim();
+      filter.category = { $eq: String(req.query.category).trim() };
     }
     if (req.query.active !== undefined) {
-      filter.active = req.query.active === "true" || req.query.active === true;
+      filter.active = { $eq: req.query.active === "true" || req.query.active === true };
     }
     if (typeof req.query.search === "string" && req.query.search.trim()) {
-      const escaped = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escaped = String(req.query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.name = { $regex: escaped, $options: "i" };
     }
 
@@ -348,16 +348,16 @@ const getAllProfessionals = async (req, res) => {
 
     const filter = {};
     if (typeof req.query.category === "string" && req.query.category.trim()) {
-      filter.category = req.query.category.trim();
+      filter.category = { $eq: String(req.query.category).trim() };
     }
     if (typeof req.query.status === "string" && ["Available", "Busy"].includes(req.query.status.trim())) {
-      filter.status = req.query.status.trim();
+      filter.status = { $eq: String(req.query.status).trim() };
     }
     if (req.query.active !== undefined) {
-      filter.active = req.query.active === "true" || req.query.active === true;
+      filter.active = { $eq: req.query.active === "true" || req.query.active === true };
     }
     if (typeof req.query.search === "string" && req.query.search.trim()) {
-      const escaped = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escaped = String(req.query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.name = { $regex: escaped, $options: "i" };
     }
 
@@ -392,13 +392,13 @@ const getAllEmergencies = async (req, res) => {
 
     const filter = {};
     if (typeof req.query.status === "string" && req.query.status.trim()) {
-      filter.status = req.query.status.trim();
+      filter.status = { $eq: String(req.query.status).trim() };
     }
     if (typeof req.query.category === "string" && req.query.category.trim()) {
-      filter.category = req.query.category.trim();
+      filter.category = { $eq: String(req.query.category).trim() };
     }
     if (typeof req.query.severity === "string" && req.query.severity.trim()) {
-      filter.severity = req.query.severity.trim();
+      filter.severity = { $eq: String(req.query.severity).trim() };
     }
 
     const [total, emergencies] = await Promise.all([

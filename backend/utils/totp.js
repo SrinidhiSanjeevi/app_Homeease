@@ -25,8 +25,14 @@ function base32Encode(buffer) {
   return output;
 }
 
+function stripTrailingPadding(text) {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === "=") end--;
+  return text.slice(0, end);
+}
+
 function base32Decode(base32) {
-  const cleanBase32 = base32.toUpperCase().replace(/=+$/, "").replace(/\s/g, "");
+  const cleanBase32 = stripTrailingPadding(base32.toUpperCase()).replace(/\s/g, "");
   let bits = 0;
   let value = 0;
   const bytes = [];

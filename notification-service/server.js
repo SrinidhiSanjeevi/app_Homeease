@@ -22,7 +22,7 @@ const connectDB = require("./config/db");
 const metrics = require("./metrics");
 
 if (process.env.NODE_ENV !== "test") {
-  connectDB();
+  void connectDB();
 }
 
 const app = express();
@@ -30,7 +30,7 @@ app.set("trust proxy", 1);
 
 app.use(helmet());
 
-// cookie/auth-bearing responses cross-origin, which is what SonarCloud
+// CORS: only known origins may make credentialed cross-origin requests.
 const defaultOrigins = [
   "http://localhost:8080",
   "http://localhost:5173",

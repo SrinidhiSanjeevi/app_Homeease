@@ -2,7 +2,7 @@ const AppError = require("../../utils/AppError");
 const logger = require("../../utils/logger");
 
 const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || "http://127.0.0.1:5002";
-const DEFAULT_TIMEOUT_MS = parseInt(process.env.PAYMENT_SERVICE_TIMEOUT_MS || "5000", 10);
+const DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.PAYMENT_SERVICE_TIMEOUT_MS || "5000", 10);
 // Shared secret with payment-service (middleware/internalAuth.js).
 const INTERNAL_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 

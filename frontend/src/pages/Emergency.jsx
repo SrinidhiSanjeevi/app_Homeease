@@ -191,7 +191,7 @@ export default function Emergency({
 
     setCancellingId(id);
     try {
-      const response = await fetch(`/api/emergency/${id}/cancel`, {
+      const response = await fetch(`/api/emergency/${encodeURIComponent(id)}/cancel`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}` }
       });

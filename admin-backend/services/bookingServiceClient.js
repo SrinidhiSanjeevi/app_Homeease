@@ -2,7 +2,7 @@ const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
 
 const BOOKING_SERVICE_URL = process.env.BOOKING_SERVICE_URL || "http://127.0.0.1:5000";
-const DEFAULT_TIMEOUT_MS = parseInt(process.env.BOOKING_SERVICE_TIMEOUT_MS || "5000", 10);
+const DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.BOOKING_SERVICE_TIMEOUT_MS || "5000", 10);
 // Shared secret with booking-service (middleware/internalAuth.js).
 const INTERNAL_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 
@@ -16,8 +16,23 @@ const safeId = (id) => {
   return encodeURIComponent(value);
 };
 
+// Build the target URL and refuse anything that would leave the booking service's origin (SSRF guard).
+const buildUrl = (path) => {
+  const base = new URL(BOOKING_SERVICE_URL);
+  let target;
+  try {
+    target = new URL(`${BOOKING_SERVICE_URL}${path}`);
+  } catch (_) {
+    throw new AppError("Invalid booking service path", 400);
+  }
+  if (target.origin !== base.origin) {
+    throw new AppError("Invalid booking service path", 400);
+  }
+  return target.href;
+};
+
 async function makeRequest(path, options = {}) {
-  const url = `${BOOKING_SERVICE_URL}${path}`;
+  const url = buildUrl(path);
   const headers = {
     "Content-Type": "application/json",
     ...(INTERNAL_TOKEN ? { "X-Internal-Token": INTERNAL_TOKEN } : {}),
@@ -116,6 +131,9 @@ const updateEmergencyStatus = async (id, status) =>
 const getAreas = async () => makeRequest("/api/internal/admin/areas", { method: "GET" });
 
 module.exports = {
+  // exported for unit tests
+  _buildUrl: buildUrl,
+  _safeId: safeId,
   getStats,
   getAllUsers,
   getUserById,

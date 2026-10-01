@@ -43,7 +43,7 @@ const settleCodPayment = async (req, res) => {
     }
 
     const payment = await Payment.findOneAndUpdate(
-      { booking: bookingId, paymentMethod: "Cash on Delivery" },
+      { booking: { $eq: bookingId }, paymentMethod: "Cash on Delivery" },
       { status: "Success" },
       { new: true }
     );
@@ -62,7 +62,7 @@ const getPaymentsForBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid booking id" });
     }
 
-    const payments = await Payment.find({ booking: bookingId }).sort({ createdAt: -1 }).lean();
+    const payments = await Payment.find({ booking: { $eq: bookingId } }).sort({ createdAt: -1 }).lean();
     return res.status(200).json({ success: true, payments: payments || [] });
   } catch (error) {
     logger.error({ err: error.message }, "Internal Get Payments For Booking Error");

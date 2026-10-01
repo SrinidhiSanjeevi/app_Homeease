@@ -34,7 +34,7 @@ const getNotificationsForBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid booking id" });
     }
 
-    const notifications = await Notification.find({ booking: bookingId }).sort({ createdAt: -1 }).lean();
+    const notifications = await Notification.find({ booking: { $eq: bookingId } }).sort({ createdAt: -1 }).lean();
     return res.status(200).json({ success: true, notifications: notifications || [] });
   } catch (error) {
     logger.error({ err: error.message }, "Internal Get Notifications For Booking Error");
