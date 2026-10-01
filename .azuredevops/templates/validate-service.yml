@@ -115,8 +115,11 @@ steps:
   - task: SonarCloudAnalyze@4
     displayName: 'SonarCloud analyze — ${{ parameters.name }}'
 
+  # Only decorates the run page. The gate itself is enforced (with a clear error) by the script below,
+  # so a failure fetching metrics here must not fail a service whose SonarCloud gate passed.
   - task: SonarCloudPublish@4
     displayName: 'SonarCloud Quality Gate — ${{ parameters.name }}'
+    continueOnError: true
     inputs:
       pollingTimeoutSec: '300'
 
@@ -127,6 +130,11 @@ steps:
       SONAR_TOKEN: $(SONAR_TOKEN)
       LOKI_URL: $(LOKI_URL)
       SONAR_REPORT_DIR: $(Build.ArtifactStagingDirectory)/sonar-report
+
+  # The report dir may not exist if an earlier step failed; create it so the upload never fails on its own.
+  - script: mkdir -p "$(Build.ArtifactStagingDirectory)/sonar-report"
+    displayName: 'Ensure Sonar report dir — ${{ parameters.name }}'
+    condition: always()
 
   - task: PublishPipelineArtifact@1
     displayName: 'Publish Sonar report — ${{ parameters.name }}'
