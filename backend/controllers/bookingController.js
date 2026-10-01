@@ -58,8 +58,11 @@ const createBooking = async (req, res) => {
       }
       category = customCategory;
     } else {
-      const safeServiceId = typeof serviceId === "string" && mongoose.Types.ObjectId.isValid(serviceId) ? serviceId : null;
-      service = safeServiceId ? await Service.findOne({ _id: { $eq: safeServiceId }, active: true }) : null;
+      // Only a 24-char hex string is turned into an ObjectId; the query never receives raw request input.
+      const serviceObjectId = typeof serviceId === "string" && /^[a-f\d]{24}$/i.test(serviceId)
+        ? new mongoose.Types.ObjectId(serviceId)
+        : null;
+      service = serviceObjectId ? await Service.findOne({ _id: serviceObjectId, active: true }) : null;
       if (!service) {
         return res.status(404).json({ success: false, message: "This service is not available right now" });
       }
