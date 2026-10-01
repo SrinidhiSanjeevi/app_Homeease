@@ -76,7 +76,7 @@ const createOrder = async ({ bookingId, userId }) => {
 };
 
 async function settleGenuinePayment({ booking, orderRecord, paymentId, amountPaise, extra = {} }) {
-  const already = await Payment.findOne({ transactionId: paymentId, status: { $in: ["Success", "Refunded", "Partially Refunded"] } });
+  const already = await Payment.findOne({ transactionId: { $eq: paymentId }, status: { $in: ["Success", "Refunded", "Partially Refunded"] } });
   if (already) {
     const fresh = await getBookingSafe(booking._id);
     return { outcome: already.status === "Success" ? "paid" : "refunded", booking: fresh, payment: already };
@@ -218,7 +218,7 @@ const refundPayment = async (bookingId, amount) => {
 const getPaymentStatus = async ({ bookingId, transactionId }) => {
   const query = {};
   if (typeof transactionId === "string" && transactionId.trim()) {
-    query.transactionId = transactionId.trim();
+    query.transactionId = { $eq: transactionId.trim() };
   } else if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
     query.booking = toObjectId(bookingId);
   } else {

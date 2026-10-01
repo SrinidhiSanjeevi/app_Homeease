@@ -33,7 +33,7 @@ async function findCandidates(category, excludeIds = [], customerArea = null) {
   const filter = {
     status: "Available",
     active: true,
-    category: professionalCategoryFor(category)
+    category: { $eq: professionalCategoryFor(category) }
   };
   if (excludeIds.length) filter._id = { $nin: excludeIds };
 
@@ -59,7 +59,7 @@ async function reserveProfessional({ category, area = null, date, timeSlot, book
     return { professional: null, distanceKm: null };
   }
 
-  const taken = await SlotReservation.find({ date, timeSlot }).distinct("professional");
+  const taken = await SlotReservation.find({ date: { $eq: date }, timeSlot: { $eq: String(timeSlot) } }).distinct("professional");
   const candidates = await findCandidates(category, taken, area);
 
   if (preferredProfessionalId) {

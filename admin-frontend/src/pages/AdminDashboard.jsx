@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useId, cloneElement, isValidElement } from "react";
+import { activateOnKey } from "../utils/a11y";
 import {
   LayoutDashboard,
   Users,
@@ -125,22 +126,33 @@ function Modal({ title, onClose, children }) {
 }
 
 // ── Form Field Helper ─────────────────────────────────────────
-function Field({ label, children }) {
-  return (
-    <div style={{ marginBottom: "16px" }}>
-      <label
-        style={{
-          display: "block",
-          fontSize: "0.82rem",
-          fontWeight: 600,
-          color: "#374151",
-          marginBottom: "6px"
-        }}
-      >
-        {label}
-      </label>
+const fieldLabelStyle = {
+  display: "block",
+  fontSize: "0.82rem",
+  fontWeight: 600,
+  color: "#374151",
+  marginBottom: "6px"
+};
 
-      {children}
+function Field({ label, children }) {
+  const autoId = useId();
+  // A single native control gets a real <label htmlFor>; composite content is a labelled group.
+  const isControl = isValidElement(children) && ["input", "select", "textarea"].includes(children.type);
+  const controlId = (isControl && children.props.id) || autoId;
+
+  return (
+    <div
+      style={{ marginBottom: "16px" }}
+      role={isControl ? undefined : "group"}
+      aria-labelledby={isControl ? undefined : `${autoId}-label`}
+    >
+      {isControl ? (
+        <label htmlFor={controlId} style={fieldLabelStyle}>{label}</label>
+      ) : (
+        <span id={`${autoId}-label`} style={fieldLabelStyle}>{label}</span>
+      )}
+
+      {isControl ? cloneElement(children, { id: controlId }) : children}
     </div>
   );
 }
@@ -185,7 +197,7 @@ function ImageUploader({ currentUrl, folder = "services", onUploaded }) {
       const token = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
       const fd = new FormData();
       fd.append("image", file);
-      const res = await fetch(`/api/admin/upload?folder=${folder}`, {
+      const res = await fetch(`/api/admin/upload?folder=${encodeURIComponent(folder)}`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: fd
@@ -207,7 +219,7 @@ function ImageUploader({ currentUrl, folder = "services", onUploaded }) {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files?.[0];
-    handleFile(file);
+    void handleFile(file);
   };
 
   const zoneStyle = {
@@ -262,7 +274,10 @@ function ImageUploader({ currentUrl, folder = "services", onUploaded }) {
       <div
         id="image-upload-zone"
         style={zoneStyle}
+        role="button"
+        tabIndex={0}
         onClick={() => !uploading && inputRef.current?.click()}
+        onKeyDown={activateOnKey(() => !uploading && inputRef.current?.click())}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
@@ -855,8 +870,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
   };
 
   useEffect(() => {
-    loadAll();
-    fetchAreas();
+    void loadAll();
+    void fetchAreas();
   }, []);
 
   const refreshQuietly = useRef(null);
@@ -871,7 +886,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     ]);
   useEffect(() => {
     const run = () => {
-      if (document.visibilityState === "visible") refreshQuietly.current();
+      if (document.visibilityState === "visible") void refreshQuietly.current();
     };
     const id = setInterval(run, 10000);
     document.addEventListener("visibilitychange", run);
@@ -890,7 +905,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
 
     try {
-      const r = await fetch(`${BASE}/users/${id}`, {
+      const r = await fetch(`${BASE}/users/${encodeURIComponent(id)}`, {
         method: "DELETE",
         headers
       });
@@ -912,7 +927,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   // ── BOOKING status ──────────────────────────────────────────
   const handleStatusChange = async (id, status) => {
     try {
-      const r = await fetch(`${BASE}/bookings/${id}/status`, {
+      const r = await fetch(`${BASE}/bookings/${encodeURIComponent(id)}/status`, {
         method: "PUT",
         headers: jsonHeaders,
         body: JSON.stringify({ status })
@@ -971,7 +986,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
         if (r.status === 404) {
           setServiceModal(null);
-          fetchServices();
+          void fetchServices();
         }
       }
     } catch (error) {
@@ -988,7 +1003,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
 
     try {
-      const r = await fetch(`${BASE}/services/${id}`, {
+      const r = await fetch(`${BASE}/services/${encodeURIComponent(id)}`, {
         method: "DELETE",
         headers
       });
@@ -1053,7 +1068,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
         if (r.status === 404) {
           setProfModal(null);
-          fetchProfessionals();
+          void fetchProfessionals();
         }
       }
     } catch (error) {
@@ -1070,7 +1085,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
 
     try {
-      const r = await fetch(`${BASE}/professionals/${id}`, {
+      const r = await fetch(`${BASE}/professionals/${encodeURIComponent(id)}`, {
         method: "DELETE",
         headers
       });
@@ -1099,7 +1114,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const handleToggleProfStatus = async (prof) => {
     const newStatus = prof.status === "Available" ? "Busy" : "Available";
     try {
-      const r = await fetch(`${BASE}/professionals/${prof._id}`, {
+      const r = await fetch(`${BASE}/professionals/${encodeURIComponent(prof._id)}`, {
         method: "PUT",
         headers: jsonHeaders,
         body: JSON.stringify({ status: newStatus })
@@ -1107,7 +1122,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       const d = await r.json();
       if (r.ok && d.success) {
         showToast(`Marked ${prof.name} as ${newStatus}`);
-        fetchProfessionals();
+        void fetchProfessionals();
       } else {
         showToast(d.message || "Failed to update status", "error");
       }
@@ -1583,7 +1598,10 @@ export default function AdminDashboard({ token, user, onLogout }) {
                 <div>
                   {stats.activeEmergencies > 0 && (
                     <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setActiveSection("emergencies")}
+                      onKeyDown={activateOnKey(() => setActiveSection("emergencies"))}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -2696,6 +2714,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                 ))}
 
                 <div
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={activateOnKey(() => setServiceModal("add"))}
                   onClick={() =>
                     setServiceModal("add")
                   }
@@ -2927,6 +2948,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                 ))}
 
                 <div
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={activateOnKey(() => setProfModal("add"))}
                   onClick={() =>
                     setProfModal("add")
                   }
@@ -3359,7 +3383,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                       showToast(
                                         d.message
                                       );
-                                      fetchEmergencies();
+                                      void fetchEmergencies();
                                     } else {
                                       showToast(
                                         d.message ||

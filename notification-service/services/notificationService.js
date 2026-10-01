@@ -57,7 +57,7 @@ async function enqueueNotification({
     const idempotencyKey = `booking_${bookingId}_${type}`;
 
     // ─── Idempotency Check: Prevent duplicate notification records ────────────
-    const existingNotification = await Notification.findOne({ idempotencyKey });
+    const existingNotification = await Notification.findOne({ idempotencyKey: { $eq: idempotencyKey } });
     if (existingNotification) {
       logger.info(
         { notificationId: existingNotification._id, idempotencyKey, status: existingNotification.status },
@@ -168,7 +168,7 @@ async function processNotification(notificationId) {
       notification.nextRetryAt = null;
       await notification.save();
 
-      if (metrics && metrics.notificationSuccess) metrics.notificationSuccess.inc();
+      metrics?.notificationSuccess?.inc();
 
       logger.info(
         { notificationId: notification._id, recipient: notification.recipient, attempts: notification.attempts },
@@ -180,7 +180,7 @@ async function processNotification(notificationId) {
 
     // ─── Failure: Bounded Retry with Exponential Backoff ─────────────────────
     if (notification.attempts < notification.maxAttempts) {
-      const backoffSeconds = Math.min(Math.pow(2, notification.attempts), 30);
+      const backoffSeconds = Math.min(2 ** notification.attempts, 30);
       notification.status = NOTIFICATION_STATUS.PENDING;
       notification.nextRetryAt = new Date(Date.now() + backoffSeconds * 1000);
       notification.lastError = emailResult.error || "Provider delivery failed";
@@ -201,7 +201,7 @@ async function processNotification(notificationId) {
       notification.nextRetryAt = null;
       await notification.save();
 
-      if (metrics && metrics.notificationFailures) metrics.notificationFailures.inc();
+      metrics?.notificationFailures?.inc();
 
       logger.error(
         { notificationId: notification._id, attempts: notification.attempts, err: notification.lastError },

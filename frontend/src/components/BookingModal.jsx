@@ -109,7 +109,7 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
       return undefined;
     }
     let alive = true;
-    fetch(`/api/services/professionals/availability?date=${date}&timeSlot=${encodeURIComponent(timeSlot)}`)
+    fetch(`/api/services/professionals/availability?date=${encodeURIComponent(date)}&timeSlot=${encodeURIComponent(timeSlot)}`)
       .then((r) => r.json())
       .then((d) => alive && setBookedIds(d.success ? d.bookedProfessionalIds : []))
       .catch(() => alive && setBookedIds([]));
@@ -275,7 +275,7 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
         modal: {
           ondismiss: async function () {
             if (!paid) {
-              await fetch(`/api/bookings/${booking._id}/cancel`, {
+              await fetch(`/api/bookings/${encodeURIComponent(booking._id)}/cancel`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ reason: "Checkout closed without payment" }),
@@ -303,9 +303,9 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
   const handlePaymentInitiate = (e) => {
     e.preventDefault();
     if (paymentMethod === "Cash on Delivery") {
-      finalizeCashBooking();
+      void finalizeCashBooking();
     } else {
-      handleRazorpayCheckout();
+      void handleRazorpayCheckout();
     }
   };
 
@@ -328,6 +328,7 @@ export default function BookingModal({ service, initialProduct, onClose, onViewB
   return (
     <div
       className="modal-backdrop"
+      role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !processingPayment) onClose();
       }}
@@ -684,7 +685,7 @@ function BookingConfirmed({ booking, message, service, area, professionals, onCl
     : "—";
 
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="booking-confirmed-title">
         <div className="modal-head">
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

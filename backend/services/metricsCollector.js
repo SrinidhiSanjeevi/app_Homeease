@@ -72,7 +72,7 @@ async function collectDbMetrics() {
 }
 
 function startMetricsCollector() {
-  collectDbMetrics();
+  void collectDbMetrics();
   setInterval(collectDbMetrics, POLL_INTERVAL_MS);
 }
 

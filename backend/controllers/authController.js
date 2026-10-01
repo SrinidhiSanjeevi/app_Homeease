@@ -5,7 +5,15 @@ const User = require("../models/User");
 const logger = require("../utils/logger");
 const { generateSecret, verifyTotp, getOtpAuthUrl } = require("../utils/totp");
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Same rule as /^[^\s@]+@[^\s@]+\.[^\s@]+$/ but checked with plain string ops (no regex backtracking).
+const isValidEmail = (email) => {
+  if (typeof email !== "string" || /\s/.test(email)) return false;
+  const parts = email.split("@");
+  if (parts.length !== 2 || !parts[0]) return false;
+  const domain = parts[1];
+  const dot = domain.indexOf(".", 1); // a dot that has at least one character before it
+  return dot !== -1 && dot < domain.length - 1;
+};
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
@@ -63,7 +71,7 @@ const signup = async (req, res) => {
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: "Name is required" });
     }
-    if (!EMAIL_RE.test(normalizedEmail)) {
+    if (!isValidEmail(normalizedEmail)) {
       return res.status(400).json({ success: false, message: "A valid email is required" });
     }
     if (!password || password.length < MIN_PASSWORD_LENGTH) {
