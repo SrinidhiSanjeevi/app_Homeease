@@ -157,10 +157,10 @@ stages:
             for f in backend admin-backend frontend admin-frontend payment-service notification-service; do
               echo "── hadolint ${f}/Dockerfile ──"
               docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
-                hadolint --no-fail - < "${f}/Dockerfile" || FAILED=1
+                hadolint --failure-threshold error - < "${f}/Dockerfile" || FAILED=1
             done
-            exit 0
-          displayName: 'Hadolint — Dockerfile lint (report only)'
+            exit "${FAILED}"
+          displayName: 'Hadolint — Dockerfile lint (fails on errors)'
 
         - script: |
             set -euo pipefail
@@ -431,11 +431,14 @@ stages:
             cd "$WORKDIR/gitops"
             git fetch --quiet --depth 1 origin "$DEV_COMMIT"
             devval() { git show "${DEV_COMMIT}:charts/$1/values-azure-dev.yaml" | yq "$2"; }
+            # Hostnames come from the branch HEAD, not the pinned commit: ingress hosts can change
+            # (e.g. cluster rebuilt with a new IP) and a re-run must not keep curling a dead address.
+            headval() { git show "HEAD:charts/$1/values-azure-dev.yaml" | yq "$2"; }
 
-            BACKEND_HOST=$(devval backend '.ingress.host')
+            BACKEND_HOST=$(headval backend '.ingress.host')
             BACKEND_TAG=$(devval backend '.image.tag')
-            FRONTEND_HOST=$(devval frontend '.ingress.host')
-            ADMIN_FRONTEND_HOST=$(devval admin-frontend '.ingress.host')
+            FRONTEND_HOST=$(headval frontend '.ingress.host')
+            ADMIN_FRONTEND_HOST=$(headval admin-frontend '.ingress.host')
             echo "Verifying DEV at Gitops_Homeease@${DEV_COMMIT} (backend expected at ${BACKEND_TAG})"
 
             DEADLINE=$(( $(date +%s) + 15 * 60 ))
