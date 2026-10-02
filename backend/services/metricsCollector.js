@@ -7,7 +7,38 @@ const metrics = require("../metrics");
 const logger = require("../utils/logger");
 
 const POLL_INTERVAL_MS = 30000;
+// On AWS nothing scrapes /metrics (no Prometheus), so the same DB-truth numbers
+// are also written as CloudWatch Embedded Metric Format lines on stdout; the
+// awslogs driver ships them and CloudWatch turns them into metrics. Off by
+// default so the Prometheus path (AKS) is unchanged.
+const EMF_ENABLED = process.env.CLOUDWATCH_EMF_ENABLED === "true";
+const EMF_NAMESPACE = process.env.CLOUDWATCH_METRICS_NAMESPACE || "HomeEase";
 const BOOKING_STATUSES = ["Created", "Assigned", "Confirmed", "Completed", "Cancelled"];
+
+function emitEmf(dimensions, values) {
+  const emf = {
+    _aws: {
+      Timestamp: Date.now(),
+      CloudWatchMetrics: [
+        {
+          Namespace: EMF_NAMESPACE,
+          Dimensions: [Object.keys(dimensions)],
+          Metrics: Object.keys(values).map((name) => ({ Name: name, Unit: "Count" }))
+        }
+      ]
+    },
+    ...dimensions,
+    ...values
+  };
+  process.stdout.write(`${JSON.stringify(emf)}\n`);
+}
+
+function emitCloudWatchMetrics({ totals, byStatus }) {
+  emitEmf({ Scope: "totals" }, totals);
+  BOOKING_STATUSES.forEach((status, i) => {
+    emitEmf({ Scope: "bookings", Status: status }, { Bookings: byStatus[i] });
+  });
+}
 
 async function collectDbMetrics() {
   try {
@@ -65,6 +96,23 @@ async function collectDbMetrics() {
       BOOKING_STATUSES.reduce((sum, status, i) => (activeStatuses.includes(status) ? sum + statusCounts[i] : sum), 0)
     );
 
+    if (EMF_ENABLED) {
+      emitCloudWatchMetrics({
+        totals: {
+          TotalBookings: totalBookings,
+          TotalUsers: totalUsers,
+          TotalServices: totalServices,
+          TotalProfessionals: totalProfessionals,
+          AvailableProfessionals: availableProfessionals,
+          ActiveEmergencies: activeEmergencies,
+          Revenue: revenueAgg.length > 0 ? revenueAgg[0].total : 0,
+          // Same definition as the admin dashboard: Created + Assigned.
+          PendingBookings: statusCounts[0] + statusCounts[1]
+        },
+        byStatus: statusCounts
+      });
+    }
+
     logger.info("[metricsCollector] DB-truth gauges refreshed");
   } catch (error) {
     logger.error({ err: error.message }, "[metricsCollector] Failed to refresh DB metrics");
@@ -76,4 +124,4 @@ function startMetricsCollector() {
   setInterval(collectDbMetrics, POLL_INTERVAL_MS);
 }
 
-module.exports = { startMetricsCollector, collectDbMetrics };
+module.exports = { startMetricsCollector, collectDbMetrics, emitCloudWatchMetrics };
