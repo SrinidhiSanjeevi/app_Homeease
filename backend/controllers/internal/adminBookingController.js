@@ -9,6 +9,7 @@ const { reassignWaitingWork } = require("../../services/professionalMatcher");
 const { canTransition } = require("../../services/booking/bookingStateMachine");
 const { canTransitionEmergency } = require("../../services/emergencyStateMachine");
 const logger = require("../../utils/logger");
+const metrics = require("../../metrics");
 const { AREAS, MAX_SERVICE_AREAS, findArea, normalizeServiceAreas } = require("../../services/areas");
 const { parsePagination, formatPaginationResult } = require("../../utils/pagination");
 const { attachImageUrls } = require("../../services/blobStorage");
@@ -466,6 +467,10 @@ const updateEmergencyStatus = async (req, res) => {
     );
     if (!emergency) {
       return res.status(409).json({ success: false, message: "This emergency was just updated. Please refresh." });
+    }
+
+    if (status === "Resolved") {
+      metrics.emergencyRequestsCompletedTotal.inc();
     }
 
     if (isClosing && emergency.assignedProfessional) {
