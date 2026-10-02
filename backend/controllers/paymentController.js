@@ -1,5 +1,6 @@
 const paymentClient = require("../services/payment/paymentClient");
 const logger = require("../utils/logger");
+const metrics = require("../metrics");
 
 const createOrder = async (req, res) => {
   try {
@@ -43,6 +44,12 @@ const verifyPayment = async (req, res) => {
       razorpaySignature: razorpay_signature
     });
 
+    if (result.success === true) {
+      metrics.paymentSuccess.inc();
+    } else {
+      metrics.paymentFailures.inc();
+    }
+
     return res.status(result.success ? 200 : 400).json({
       success: result.success === true,
       message: result.message,
@@ -50,6 +57,7 @@ const verifyPayment = async (req, res) => {
       payment: result.payment
     });
   } catch (error) {
+    metrics.paymentFailures.inc();
     if (error.isOperational) {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
