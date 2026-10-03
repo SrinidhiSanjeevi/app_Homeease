@@ -3,7 +3,8 @@ const metrics = require("../metrics");
 
 const NOTIFICATION_TYPES = {
   BOOKING_CONFIRMED: "BOOKING_CONFIRMED",
-  BOOKING_COMPLETED: "BOOKING_COMPLETED"
+  BOOKING_COMPLETED: "BOOKING_COMPLETED",
+  PROFESSIONAL_NEW_JOB: "PROFESSIONAL_NEW_JOB"
 };
 
 // Every dispatch ends in exactly one of the two counters, so
@@ -39,7 +40,22 @@ const processCompletionEmailNotification = async (booking, userId) => {
   return notification || null;
 };
 
+// Tells the service provider about the job. Without an email on the professional the notification
+// service falls back to the admin mailbox.
+const processProfessionalAssignedNotification = async (booking, userId, professional) => {
+  const bookingId = booking._id || booking;
+  const { notification } = await dispatchCounted({
+    type: NOTIFICATION_TYPES.PROFESSIONAL_NEW_JOB,
+    bookingId,
+    userId,
+    recipientEmail: professional && professional.email ? professional.email : undefined,
+    recipientName: professional && professional.name ? professional.name : undefined
+  });
+  return notification || null;
+};
+
 module.exports = {
   processNotificationSimulation,
+  processProfessionalAssignedNotification,
   processCompletionEmailNotification
 };

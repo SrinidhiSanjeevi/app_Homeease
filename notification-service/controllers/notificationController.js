@@ -4,9 +4,11 @@ const { dispatchNotification } = require("../services/notificationService");
 const { NOTIFICATION_TYPES } = require("../services/notificationTypes");
 const logger = require("../utils/logger");
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const dispatch = async (req, res) => {
   try {
-    const { type, bookingId, userId } = req.body || {};
+    const { type, bookingId, userId, recipientEmail, recipientName } = req.body || {};
 
     if (!type || !Object.values(NOTIFICATION_TYPES).includes(type)) {
       return res.status(400).json({ success: false, message: "A valid notification type is required" });
@@ -18,7 +20,19 @@ const dispatch = async (req, res) => {
       return res.status(400).json({ success: false, message: "A valid userId is required" });
     }
 
-    const notification = await dispatchNotification({ type, booking: bookingId, userId });
+    // An explicit recipient is only honoured for provider notifications (customers are always looked up by userId).
+    const isProviderMail = type === NOTIFICATION_TYPES.PROFESSIONAL_NEW_JOB;
+    const providerEmail = isProviderMail && recipientEmail ? String(recipientEmail).trim().toLowerCase() : undefined;
+    if (providerEmail && !EMAIL_RE.test(providerEmail)) {
+      return res.status(400).json({ success: false, message: "recipientEmail is not a valid email address" });
+    }
+    const notification = await dispatchNotification({
+      type,
+      booking: bookingId,
+      userId,
+      recipientEmail: providerEmail,
+      recipientName: isProviderMail && recipientName ? String(recipientName).slice(0, 80) : undefined
+    });
 
     return res.status(202).json({ success: true, notification: notification || null });
   } catch (error) {
