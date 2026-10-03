@@ -54,7 +54,20 @@ const processProfessionalAssignedNotification = async (booking, userId, professi
   return notification || null;
 };
 
+// Customer "booking confirmed" + service-provider "new job" emails, for a booking that now has a professional.
+// Safe to call more than once: the notification service de-duplicates per booking and notification type.
+const notifyBookingAssigned = async (booking, professional) => {
+  const userId = booking.user && booking.user._id ? booking.user._id : booking.user;
+  const results = await Promise.allSettled([
+    processNotificationSimulation(booking, userId),
+    processProfessionalAssignedNotification(booking, userId, professional)
+  ]);
+  const failed = results.find((r) => r.status === "rejected");
+  if (failed) throw failed.reason;
+};
+
 module.exports = {
+  notifyBookingAssigned,
   processNotificationSimulation,
   processProfessionalAssignedNotification,
   processCompletionEmailNotification

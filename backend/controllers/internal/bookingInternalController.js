@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 const Booking = require("../../models/Booking");
+const Professional = require("../../models/Professional");
+const { notifyBookingAssigned } = require("../../services/simulationService");
 const logger = require("../../utils/logger");
 
 const PROJECTION = "_id user paymentMethod paymentStatus status totalPrice professional date timeSlot address";
@@ -55,6 +57,15 @@ const settleBookingPayment = async (req, res) => {
           settled: false,
           message: "Booking is not in the expected pre-payment state (already settled, expired, or cancelled)"
         });
+      }
+
+      // Online payments used to confirm silently. Mail the customer and the provider once a professional is attached.
+      if (paidBooking.status === "Confirmed" && paidBooking.professional) {
+        Professional.findById(paidBooking.professional)
+          .select("name email")
+          .lean()
+          .then((professional) => notifyBookingAssigned(paidBooking, professional))
+          .catch((err) => logger.error({ err: err.message }, "Payment confirmation notification error"));
       }
 
       return res.status(200).json({ success: true, settled: true, booking: paidBooking });

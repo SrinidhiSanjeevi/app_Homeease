@@ -9,6 +9,7 @@ const { reassignWaitingWork } = require("../../services/professionalMatcher");
 const { canTransition } = require("../../services/booking/bookingStateMachine");
 const { canTransitionEmergency } = require("../../services/emergencyStateMachine");
 const logger = require("../../utils/logger");
+const { processCompletionEmailNotification } = require("../../services/simulationService");
 const metrics = require("../../metrics");
 const { AREAS, MAX_SERVICE_AREAS, findArea, normalizeServiceAreas } = require("../../services/areas");
 const { parsePagination, formatPaginationResult } = require("../../utils/pagination");
@@ -305,6 +306,11 @@ const updateBookingStatus = async (req, res) => {
       reassignWaitingWork().catch((err) =>
         logger.error({ err: err.message }, "Auto-reassignment error")
       );
+      if (status === "Completed" && booking.user) {
+        processCompletionEmailNotification(booking, booking.user._id || booking.user).catch((err) =>
+          logger.error({ err: err.message }, "Admin completion email error")
+        );
+      }
     }
 
     res.status(200).json({ success: true, message: `Booking marked as ${status}`, booking });
