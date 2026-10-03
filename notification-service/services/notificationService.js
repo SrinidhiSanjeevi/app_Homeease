@@ -105,6 +105,7 @@ async function enqueueNotification({
       type: channel,
       status: NOTIFICATION_STATUS.PENDING,
       recipient: recipientEmail,
+      recipientName,
       message: templateData.message,
       notificationType: type,
       idempotencyKey,
@@ -164,7 +165,7 @@ async function processNotification(notificationId) {
     const templateData = resolveTemplateData(
       notification.notificationType,
       bookingDoc || { _id: notification.booking },
-      "Customer",
+      notification.recipientName || "Customer",
       notification.recipient
     );
 
