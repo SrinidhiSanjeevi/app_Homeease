@@ -6,7 +6,7 @@ const paymentClient = require("../services/payment/paymentClient");
 const notificationClient = require("../services/notification/notificationClient");
 const { reassignWaitingWork, reserveProfessional, releaseBookingReservation, canTransition } = require("../services/customerCore");
 const {
-  processNotificationSimulation,
+  notifyBookingAssigned,
   processCompletionEmailNotification
 } = require("../services/simulationService");
 const { generateImageUrl } = require("../services/blobStorage");
@@ -157,9 +157,13 @@ const createBooking = async (req, res) => {
     }
     if (isCash) {
       if (professional && metrics && metrics.bookingsConfirmed) metrics.bookingsConfirmed.inc();
-      processNotificationSimulation(booking, userId).catch((notificationError) => {
-        logger.error({ err: notificationError.message }, "Background email notification error");
-      });
+      // Emails go out only once a professional is assigned (customer confirmation + provider job notice).
+      // If nobody is free yet, the scheduler sends them when it assigns someone.
+      if (professional) {
+        notifyBookingAssigned(booking, professional).catch((notificationError) => {
+          logger.error({ err: notificationError.message }, "Background email notification error");
+        });
+      }
     }
 
     await booking.populate("professional");
