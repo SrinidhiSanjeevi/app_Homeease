@@ -4,7 +4,7 @@ const auditLogSchema = new mongoose.Schema(
   {
     adminId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      // Id only: the User collection belongs to the backend service's database (no cross-service populate).
       required: true
     },
     adminEmail: {

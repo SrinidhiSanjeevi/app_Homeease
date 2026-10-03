@@ -42,8 +42,13 @@ test("deleteUser deactivates a user who has bookings and removes one who has non
   const exists = t.mock.method(Booking, "exists", async () => ({ _id: "b1" }));
   let res = makeRes();
   await admin.deleteUser({ params: { id: "u1" } }, res);
-  assert.match(res.body.message, /deactivated/);
+  assert.match(res.body.message, /kept anonymously/);
   assert.equal(update.mock.callCount(), 1);
+  const patch = update.mock.calls[0].arguments[1];
+  assert.equal(patch.active, false);
+  assert.equal(patch.name, "Deleted user");
+  assert.equal(patch.email, "deleted-u1@deleted.homeease.invalid"); // original email is released for re-registration
+  assert.deepEqual(patch.refreshTokens, []);
   assert.equal(remove.mock.callCount(), 0);
 
   exists.mock.mockImplementation(async () => null);
