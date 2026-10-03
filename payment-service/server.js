@@ -20,6 +20,7 @@ if (process.env.NODE_ENV !== "test") {
 
 const connectDB = require("./config/db");
 const metrics = require("./metrics");
+const { startMetricsCollector } = require("./services/metricsCollector");
 
 if (process.env.NODE_ENV !== "test") {
   void connectDB();
@@ -111,6 +112,7 @@ let server = null;
 if (process.env.NODE_ENV !== "test") {
   server = app.listen(PORT, () => {
     logger.info({ port: PORT }, "HomeEase Payment Service started");
+    startMetricsCollector();
   });
 
   const shutdown = (signal) => {
