@@ -41,7 +41,7 @@ const getStats = async (req, res) => {
       completedBookings,
       recentBookings,
     ] = await Promise.all([
-      User.countDocuments({ role: "user" }),
+      User.countDocuments({ role: "user", active: { $ne: false } }),
       Booking.countDocuments(),
       Service.countDocuments(),
       Professional.countDocuments(),
@@ -105,7 +105,8 @@ const getAllUsers = async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
 
-    const filter = {};
+    // Deactivated users (deleted but kept for booking history) are hidden unless explicitly requested.
+    const filter = req.query.includeInactive === "true" ? {} : { active: { $ne: false } };
     const ALLOWED_ROLES = ["user", "admin", "professional"];
     if (typeof req.query.role === "string" && ALLOWED_ROLES.includes(req.query.role)) {
       filter.role = { $eq: String(req.query.role) };
