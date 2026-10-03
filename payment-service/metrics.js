@@ -61,6 +61,31 @@ const paymentProcessingDurationSeconds = new client.Histogram({
   registers: [register]
 });
 
+
+// ─── DB-truth gauges (survive pod restarts) ───────────────────────────────────
+// Counters above live in process memory and restart from 0 with every pod, so they are only
+// good for *rates*. Totals/history come from MongoDB via services/metricsCollector.js.
+const paymentRecordsByStatus = new client.Gauge({
+  name: "payment_records_by_status",
+  help: "Number of payment records in MongoDB, by status",
+  labelNames: ["status"],
+  registers: [register]
+});
+
+const paymentAmountByStatus = new client.Gauge({
+  name: "payment_amount_rupees_by_status",
+  help: "Sum of payment amounts (INR) in MongoDB, by status",
+  labelNames: ["status"],
+  registers: [register]
+});
+
+const paymentLastRecordTimestamp = new client.Gauge({
+  name: "payment_last_record_timestamp_seconds",
+  help: "Unix time of the most recent payment record, by status",
+  labelNames: ["status"],
+  registers: [register]
+});
+
 module.exports = {
   client,
   register,
@@ -72,6 +97,9 @@ module.exports = {
   paymentVerifyFailedTotal,
   paymentRefundTotal,
   paymentProcessingDurationSeconds,
+  paymentRecordsByStatus,
+  paymentAmountByStatus,
+  paymentLastRecordTimestamp,
   payment_order_created_total: paymentOrderCreatedTotal,
   payment_verify_success_total: paymentVerifySuccessTotal,
   payment_verify_failed_total: paymentVerifyFailedTotal,
