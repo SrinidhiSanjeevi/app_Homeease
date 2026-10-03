@@ -81,7 +81,57 @@ function getBookingCompletedTemplate({ recipientName, bookingRef, booking, recip
   };
 }
 
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+// Sent to the service provider (professional) when a booking is assigned to them.
+function getProfessionalNewJobTemplate({ recipientName, bookingRef, booking }) {
+  const name = escapeHtml(recipientName);
+  const date = booking.date
+    ? new Date(booking.date).toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
+    : "As scheduled";
+  const row = (label, value, shade) =>
+    `<tr style="background:${shade};"><td style="padding:12px 16px;font-weight:700;color:#374151;width:40%;">${label}</td><td style="padding:12px 16px;color:#111827;">${escapeHtml(value)}</td></tr>`;
+
+  return {
+    subject: `New job assigned — ServiceXpress #${bookingRef}`,
+    message: `New job #${bookingRef} assigned to ${recipientName}. Service date: ${date}.`,
+    html: `
+      <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <div style="background:linear-gradient(135deg,#0f766e,#115e59);padding:32px 36px;text-align:center;">
+          <h1 style="color:#ffffff;margin:0;font-size:26px;">ServiceXpress</h1>
+          <p style="color:rgba(255,255,255,0.85);margin:6px 0 0;font-size:14px;">Service partner notification</p>
+        </div>
+        <div style="padding:32px 36px;">
+          <h2 style="color:#111827;margin:0 0 8px;">You have a new job</h2>
+          <p style="color:#6b7280;margin:0 0 20px;font-size:14px;">Hi <strong>${name}</strong>, a customer booking has been assigned to you.</p>
+          <table style="width:100%;border-collapse:collapse;border-radius:10px;overflow:hidden;font-size:14px;margin-bottom:24px;">
+            ${row("Booking ID", `#${bookingRef}`, "#f3f4f6")}
+            ${row("Service Date", date, "#ffffff")}
+            ${row("Time Slot", booking.timeSlot || "As scheduled", "#f3f4f6")}
+            ${row("Service Address", booking.address || "—", "#ffffff")}
+            ${row("Customer Contact", booking.contactNumber || "—", "#f3f4f6")}
+            ${row("Amount", `₹${booking.totalPrice ?? "—"}`, "#ffffff")}
+          </table>
+          <p style="color:#374151;font-size:14px;line-height:1.6;">Please arrive on time and update the booking status in the app when the work is done.</p>
+        </div>
+        <div style="background:#f9fafb;padding:20px 36px;text-align:center;border-top:1px solid #e5e7eb;">
+          <p style="color:#9ca3af;font-size:12px;margin:0;">© ${new Date().getFullYear()} ServiceXpress. This is an automated email — please do not reply.</p>
+        </div>
+      </div>
+    `
+  };
+}
+
 module.exports = {
   getBookingConfirmedTemplate,
-  getBookingCompletedTemplate
+  getBookingCompletedTemplate,
+  getProfessionalNewJobTemplate,
+  escapeHtml
 };

@@ -48,10 +48,10 @@ async function makeRequest(path, options = {}) {
   }
 }
 
-const dispatch = async ({ type, bookingId, userId }) => {
+const dispatch = async ({ type, bookingId, userId, recipientEmail, recipientName }) => {
   return makeRequest("/api/internal/notifications/dispatch", {
     method: "POST",
-    body: JSON.stringify({ type, bookingId, userId })
+    body: JSON.stringify({ type, bookingId, userId, recipientEmail, recipientName })
   });
 };
 

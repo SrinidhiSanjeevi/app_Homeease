@@ -52,3 +52,25 @@ test("getNotificationsForBooking validates the id and lists records", async (t) 
   t.mock.method(Notification, "find", () => { throw new Error("db"); });
   assert.equal((await call(controller.getNotificationsForBooking, { params: { bookingId: ID } })).statusCode, 500);
 });
+
+test("dispatch accepts an explicit recipient only for provider notifications and validates it", async (t) => {
+  const send = t.mock.fn(async () => ({ _id: "n1" }));
+  dispatchImpl = send;
+  const base = { bookingId: ID, userId: ID };
+
+  const ok = await call(controller.dispatch, { body: { ...base, type: "PROFESSIONAL_NEW_JOB", recipientEmail: " Ravi@Example.COM ", recipientName: "Ravi" } });
+  assert.equal(ok.statusCode, 202);
+  assert.deepEqual([send.mock.calls[0].arguments[0].recipientEmail, send.mock.calls[0].arguments[0].recipientName], ["ravi@example.com", "Ravi"]);
+
+  const noEmail = await call(controller.dispatch, { body: { ...base, type: "PROFESSIONAL_NEW_JOB" } });
+  assert.equal(noEmail.statusCode, 202);
+  assert.equal(send.mock.calls[1].arguments[0].recipientEmail, undefined);
+
+  for (const bad of ["not-an-email", "a b@x.com", "x@y"]) {
+    assert.equal((await call(controller.dispatch, { body: { ...base, type: "PROFESSIONAL_NEW_JOB", recipientEmail: bad } })).statusCode, 400, bad);
+  }
+
+  // A caller must not be able to redirect a customer email by supplying a recipient.
+  await call(controller.dispatch, { body: { ...base, type: "BOOKING_CONFIRMED", recipientEmail: "attacker@x.com" } });
+  assert.equal(send.mock.calls.at(-1).arguments[0].recipientEmail, undefined);
+});
