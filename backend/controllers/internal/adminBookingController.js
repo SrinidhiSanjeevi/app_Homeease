@@ -164,11 +164,22 @@ const deleteUser = async (req, res) => {
     const hasEmergencies = await EmergencyRequest.exists({ user: req.params.id });
 
     if (hasBookings || hasEmergencies) {
-      const updatedUser = await User.findByIdAndUpdate(req.params.id, { active: false }, { new: true });
+      // Keep the record (bookings point at it) but remove the personal data and free the email so the person
+      // can sign up again. Without this, a "deleted" user's address stays taken and registration says "already exists".
+      const updatedUser = await User.findByIdAndUpdate(
+        req.params.id,
+        {
+          active: false,
+          name: "Deleted user",
+          email: `deleted-${req.params.id}@deleted.homeease.invalid`,
+          refreshTokens: []
+        },
+        { new: true }
+      );
       if (!updatedUser) return res.status(404).json({ success: false, message: "User not found" });
       return res.status(200).json({
         success: true,
-        message: "User deactivated successfully (preserved for existing booking/emergency history)",
+        message: "User deleted. Booking history is kept anonymously and the email can be registered again.",
         user: updatedUser
       });
     }
