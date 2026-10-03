@@ -900,7 +900,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   // ── USER delete ─────────────────────────────────────────────
   const handleDeleteUser = async (id) => {
-    if (!window.confirm("Delete this user? This cannot be undone.")) {
+    if (!window.confirm("Delete this user? Users with bookings are deactivated and hidden, but kept for booking history.")) {
       return;
     }
 
@@ -913,7 +913,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
       const d = await r.json();
 
       if (d.success) {
-        showToast("User deleted");
+        // The server says whether the user was removed or only deactivated (to keep booking history).
+        showToast(d.message || "User deleted");
         await Promise.all([fetchUsers(), fetchStats()]);
       } else {
         showToast(d.message || "Failed to delete user", "error");

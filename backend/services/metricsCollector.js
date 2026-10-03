@@ -59,7 +59,7 @@ async function collectDbMetrics() {
       Professional.countDocuments({ status: "Available" }),
       Professional.countDocuments({ status: "Busy" }),
       Booking.countDocuments(),
-      User.countDocuments({ role: "user" }),
+      User.countDocuments({ role: "user", active: { $ne: false } }),
       EmergencyRequest.countDocuments(),
       EmergencyRequest.countDocuments({ status: { $nin: ["Resolved", "Cancelled"] } }),
       Booking.aggregate([
