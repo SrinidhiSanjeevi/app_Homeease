@@ -57,6 +57,15 @@ const professionalSchema = new mongoose.Schema(
       trim: true
     },
 
+    // Contact address for job notifications. Optional: providers without one are mailed at the admin mailbox.
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      maxlength: 254,
+      match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Please enter a valid email address"]
+    },
+
     status: {
       type: String,
       enum: ["Available", "Busy"],

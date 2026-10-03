@@ -5,7 +5,8 @@ const logger = require("../utils/logger");
 const { sendEmail } = require("./emailProvider");
 const {
   getBookingConfirmedTemplate,
-  getBookingCompletedTemplate
+  getBookingCompletedTemplate,
+  getProfessionalNewJobTemplate
 } = require("./notificationTemplates");
 const {
   NOTIFICATION_TYPES,
@@ -34,6 +35,9 @@ function resolveTemplateData(type, booking, recipientName, recipientEmail) {
         booking,
         recipientEmail
       });
+
+    case NOTIFICATION_TYPES.PROFESSIONAL_NEW_JOB:
+      return getProfessionalNewJobTemplate({ recipientName, bookingRef, booking, recipientEmail });
 
     default:
       return {
@@ -68,6 +72,16 @@ async function enqueueNotification({
 
     let recipientEmail = explicitEmail;
     let recipientName = explicitName;
+
+    // Providers without an email on file are mailed at the admin mailbox until they have their own.
+    if (type === NOTIFICATION_TYPES.PROFESSIONAL_NEW_JOB) {
+      recipientEmail = recipientEmail || process.env.PROVIDER_FALLBACK_EMAIL || process.env.EMAIL_USER;
+      recipientName = recipientName || "Service Partner";
+      if (!recipientEmail) {
+        logger.warn({ type }, "[NotificationService] No provider email and no fallback mailbox configured; skipping");
+        return null;
+      }
+    }
 
     if (!recipientEmail || !recipientName) {
       let userDoc = null;
@@ -241,8 +255,8 @@ async function processPendingOutbox({ limit = 10 } = {}) {
   }
 }
 
-async function dispatchNotification({ type, booking, userId }) {
-  const doc = await enqueueNotification({ type, booking, userId });
+async function dispatchNotification({ type, booking, userId, recipientEmail, recipientName }) {
+  const doc = await enqueueNotification({ type, booking, userId, recipientEmail, recipientName });
   if (doc && doc.status === NOTIFICATION_STATUS.PENDING) {
     return processNotification(doc._id);
   }
