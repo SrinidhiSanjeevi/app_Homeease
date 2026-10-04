@@ -28,6 +28,11 @@ const notificationSchema = new mongoose.Schema(
       type: String,
       default: ""
     },
+    // Greeting name, kept so the email greets the right person (customer or service provider) when it is sent.
+    recipientName: {
+      type: String,
+      default: ""
+    },
     message: {
       type: String,
       required: true

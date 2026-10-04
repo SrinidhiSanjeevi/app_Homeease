@@ -165,3 +165,74 @@ test("dispatchNotification enqueues, then sends only Pending records", async (t)
   t.mock.method(Notification, "findOne", async () => ({ _id: "old", status: "Success" }));
   assert.equal((await service.dispatchNotification({ type: "BOOKING_CONFIRMED", booking: BOOKING_ID, userId: USER_ID })).status, "Success");
 });
+
+// ─── Provider (service partner) notifications ────────────────────────────────
+const { getProfessionalNewJobTemplate } = require("../services/notificationTemplates");
+
+test("provider template shows the job details and escapes untrusted text", () => {
+  const out = getProfessionalNewJobTemplate({
+    recipientName: "<b>Ravi</b>",
+    bookingRef: "ABC123",
+    booking: { date: "2030-01-15T00:00:00Z", timeSlot: "10-12", address: "<script>x</script> 12 Main St", contactNumber: "9876543210", totalPrice: 499 }
+  });
+  assert.match(out.subject, /New job assigned.*ABC123/);
+  for (const text of ["#ABC123", "10-12", "9876543210", "₹499", "&lt;b&gt;Ravi&lt;/b&gt;"]) assert.ok(out.html.includes(text), text);
+  assert.ok(!out.html.includes("<script>"), "address must be HTML-escaped");
+  assert.match(getProfessionalNewJobTemplate({ recipientName: "R", bookingRef: "R", booking: {} }).html, /As scheduled/);
+});
+
+test("resolveTemplateData routes PROFESSIONAL_NEW_JOB to the provider template", () => {
+  const out = service.resolveTemplateData("PROFESSIONAL_NEW_JOB", { _id: BOOKING_ID }, "Ravi", "r@x.com");
+  assert.match(out.subject, /New job assigned/);
+});
+
+test("provider notification goes to the professional's own email without looking up the customer", async (t) => {
+  t.mock.method(Notification, "findOne", async () => null);
+  const getUser = t.mock.method(bookingClient, "getUser", async () => assert.fail("must not look up the customer"));
+  const create = t.mock.method(Notification, "create", async (doc) => doc);
+  await service.enqueueNotification({
+    type: "PROFESSIONAL_NEW_JOB", booking: BOOKING_ID, userId: USER_ID, recipientEmail: "ravi@x.com", recipientName: "Ravi"
+  });
+  assert.equal(create.mock.calls[0].arguments[0].recipient, "ravi@x.com");
+  assert.equal(getUser.mock.callCount(), 0);
+});
+
+test("provider notification falls back to the admin mailbox when the professional has no email", async (t) => {
+  t.mock.method(Notification, "findOne", async () => null);
+  const create = t.mock.method(Notification, "create", async (doc) => doc);
+  const previous = { user: process.env.EMAIL_USER, fallback: process.env.PROVIDER_FALLBACK_EMAIL };
+  t.after(() => {
+    for (const [k, v] of [["EMAIL_USER", previous.user], ["PROVIDER_FALLBACK_EMAIL", previous.fallback]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
+  delete process.env.PROVIDER_FALLBACK_EMAIL;
+  process.env.EMAIL_USER = "admin-mailbox@gmail.com";
+  await service.enqueueNotification({ type: "PROFESSIONAL_NEW_JOB", booking: BOOKING_ID, userId: USER_ID });
+  assert.equal(create.mock.calls[0].arguments[0].recipient, "admin-mailbox@gmail.com");
+
+  process.env.PROVIDER_FALLBACK_EMAIL = "ops@gmail.com"; // an explicit fallback wins over the sender mailbox
+  await service.enqueueNotification({ type: "PROFESSIONAL_NEW_JOB", booking: BOOKING_ID, userId: USER_ID });
+  assert.equal(create.mock.calls[1].arguments[0].recipient, "ops@gmail.com");
+
+  delete process.env.PROVIDER_FALLBACK_EMAIL;
+  delete process.env.EMAIL_USER;
+  assert.equal(await service.enqueueNotification({ type: "PROFESSIONAL_NEW_JOB", booking: BOOKING_ID, userId: USER_ID }), null);
+  assert.equal(create.mock.callCount(), 2);
+});
+
+test("the recipient's name is stored and used when sending, so a provider is not greeted as 'Customer'", async (t) => {
+  t.mock.method(Notification, "findOne", async () => null);
+  const create = t.mock.method(Notification, "create", async (doc) => doc);
+  await service.enqueueNotification({
+    type: "PROFESSIONAL_NEW_JOB", booking: BOOKING_ID, userId: USER_ID, recipientEmail: "ravi@x.com", recipientName: "Ravi"
+  });
+  assert.equal(create.mock.calls[0].arguments[0].recipientName, "Ravi");
+
+  const sendEmail = stubEmail(t, { success: true });
+  t.mock.method(bookingClient, "getBooking", async () => ({ _id: BOOKING_ID, totalPrice: 10 }));
+  const doc = pendingDoc({ notificationType: "PROFESSIONAL_NEW_JOB", recipient: "ravi@x.com", recipientName: "Ravi" });
+  t.mock.method(Notification, "findOneAndUpdate", async () => doc);
+  await service.processNotification("n1");
+  assert.match(sendEmail.mock.calls[0].arguments[0].html, /Hi <strong>Ravi<\/strong>/);
+});

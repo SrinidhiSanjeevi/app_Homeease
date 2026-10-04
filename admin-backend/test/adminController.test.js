@@ -98,3 +98,18 @@ test("getAuditLogs returns 500 when the database fails", async (t) => {
   await controller.getAuditLogs({ query: {} }, res);
   assert.equal(res.statusCode, 500);
 });
+
+test("getAuditLogs shows the admin from the stored email (no cross-database populate)", async (t) => {
+  const log = { _id: "l1", adminId: "a1", adminEmail: "admin@homeease.com", action: "USER_DELETED" };
+  t.mock.method(AuditLog, "countDocuments", async () => 1);
+  t.mock.method(AuditLog, "find", () => ({
+    sort() { return this; }, skip() { return this; }, limit() { return this; },
+    populate() { assert.fail("populate would need the User model from another service's database"); },
+    lean: async () => [log]
+  }));
+  const res = makeRes();
+  await controller.getAuditLogs({ query: {} }, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.logs[0].adminId, { _id: "a1", email: "admin@homeease.com", name: "admin@homeease.com" });
+  assert.equal(res.body.logs[0].action, "USER_DELETED");
+});

@@ -774,13 +774,28 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
+  // The API returns at most 50 rows per page, so load every page; otherwise lists and counts stop at the first page.
+  const fetchAllPages = async (path, key) => {
+    const rows = [];
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const r = await fetch(`${BASE}/${path}?page=${page}&limit=50`, { headers });
+      const d = await r.json();
+      if (!d.success) return null;
+      rows.push(...(d[key] || []));
+      totalPages = (d.pagination && d.pagination.totalPages) || 1;
+      page += 1;
+    } while (page <= totalPages && page <= 20);
+    return rows;
+  };
+
   const fetchUsers = async () => {
     try {
-      const r = await fetch(`${BASE}/users`, { headers });
-      const d = await r.json();
+      const rows = await fetchAllPages("users", "users");
 
-      if (d.success) {
-        setUsers(d.users || []);
+      if (rows) {
+        setUsers(rows);
       }
     } catch (error) {
       console.error("FETCH USERS ERROR:", error);
@@ -790,11 +805,10 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   const fetchBookings = async () => {
     try {
-      const r = await fetch(`${BASE}/bookings`, { headers });
-      const d = await r.json();
+      const rows = await fetchAllPages("bookings", "bookings");
 
-      if (d.success) {
-        setBookings(d.bookings || []);
+      if (rows) {
+        setBookings(rows);
       }
     } catch (error) {
       console.error("FETCH BOOKINGS ERROR:", error);
@@ -900,7 +914,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   // ── USER delete ─────────────────────────────────────────────
   const handleDeleteUser = async (id) => {
-    if (!window.confirm("Delete this user? This cannot be undone.")) {
+    if (!window.confirm("Delete this user? Users with bookings are deactivated and hidden, but kept for booking history.")) {
       return;
     }
 
@@ -913,7 +927,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
       const d = await r.json();
 
       if (d.success) {
-        showToast("User deleted");
+        // The server says whether the user was removed or only deactivated (to keep booking history).
+        showToast(d.message || "User deleted");
         await Promise.all([fetchUsers(), fetchStats()]);
       } else {
         showToast(d.message || "Failed to delete user", "error");

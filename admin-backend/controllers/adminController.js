@@ -174,13 +174,19 @@ const getAuditLogs = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
-        .populate("adminId", "name email")
         .lean()
     ]);
 
+    // Users live in another service's database, so there is no cross-database populate: the log stores the
+    // admin's email at write time. Keep the response shape the admin UI expects.
+    const logsWithAdmin = logs.map((log) => ({
+      ...log,
+      adminId: { _id: log.adminId, email: log.adminEmail, name: log.adminEmail }
+    }));
+
     res.status(200).json({
       success: true,
-      logs,
+      logs: logsWithAdmin,
       pagination: {
         page: pageNum,
         limit: limitNum,

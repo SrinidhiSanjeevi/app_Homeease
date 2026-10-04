@@ -124,7 +124,9 @@ test("assignWaitingBooking confirms a booking when a professional is reserved", 
 
   assert.equal(await matcher.assignWaitingBooking(booking), true);
   assert.equal(update.mock.calls[0].arguments[1].$set.status, "Confirmed");
-  assert.equal(dispatch.mock.callCount(), 1);
+  // one email to the customer (booking confirmed) and one to the service provider (new job)
+  assert.deepEqual(dispatch.mock.calls.map((c) => c.arguments[0].type), ["BOOKING_CONFIRMED", "PROFESSIONAL_NEW_JOB"]);
+  assert.equal(dispatch.mock.calls[1].arguments[0].recipientName, "Ravi");
 
   // somebody else assigned it first -> reservation is released
   update.mock.mockImplementation(async () => null);

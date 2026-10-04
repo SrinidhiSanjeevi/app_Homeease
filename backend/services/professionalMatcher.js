@@ -4,7 +4,7 @@ const Professional = require("../models/Professional");
 const SlotReservation = require("../models/SlotReservation");
 const metrics = require("../metrics");
 const logger = require("../utils/logger");
-const { processNotificationSimulation } = require("./simulationService");
+const { notifyBookingAssigned } = require("./simulationService");
 const { localToday, currentSlot, hasScheduledTimeStarted } = require("./booking/bookingSchedule");
 const { areaDistanceKm } = require("./areas");
 
@@ -142,8 +142,8 @@ async function assignWaitingBooking(booking) {
     const waitedSeconds = (Date.now() - new Date(booking.createdAt).getTime()) / 1000;
     if (waitedSeconds >= 0) metrics.professionalAssignmentTime.observe(waitedSeconds);
   }
-  processNotificationSimulation(updated, updated.user).catch((err) => {
-    logger.error({ err: err.message }, "Reassignment notification error");
+  notifyBookingAssigned(updated, professional).catch((err) => {
+    logger.error({ err: err.message }, "Assignment notification error");
   });
   logger.info({ professionalName: professional.name, bookingId: booking._id }, "[professionalMatcher] Auto-assigned professional to booking");
   return true;

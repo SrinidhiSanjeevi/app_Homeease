@@ -5,7 +5,7 @@ process.env.LOG_LEVEL = "silent";
 
 const paymentClient = require("../services/payment/paymentClient");
 const notificationClient = require("../services/notification/notificationClient");
-const { processNotificationSimulation, processCompletionEmailNotification } = require("../services/simulationService");
+const { processNotificationSimulation, processCompletionEmailNotification, processProfessionalAssignedNotification } = require("../services/simulationService");
 
 function stubFetch(t, impl) {
   return t.mock.method(globalThis, "fetch", impl);
@@ -90,4 +90,18 @@ test("simulationService wraps dispatch results", async (t) => {
   dispatch.mock.mockImplementation(async () => ({}));
   assert.deepEqual(await processNotificationSimulation("b1", "u1"), []);
   assert.equal(await processCompletionEmailNotification("b1", "u1"), null);
+});
+
+test("simulationService notifies the provider with their email, or none so the service can fall back", async (t) => {
+  const dispatch = t.mock.method(notificationClient, "dispatch", async () => ({ notification: { id: "n9" } }));
+  assert.deepEqual(await processProfessionalAssignedNotification({ _id: "b1" }, "u1", { name: "Ravi", email: "ravi@x.com" }), { id: "n9" });
+  assert.deepEqual(dispatch.mock.calls[0].arguments[0], {
+    type: "PROFESSIONAL_NEW_JOB", bookingId: "b1", userId: "u1", recipientEmail: "ravi@x.com", recipientName: "Ravi"
+  });
+  await processProfessionalAssignedNotification("b2", "u1", { name: "NoMail" });
+  assert.equal(dispatch.mock.calls[1].arguments[0].recipientEmail, undefined);
+  await processProfessionalAssignedNotification("b3", "u1", null);
+  assert.equal(dispatch.mock.calls[2].arguments[0].recipientName, undefined);
+  dispatch.mock.mockImplementation(async () => ({}));
+  assert.equal(await processProfessionalAssignedNotification("b4", "u1", { name: "R" }), null);
 });

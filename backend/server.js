@@ -37,7 +37,11 @@ if (isTest) {
 }
 
 const app = express();
-app.set("trust proxy", 1);
+// Number of proxies in front of this app. 1 behind a single ingress (AKS);
+// on ECS the ALB, the frontend nginx and the Service Connect sidecar sit in
+// front, so set TRUST_PROXY_HOPS=2 there. Too low makes every client look like
+// 127.0.0.1 and share one rate-limit bucket.
+app.set("trust proxy", Number.parseInt(process.env.TRUST_PROXY_HOPS, 10) || 1);
 
 // ─── Security middleware ──────────────────────────────────────────────────────
 
