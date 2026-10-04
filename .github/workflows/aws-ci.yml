@@ -424,33 +424,55 @@ jobs:
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.INFRA_REPO_PAT }}
+          IMAGE_TAG: ${{ needs.static.outputs.image_tag }}
+          SERVICE: ${{ matrix.service }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
-            echo "INFRA_REPO_PAT not set — skipping promotion (fargate-dev not wired up yet)."
-            exit 0
+            # Fail loudly: a green run that silently deployed nothing hides the problem.
+            echo "::error::INFRA_REPO_PAT is not set, so the new image tag was NOT promoted to Infrastruture_Homeease. Add it under Settings > Secrets and variables > Actions."
+            exit 1
           fi
 
-          case "${{ matrix.service }}" in
-            admin-backend)   FIELD=admin_backend ;;
-            admin-frontend)  FIELD=admin_frontend ;;
-            payment-service) FIELD=payment_service ;;
+          case "${SERVICE}" in
+            admin-backend)        FIELD=admin_backend ;;
+            admin-frontend)       FIELD=admin_frontend ;;
+            payment-service)      FIELD=payment_service ;;
             notification-service) FIELD=notification_service ;;
-            *)               FIELD="${{ matrix.service }}" ;;
+            *)                    FIELD="${SERVICE}" ;;
           esac
 
           WORKDIR=$(mktemp -d)
-          git clone --quiet --depth 1 \
+          git clone --quiet \
             "https://x-access-token:${GH_TOKEN}@github.com/SrinidhiSanjeevi/Infrastruture_Homeease.git" \
             "$WORKDIR/infra"
           cd "$WORKDIR/infra"
-
-          TFVARS="terraform/aws/environments/fargate-dev/image-tags.auto.tfvars"
-          sed -i -E "s/^(\s*${FIELD}\s*=\s*)\"[^\"]*\"/\1\"${{ needs.static.outputs.image_tag }}\"/" "$TFVARS"
-          grep -q "\"${{ needs.static.outputs.image_tag }}\"" "$TFVARS"
-
           git config user.name "homeease-ci"
           git config user.email "ci@homeease.local"
-          git add "$TFVARS"
-          git commit -m "ci(fargate-dev): promote ${{ matrix.service }} to ${{ needs.static.outputs.image_tag }}"
-          git push origin HEAD:main
+
+          TFVARS="terraform/aws/environments/fargate-dev/image-tags.auto.tfvars"
+
+          # The six services promote in parallel and edit adjacent lines of the same file
+          # on the same branch, so a push can be rejected (non-fast-forward) and a rebase
+          # would conflict. On every attempt: sync to the newest main and re-apply THIS
+          # service's one-line edit from scratch, so no merge is ever needed.
+          for attempt in 1 2 3 4 5 6; do
+            git fetch --quiet origin main
+            git reset --hard --quiet origin/main
+            sed -i -E "s/^(\s*${FIELD}\s*=\s*)\"[^\"]*\"/\1\"${IMAGE_TAG}\"/" "$TFVARS"
+            grep -Eq "${FIELD}[[:space:]]*=[[:space:]]*\"${IMAGE_TAG}\"" "$TFVARS"
+            if git diff --quiet; then
+              echo "${FIELD} is already ${IMAGE_TAG} - nothing to promote."
+              exit 0
+            fi
+            git add "$TFVARS"
+            git commit --quiet -m "ci(fargate-dev): promote ${SERVICE} to ${IMAGE_TAG}"
+            if git push --quiet origin HEAD:main; then
+              echo "Promoted ${SERVICE} to ${IMAGE_TAG} (attempt ${attempt})."
+              exit 0
+            fi
+            echo "Push rejected (another service promoted first) - retrying, attempt ${attempt}/6."
+            sleep $((RANDOM % 5 + 2))
+          done
+          echo "::error::Could not push the tag promotion for ${SERVICE} after 6 attempts."
+          exit 1

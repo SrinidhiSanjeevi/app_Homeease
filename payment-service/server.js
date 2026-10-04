@@ -48,11 +48,24 @@ app.use((req, res, next) => {
   if (req.path === "/metrics" || req.path.startsWith("/health")) return next();
   metrics.httpRequestsInFlight.inc();
   const end = metrics.httpRequestDurationSeconds.startTimer({ method: req.method });
+  const startedAt = process.hrtime.bigint();
   res.on("finish", () => {
     const routeLabel = req.route ? (req.baseUrl + req.route.path) : (req.baseUrl ? `${req.baseUrl}/*` : "unmatched");
     metrics.httpRequestsInFlight.dec();
     metrics.httpRequestsTotal.inc({ method: req.method, route: routeLabel, code: res.statusCode });
     end({ route: routeLabel, code: res.statusCode });
+    // One structured line per request (same shape as the backend's pino-http line) so
+    // CloudWatch Logs Insights can chart request rate, errors and latency percentiles.
+    const level = res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info";
+    logger[level](
+      {
+        req: { method: req.method, url: req.originalUrl.split("?")[0] },
+        res: { statusCode: res.statusCode },
+        responseTime: Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6),
+        route: routeLabel
+      },
+      "request completed"
+    );
   });
   next();
 });
