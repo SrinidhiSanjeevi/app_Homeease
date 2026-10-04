@@ -220,3 +220,19 @@ test("provider notification falls back to the admin mailbox when the professiona
   assert.equal(await service.enqueueNotification({ type: "PROFESSIONAL_NEW_JOB", booking: BOOKING_ID, userId: USER_ID }), null);
   assert.equal(create.mock.callCount(), 2);
 });
+
+test("the recipient's name is stored and used when sending, so a provider is not greeted as 'Customer'", async (t) => {
+  t.mock.method(Notification, "findOne", async () => null);
+  const create = t.mock.method(Notification, "create", async (doc) => doc);
+  await service.enqueueNotification({
+    type: "PROFESSIONAL_NEW_JOB", booking: BOOKING_ID, userId: USER_ID, recipientEmail: "ravi@x.com", recipientName: "Ravi"
+  });
+  assert.equal(create.mock.calls[0].arguments[0].recipientName, "Ravi");
+
+  const sendEmail = stubEmail(t, { success: true });
+  t.mock.method(bookingClient, "getBooking", async () => ({ _id: BOOKING_ID, totalPrice: 10 }));
+  const doc = pendingDoc({ notificationType: "PROFESSIONAL_NEW_JOB", recipient: "ravi@x.com", recipientName: "Ravi" });
+  t.mock.method(Notification, "findOneAndUpdate", async () => doc);
+  await service.processNotification("n1");
+  assert.match(sendEmail.mock.calls[0].arguments[0].html, /Hi <strong>Ravi<\/strong>/);
+});

@@ -12,6 +12,7 @@ on:
       - 'frontend/**'
       - 'admin-frontend/**'
       - 'payment-service/**'
+      - 'notification-service/**'
       - '.github/workflows/aws-ci.yml'
   pull_request:
     branches: [main]
@@ -21,6 +22,7 @@ on:
       - 'frontend/**'
       - 'admin-frontend/**'
       - 'payment-service/**'
+      - 'notification-service/**'
       - '.github/workflows/aws-ci.yml'
   workflow_dispatch:
 
@@ -62,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           FAILED=0
-          for f in backend admin-backend frontend admin-frontend payment-service; do
+          for f in backend admin-backend frontend admin-frontend payment-service notification-service; do
             echo "── hadolint ${f}/Dockerfile ──"
             docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
               hadolint --failure-threshold error - < "${f}/Dockerfile" || FAILED=1
@@ -79,6 +81,7 @@ jobs:
             frontend: ['frontend/**']
             admin-frontend: ['admin-frontend/**']
             payment-service: ['payment-service/**']
+            notification-service: ['notification-service/**']
             workflow: ['.github/workflows/aws-ci.yml']
 
       - name: Build service matrix
@@ -86,18 +89,20 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ steps.filter.outputs.workflow }}" == "true" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            SERVICES='["backend","admin-backend","frontend","admin-frontend","payment-service"]'
+            SERVICES='["backend","admin-backend","frontend","admin-frontend","payment-service","notification-service"]'
           else
             SERVICES=$(jq -cn --argjson b ${{ steps.filter.outputs.backend == 'true' && 'true' || 'false' }} \
                               --argjson a ${{ steps.filter.outputs['admin-backend'] == 'true' && 'true' || 'false' }} \
                               --argjson f ${{ steps.filter.outputs.frontend == 'true' && 'true' || 'false' }} \
                               --argjson af ${{ steps.filter.outputs['admin-frontend'] == 'true' && 'true' || 'false' }} \
                               --argjson p ${{ steps.filter.outputs['payment-service'] == 'true' && 'true' || 'false' }} \
+                              --argjson n ${{ steps.filter.outputs['notification-service'] == 'true' && 'true' || 'false' }} \
               '[ (if $b then "backend" else empty end),
                  (if $a then "admin-backend" else empty end),
                  (if $f then "frontend" else empty end),
                  (if $af then "admin-frontend" else empty end),
-                 (if $p then "payment-service" else empty end) ]')
+                 (if $p then "payment-service" else empty end),
+                 (if $n then "notification-service" else empty end) ]')
           fi
           echo "services=${SERVICES}" >> "$GITHUB_OUTPUT"
           if [[ "$SERVICES" == "[]" ]]; then
@@ -426,6 +431,7 @@ jobs:
             admin-backend)   FIELD=admin_backend ;;
             admin-frontend)  FIELD=admin_frontend ;;
             payment-service) FIELD=payment_service ;;
+            notification-service) FIELD=notification_service ;;
             *)               FIELD="${{ matrix.service }}" ;;
           esac
 

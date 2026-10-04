@@ -29,9 +29,16 @@ const sendEmail = async ({ to, subject, html }) => {
     }
     const recipientList = Array.from(recipients).join(", ");
 
+    // Optional audit/ops copy of every email (comma-separated), skipping anyone already addressed directly.
+    const bcc = (process.env.NOTIFICATION_BCC || "")
+      .split(",")
+      .map((address) => address.trim())
+      .filter((address) => address && !recipients.has(address));
+
     const info = await transporter.sendMail({
       from: process.env.EMAIL_FROM || `ServiceXpress <${process.env.EMAIL_USER}>`,
       to: recipientList,
+      ...(bcc.length ? { bcc: bcc.join(", ") } : {}),
       subject,
       html
     });

@@ -66,3 +66,24 @@ test("sendEmail returns success=false when delivery throws", async (t) => {
     delete process.env.EMAIL_PASS;
   }
 });
+
+test("sendEmail copies every email to NOTIFICATION_BCC, except people already addressed", async (t) => {
+  process.env.EMAIL_USER = "sender@gmail.com";
+  process.env.EMAIL_PASS = "pw";
+  process.env.NOTIFICATION_BCC = " admin@x.com , ops@x.com ";
+  const calls = [];
+  t.mock.method(nodemailer, "createTransport", () => ({ sendMail: async (m) => { calls.push(m); return { messageId: "m" }; } }));
+  try {
+    await sendEmail({ to: "customer@gmail.com", subject: "s", html: "h" });
+    assert.equal(calls[0].bcc, "admin@x.com, ops@x.com");
+    await sendEmail({ to: "admin@x.com", subject: "s", html: "h" }); // already the recipient: not copied to itself
+    assert.equal(calls[1].bcc, "ops@x.com");
+    delete process.env.NOTIFICATION_BCC;
+    await sendEmail({ to: "customer@gmail.com", subject: "s", html: "h" });
+    assert.equal("bcc" in calls[2], false);
+  } finally {
+    delete process.env.EMAIL_USER;
+    delete process.env.EMAIL_PASS;
+    delete process.env.NOTIFICATION_BCC;
+  }
+});
