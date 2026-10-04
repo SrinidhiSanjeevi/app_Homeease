@@ -105,6 +105,7 @@ async function collectDbMetrics() {
           TotalProfessionals: totalProfessionals,
           AvailableProfessionals: availableProfessionals,
           ActiveEmergencies: activeEmergencies,
+          TotalEmergencies: totalEmergencies,
           Revenue: revenueAgg.length > 0 ? revenueAgg[0].total : 0,
           // Same definition as the admin dashboard: Created + Assigned.
           PendingBookings: statusCounts[0] + statusCounts[1]
