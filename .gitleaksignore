@@ -12,9 +12,9 @@ fd24415678cace018fae29a4df26158e74976215:admin-backend/.env:generic-api-key:14
 
 331cfce320fbadc5b468622e7a861842bba2cd88:azure-pipelines.yml:curl-auth-user:343
 
-96c2bbe4af458476ebc45e97a5575b66fb122b75:.azuredevops/templates/validate-service.yml:curl-auth-user:231
-96c2bbe4af458476ebc45e97a5575b66fb122b75:.azuredevops/templates/validate-service.yml:curl-auth-user:248
-96c2bbe4af458476ebc45e97a5575b66fb122b75:.azuredevops/templates/validate-service.yml:curl-auth-user:249
+1e17193c05b45e776a000fd7641d2216ef5b531e:.azuredevops/templates/validate-service.yml:curl-auth-user:231
+1e17193c05b45e776a000fd7641d2216ef5b531e:.azuredevops/templates/validate-service.yml:curl-auth-user:248
+1e17193c05b45e776a000fd7641d2216ef5b531e:.azuredevops/templates/validate-service.yml:curl-auth-user:249
 
 # scripts/sonar-quality-report.sh passes ${SONAR_TOKEN} from an env var; no literal secret.
-8671e2c0633ebb152e88addbdf6533057ca05c57:scripts/sonar-quality-report.sh:curl-auth-user:34
+d5c96a13dcbe153b2f14cd020bd0ea97bd974dcf:scripts/sonar-quality-report.sh:curl-auth-user:34

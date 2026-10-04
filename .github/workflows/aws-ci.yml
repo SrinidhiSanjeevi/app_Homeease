@@ -320,6 +320,10 @@ jobs:
           tags: ${{ steps.img.outputs.ref }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          # Always re-run the runtime stage (apk upgrade + app copy) so a cached
+          # layer can never pin an OS package that has since been fixed; the slow
+          # dependency/build stage stays cached.
+          no-cache-filters: runtime
           provenance: false
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
