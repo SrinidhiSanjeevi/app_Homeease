@@ -75,9 +75,9 @@ test("GET /metrics exposes the HTTP and business metrics Grafana uses", async ()
   for (const name of [
     "http_requests_total",
     "http_request_duration_seconds_bucket",
-    "serviceexpress_bookings_by_status",
-    "serviceexpress_professional_assignment_time_seconds_bucket",
-    "serviceexpress_booking_latency_seconds_bucket"
+    "homeease_bookings_by_status",
+    "homeease_professional_assignment_time_seconds_bucket",
+    "homeease_booking_latency_seconds_bucket"
   ]) {
     assert.ok(text.includes(name), `missing metric ${name}`);
   }
