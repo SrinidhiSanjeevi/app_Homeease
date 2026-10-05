@@ -330,6 +330,232 @@ function ImageUploader({ currentUrl, folder = "services", onUploaded }) {
 }
 
 // ── SERVICE FORM ──────────────────────────────────────────────
+const FORM_ROW = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" };
+
+function TextField({ label, value, onChange, placeholder, type }) {
+  return (
+    <Field label={label}>
+      <input style={inp} type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+    </Field>
+  );
+}
+
+function CategorySelect({ value, onChange }) {
+  return (
+    <Field label="Category *">
+      <select style={sel} value={value} onChange={(e) => onChange(e.target.value)}>
+        {CATEGORIES.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function ImageField({ label, form, setForm, folder }) {
+  return (
+    <Field label={label}>
+      <ImageUploader
+        currentUrl={form.imageUrl || form.image}
+        folder={folder}
+        onUploaded={({ imageKey, imageUrl }) => {
+          setForm((f) => ({ ...f, imageKey, image: imageUrl, imageUrl }));
+        }}
+      />
+    </Field>
+  );
+}
+
+function FormFooter({ onClose, onSave, loading, saveLabel }) {
+  return (
+    <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+      <button
+        onClick={onClose}
+        style={{
+          flex: 1,
+          padding: "12px",
+          borderRadius: "10px",
+          border: "1.5px solid #e5e7eb",
+          background: "#fff",
+          cursor: "pointer",
+          fontWeight: 600,
+          fontSize: "0.88rem"
+        }}
+      >
+        Cancel
+      </button>
+
+      <button
+        onClick={onSave}
+        disabled={loading}
+        style={{
+          flex: 2,
+          padding: "12px",
+          borderRadius: "10px",
+          border: "none",
+          background: "#0e5e4f",
+          color: "#fff",
+          cursor: loading ? "not-allowed" : "pointer",
+          fontWeight: 700,
+          fontSize: "0.88rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "8px",
+          opacity: loading ? 0.7 : 1
+        }}
+      >
+        <Save size={15} />
+        {loading ? "Saving..." : saveLabel}
+      </button>
+    </div>
+  );
+}
+
+const CARD_STYLE = {
+  background: "#fff",
+  borderRadius: "16px",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.07)",
+  overflow: "hidden"
+};
+
+function SectionTitle({ children }) {
+  return (
+    <div style={{ padding: "18px 24px", borderBottom: "1px solid #f3f4f6" }}>
+      <h3 style={{ margin: 0, fontWeight: 700 }}>{children}</h3>
+    </div>
+  );
+}
+
+// A white card with a title area and a table whose header row is built from `columns`; the caller supplies the <tbody>.
+function DataTable({ header, columns, headStyle = {}, children }) {
+  const { background = "#f9fafb", color = "#6b7280", borderBottom = "1px solid #f3f4f6" } = headStyle;
+  return (
+    <div style={CARD_STYLE}>
+      {header}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background }}>
+              {columns.map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    padding: "12px 16px",
+                    textAlign: "left",
+                    fontSize: "0.78rem",
+                    fontWeight: 700,
+                    color,
+                    borderBottom
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          {children}
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Td({ children, size, color }) {
+  return <td style={{ padding: "14px 16px", ...(size && { fontSize: size }), ...(color && { color }) }}>{children}</td>;
+}
+
+const MINI_SELECT = {
+  padding: "6px 10px",
+  borderRadius: "8px",
+  border: "1px solid #e5e7eb",
+  fontSize: "0.78rem",
+  cursor: "pointer",
+  fontWeight: 600
+};
+
+const PILL = {
+  display: "inline-block",
+  padding: "2px 10px",
+  borderRadius: "20px",
+  background: "#f3f4f6",
+  fontSize: "0.72rem",
+  fontWeight: 600
+};
+
+const ROW_STYLE = { borderBottom: "1px solid #f9fafb" };
+const rowHover = {
+  onMouseEnter: (e) => {
+    e.currentTarget.style.background = "#fafafa";
+  },
+  onMouseLeave: (e) => {
+    e.currentTarget.style.background = "transparent";
+  }
+};
+
+function AddButton({ onClick, label }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "10px 18px",
+        borderRadius: "12px",
+        background: "#0e5e4f",
+        color: "#fff",
+        border: "none",
+        cursor: "pointer",
+        fontSize: "0.88rem",
+        fontWeight: 700
+      }}
+    >
+      <Plus size={15} />
+      {label}
+    </button>
+  );
+}
+
+// The dashed "add a new one" tile that ends each card grid.
+function AddCard({ onClick, label, minHeight = "260px" }) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={activateOnKey(onClick)}
+      onClick={onClick}
+      style={{
+        background: "#f9fafb",
+        border: "2px dashed #e5e7eb",
+        borderRadius: "16px",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight,
+        cursor: "pointer",
+        gap: "10px",
+        color: "#9ca3af",
+        transition: "all 0.2s"
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = "#0f0f0f";
+        e.currentTarget.style.color = "#0f0f0f";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "#e5e7eb";
+        e.currentTarget.style.color = "#9ca3af";
+      }}
+    >
+      <Plus size={32} />
+      <span style={{ fontWeight: 700, fontSize: "0.95rem" }}>{label}</span>
+    </div>
+  );
+}
+
 function ServiceForm({ initial, onSave, onClose, loading }) {
   const blank = {
     name: "",
@@ -358,54 +584,13 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
 
   return (
     <>
-      <Field label="Service Name *">
-        <input
-          style={inp}
-          value={form.name}
-          placeholder="e.g. Premium Haircut"
-          onChange={(e) => set("name", e.target.value)}
-        />
-      </Field>
+      <TextField label="Service Name *" value={form.name} placeholder="e.g. Premium Haircut" onChange={(v) => set("name", v)} />
 
-      <Field label="Category *">
-        <select
-          style={sel}
-          value={form.category}
-          onChange={(e) => set("category", e.target.value)}
-        >
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <CategorySelect value={form.category} onChange={(v) => set("category", v)} />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "12px"
-        }}
-      >
-        <Field label="Price (₹) *">
-          <input
-            style={inp}
-            type="number"
-            value={form.price}
-            placeholder="499"
-            onChange={(e) => set("price", e.target.value)}
-          />
-        </Field>
-
-        <Field label="Duration *">
-          <input
-            style={inp}
-            value={form.duration}
-            placeholder="1 hour"
-            onChange={(e) => set("duration", e.target.value)}
-          />
-        </Field>
+      <div style={FORM_ROW}>
+        <TextField label="Price (₹) *" type="number" value={form.price} placeholder="499" onChange={(v) => set("price", v)} />
+        <TextField label="Duration *" value={form.duration} placeholder="1 hour" onChange={(v) => set("duration", v)} />
       </div>
 
       <Field label="Description *">
@@ -421,63 +606,9 @@ function ServiceForm({ initial, onSave, onClose, loading }) {
         />
       </Field>
 
-      <Field label="Image">
-        <ImageUploader
-          currentUrl={form.imageUrl || form.image}
-          folder="services"
-          onUploaded={({ imageKey, imageUrl }) => {
-            setForm((f) => ({ ...f, imageKey, image: imageUrl, imageUrl }));
-          }}
-        />
-      </Field>
+      <ImageField label="Image" form={form} setForm={setForm} folder="services" />
 
-      <div
-        style={{
-          display: "flex",
-          gap: "10px",
-          marginTop: "8px"
-        }}
-      >
-        <button
-          onClick={onClose}
-          style={{
-            flex: 1,
-            padding: "12px",
-            borderRadius: "10px",
-            border: "1.5px solid #e5e7eb",
-            background: "#fff",
-            cursor: "pointer",
-            fontWeight: 600,
-            fontSize: "0.88rem"
-          }}
-        >
-          Cancel
-        </button>
-
-        <button
-          onClick={() => onSave(form)}
-          disabled={loading}
-          style={{
-            flex: 2,
-            padding: "12px",
-            borderRadius: "10px",
-            border: "none",
-            background: "#0e5e4f",
-            color: "#fff",
-            cursor: loading ? "not-allowed" : "pointer",
-            fontWeight: 700,
-            fontSize: "0.88rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            opacity: loading ? 0.7 : 1
-          }}
-        >
-          <Save size={15} />
-          {loading ? "Saving..." : "Save Service"}
-        </button>
-      </div>
+      <FormFooter onClose={onClose} onSave={() => onSave(form)} loading={loading} saveLabel="Save Service" />
     </>
   );
 }
@@ -532,45 +663,12 @@ function ProfessionalForm({ initial, onSave, onClose, loading, areas = [] }) {
 
   return (
     <>
-      <Field label="Full Name *">
-        <input
-          style={inp}
-          value={form.name}
-          placeholder="e.g. Ravi Kumar"
-          onChange={(e) => set("name", e.target.value)}
-        />
-      </Field>
+      <TextField label="Full Name *" value={form.name} placeholder="e.g. Ravi Kumar" onChange={(v) => set("name", v)} />
 
-      <Field label="Category *">
-        <select
-          style={sel}
-          value={form.category}
-          onChange={(e) => set("category", e.target.value)}
-        >
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <CategorySelect value={form.category} onChange={(v) => set("category", v)} />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "12px"
-        }}
-      >
-        <Field label="Experience (years) *">
-          <input
-            style={inp}
-            type="number"
-            value={form.experience}
-            placeholder="5"
-            onChange={(e) => set("experience", e.target.value)}
-          />
-        </Field>
+      <div style={FORM_ROW}>
+        <TextField label="Experience (years) *" type="number" value={form.experience} placeholder="5" onChange={(v) => set("experience", v)} />
 
         <Field label="Status">
           <select
@@ -657,69 +755,20 @@ function ProfessionalForm({ initial, onSave, onClose, loading, areas = [] }) {
         )}
       </Field>
 
-      <Field label="Profile Image">
-        <ImageUploader
-          currentUrl={form.imageUrl || form.image}
-          folder="professionals"
-          onUploaded={({ imageKey, imageUrl }) => {
-            setForm((f) => ({ ...f, imageKey, image: imageUrl, imageUrl }));
-          }}
-        />
-      </Field>
+      <ImageField label="Profile Image" form={form} setForm={setForm} folder="professionals" />
 
-      <div
-        style={{
-          display: "flex",
-          gap: "10px",
-          marginTop: "8px"
+      <FormFooter
+        onClose={onClose}
+        onSave={() => {
+          if (!form.locality) {
+            setAreaError("Choose the professional's home area");
+            return;
+          }
+          onSave(form);
         }}
-      >
-        <button
-          onClick={onClose}
-          style={{
-            flex: 1,
-            padding: "12px",
-            borderRadius: "10px",
-            border: "1.5px solid #e5e7eb",
-            background: "#fff",
-            cursor: "pointer",
-            fontWeight: 600,
-            fontSize: "0.88rem"
-          }}
-        >
-          Cancel
-        </button>
-
-        <button
-          onClick={() => {
-            if (!form.locality) {
-              setAreaError("Choose the professional's home area");
-              return;
-            }
-            onSave(form);
-          }}
-          disabled={loading}
-          style={{
-            flex: 2,
-            padding: "12px",
-            borderRadius: "10px",
-            border: "none",
-            background: "#0e5e4f",
-            color: "#fff",
-            cursor: loading ? "not-allowed" : "pointer",
-            fontWeight: 700,
-            fontSize: "0.88rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            opacity: loading ? 0.7 : 1
-          }}
-        >
-          <Save size={15} />
-          {loading ? "Saving..." : "Save Professional"}
-        </button>
-      </div>
+        loading={loading}
+        saveLabel="Save Professional"
+      />
     </>
   );
 }
@@ -1517,51 +1566,11 @@ export default function AdminDashboard({ token, user, onLogout }) {
             }}
           >
             {activeSection === "services" && (
-              <button
-                onClick={() =>
-                  setServiceModal("add")
-                }
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "10px 18px",
-                  borderRadius: "12px",
-                  background: "#0e5e4f",
-                  color: "#fff",
-                  border: "none",
-                  cursor: "pointer",
-                  fontSize: "0.88rem",
-                  fontWeight: 700
-                }}
-              >
-                <Plus size={15} />
-                Add Service
-              </button>
+              <AddButton onClick={() => setServiceModal("add")} label="Add Service" />
             )}
 
             {activeSection === "professionals" && (
-              <button
-                onClick={() =>
-                  setProfModal("add")
-                }
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "10px 18px",
-                  borderRadius: "12px",
-                  background: "#0e5e4f",
-                  color: "#fff",
-                  border: "none",
-                  cursor: "pointer",
-                  fontSize: "0.88rem",
-                  fontWeight: 700
-                }}
-              >
-                <Plus size={15} />
-                Add Professional
-              </button>
+              <AddButton onClick={() => setProfModal("add")} label="Add Professional" />
             )}
 
             <button
@@ -1990,104 +1999,16 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
             {/* ── USERS ─────────────────────────────────── */}
             {activeSection === "users" && (
-              <div
-                style={{
-                  background: "#fff",
-                  borderRadius: "16px",
-                  boxShadow:
-                    "0 1px 3px rgba(0,0,0,0.07)",
-                  overflow: "hidden"
-                }}
-              >
-                <div
-                  style={{
-                    padding: "18px 24px",
-                    borderBottom:
-                      "1px solid #f3f4f6"
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: 0,
-                      fontWeight: 700
-                    }}
-                  >
-                    All Users ({users.length})
-                  </h3>
-                </div>
-
-                <div
-                  style={{
-                    overflowX: "auto"
-                  }}
-                >
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse:
-                        "collapse"
-                    }}
-                  >
-                    <thead>
-                      <tr
-                        style={{
-                          background:
-                            "#f9fafb"
-                        }}
-                      >
-                        {[
-                          "Name",
-                          "Email",
-                          "Role",
-                          "Phone",
-                          "Joined",
-                          "Actions"
-                        ].map((h) => (
-                          <th
-                            key={h}
-                            style={{
-                              padding:
-                                "12px 16px",
-                              textAlign:
-                                "left",
-                              fontSize:
-                                "0.78rem",
-                              fontWeight: 700,
-                              color:
-                                "#6b7280",
-                              borderBottom:
-                                "1px solid #f3f4f6"
-                            }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
+              <DataTable header={<SectionTitle>All Users ({users.length})</SectionTitle>} columns={["Name", "Email", "Role", "Phone", "Joined", "Actions"]}>
 
                     <tbody>
                       {users.map((u) => (
                         <tr
                           key={u._id}
-                          onMouseEnter={(e) =>
-                            (e.currentTarget.style.background =
-                              "#fafafa")
-                          }
-                          onMouseLeave={(e) =>
-                            (e.currentTarget.style.background =
-                              "transparent")
-                          }
-                          style={{
-                            borderBottom:
-                              "1px solid #f9fafb"
-                          }}
+                          {...rowHover}
+                          style={ROW_STYLE}
                         >
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px"
-                            }}
-                          >
+                          <Td>
                             <div
                               style={{
                                 display: "flex",
@@ -2141,27 +2062,13 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                 {u.name}
                               </span>
                             </div>
-                          </td>
+                          </Td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px",
-                              fontSize:
-                                "0.83rem",
-                              color:
-                                "#6b7280"
-                            }}
-                          >
+                          <Td size="0.83rem" color="#6b7280">
                             {u.email}
-                          </td>
+                          </Td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px"
-                            }}
-                          >
+                          <Td>
                             <span
                               style={{
                                 padding:
@@ -2185,31 +2092,13 @@ export default function AdminDashboard({ token, user, onLogout }) {
                             >
                               {u.role?.toUpperCase()}
                             </span>
-                          </td>
+                          </Td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px",
-                              fontSize:
-                                "0.83rem",
-                              color:
-                                "#6b7280"
-                            }}
-                          >
+                          <Td size="0.83rem" color="#6b7280">
                             {u.phone || "—"}
-                          </td>
+                          </Td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px",
-                              fontSize:
-                                "0.8rem",
-                              color:
-                                "#9ca3af"
-                            }}
-                          >
+                          <Td size="0.8rem" color="#9ca3af">
                             {u.createdAt
                               ? new Date(
                                   u.createdAt
@@ -2217,14 +2106,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                   "en-IN"
                                 )
                               : "—"}
-                          </td>
+                          </Td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px"
-                            }}
-                          >
+                          <Td>
                             {u.role !==
                               "admin" && (
                               <ActionBtn
@@ -2239,117 +2123,25 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                 label="Delete"
                               />
                             )}
-                          </td>
+                          </Td>
                         </tr>
                       ))}
                     </tbody>
-                  </table>
-                </div>
-              </div>
+</DataTable>
             )}
 
             {/* ── BOOKINGS ──────────────────────────────── */}
             {activeSection === "bookings" && (
-              <div
-                style={{
-                  background: "#fff",
-                  borderRadius: "16px",
-                  boxShadow:
-                    "0 1px 3px rgba(0,0,0,0.07)",
-                  overflow: "hidden"
-                }}
-              >
-                <div
-                  style={{
-                    padding: "18px 24px",
-                    borderBottom:
-                      "1px solid #f3f4f6"
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: 0,
-                      fontWeight: 700
-                    }}
-                  >
-                    All Bookings ({bookings.length})
-                  </h3>
-                </div>
-
-                <div
-                  style={{
-                    overflowX: "auto"
-                  }}
-                >
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse:
-                        "collapse"
-                    }}
-                  >
-                    <thead>
-                      <tr
-                        style={{
-                          background:
-                            "#f9fafb"
-                        }}
-                      >
-                        {[
-                          "Customer",
-                          "Service",
-                          "Professional",
-                          "Rating",
-                          "Amount",
-                          "Status",
-                          "Date",
-                          "Update"
-                        ].map((h) => (
-                          <th
-                            key={h}
-                            style={{
-                              padding:
-                                "12px 16px",
-                              textAlign:
-                                "left",
-                              fontSize:
-                                "0.78rem",
-                              fontWeight: 700,
-                              color:
-                                "#6b7280",
-                              borderBottom:
-                                "1px solid #f3f4f6"
-                            }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
+              <DataTable header={<SectionTitle>All Bookings ({bookings.length})</SectionTitle>} columns={["Customer", "Service", "Professional", "Rating", "Amount", "Status", "Date", "Update"]}>
 
                     <tbody>
                       {bookings.map((b) => (
                         <tr
                           key={b._id}
-                          onMouseEnter={(e) =>
-                            (e.currentTarget.style.background =
-                              "#fafafa")
-                          }
-                          onMouseLeave={(e) =>
-                            (e.currentTarget.style.background =
-                              "transparent")
-                          }
-                          style={{
-                            borderBottom:
-                              "1px solid #f9fafb"
-                          }}
+                          {...rowHover}
+                          style={ROW_STYLE}
                         >
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px"
-                            }}
-                          >
+                          <Td>
                             <div
                               style={{
                                 fontWeight: 600,
@@ -2372,16 +2164,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                               {b.user?.email ||
                                 "—"}
                             </div>
-                          </td>
+                          </Td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px",
-                              fontSize:
-                                "0.85rem"
-                            }}
-                          >
+                          <Td size="0.85rem">
                             {/* FIXED: customServiceName → customCategory */}
                             {b.service?.name ||
                               b.customCategory ||
@@ -2401,18 +2186,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                 CUSTOM
                               </div>
                             )}
-                          </td>
+                          </Td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px",
-                              fontSize:
-                                "0.83rem",
-                              color:
-                                "#6b7280"
-                            }}
-                          >
+                          <Td size="0.83rem" color="#6b7280">
                             {b.professional
                               ?.name || (() => {
                               const label = unassignedLabel(b.status);
@@ -2425,16 +2201,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                 {b.assignedDistanceKm != null && b.professional && ` · ${b.assignedDistanceKm} km`}
                               </div>
                             )}
-                          </td>
+                          </Td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px",
-                              fontSize:
-                                "0.83rem"
-                            }}
-                          >
+                          <Td size="0.83rem">
                             {b.userRating ? (
                               <span
                                 style={{
@@ -2451,7 +2220,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                             ) : (
                               <span style={{ color: "#9ca3af" }}>—</span>
                             )}
-                          </td>
+                          </Td>
 
                           <td
                             style={{
@@ -2471,12 +2240,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                             )}
                           </td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px"
-                            }}
-                          >
+                          <Td>
                             <span
                               style={{
                                 display:
@@ -2505,18 +2269,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                               )}
                               {b.status}
                             </span>
-                          </td>
+                          </Td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px",
-                              fontSize:
-                                "0.78rem",
-                              color:
-                                "#9ca3af"
-                            }}
-                          >
+                          <Td size="0.78rem" color="#9ca3af">
                             {b.createdAt
                               ? new Date(
                                   b.createdAt
@@ -2524,14 +2279,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                   "en-IN"
                                 )
                               : "—"}
-                          </td>
+                          </Td>
 
-                          <td
-                            style={{
-                              padding:
-                                "14px 16px"
-                            }}
-                          >
+                          <Td>
                             <select
                               value={b.status}
                               onChange={(e) =>
@@ -2540,19 +2290,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                   e.target.value
                                 )
                               }
-                              style={{
-                                padding:
-                                  "6px 10px",
-                                borderRadius:
-                                  "8px",
-                                border:
-                                  "1px solid #e5e7eb",
-                                fontSize:
-                                  "0.78rem",
-                                cursor:
-                                  "pointer",
-                                fontWeight: 600
-                              }}
+                              style={MINI_SELECT}
                             >
                               {[b.status, ...(BOOKING_TRANSITIONS[b.status] || [])].map((s) => (
                                 <option key={s} value={s}>
@@ -2560,7 +2298,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                 </option>
                               ))}
                             </select>
-                          </td>
+                          </Td>
                         </tr>
                       ))}
 
@@ -2581,9 +2319,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                         </tr>
                       )}
                     </tbody>
-                  </table>
-                </div>
-              </div>
+</DataTable>
             )}
 
             {/* ── SERVICES ──────────────────────────────── */}
@@ -2660,23 +2396,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       </div>
 
                       <span
-                        style={{
-                          display:
-                            "inline-block",
-                          padding:
-                            "2px 10px",
-                          borderRadius:
-                            "20px",
-                          background:
-                            "#f3f4f6",
-                          fontSize:
-                            "0.72rem",
-                          fontWeight: 600,
-                          color:
-                            "#374151",
-                          marginBottom:
-                            "8px"
-                        }}
+                        style={{ ...PILL, color: "#374151", marginBottom: "8px" }}
                       >
                         {s.category}
                       </span>
@@ -2728,56 +2448,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                   </div>
                 ))}
 
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={activateOnKey(() => setServiceModal("add"))}
-                  onClick={() =>
-                    setServiceModal("add")
-                  }
-                  style={{
-                    background: "#f9fafb",
-                    border:
-                      "2px dashed #e5e7eb",
-                    borderRadius: "16px",
-                    display: "flex",
-                    flexDirection:
-                      "column",
-                    alignItems: "center",
-                    justifyContent:
-                      "center",
-                    minHeight: "260px",
-                    cursor: "pointer",
-                    gap: "10px",
-                    color: "#9ca3af",
-                    transition:
-                      "all 0.2s"
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor =
-                      "#0f0f0f";
-                    e.currentTarget.style.color =
-                      "#0f0f0f";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor =
-                      "#e5e7eb";
-                    e.currentTarget.style.color =
-                      "#9ca3af";
-                  }}
-                >
-                  <Plus size={32} />
-
-                  <span
-                    style={{
-                      fontWeight: 700,
-                      fontSize:
-                        "0.95rem"
-                    }}
-                  >
-                    Add New Service
-                  </span>
-                </div>
+                <AddCard onClick={() => setServiceModal("add")} label="Add New Service" />
               </div>
             )}
 
@@ -2850,21 +2521,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                     </h4>
 
                     <span
-                      style={{
-                        display:
-                          "inline-block",
-                        padding:
-                          "2px 10px",
-                        borderRadius:
-                          "20px",
-                        background:
-                          "#f3f4f6",
-                        fontSize:
-                          "0.72rem",
-                        fontWeight: 600,
-                        marginBottom:
-                          "6px"
-                      }}
+                      style={{ ...PILL, marginBottom: "6px" }}
                     >
                       {p.category}
                     </span>
@@ -2962,72 +2619,15 @@ export default function AdminDashboard({ token, user, onLogout }) {
                   </div>
                 ))}
 
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={activateOnKey(() => setProfModal("add"))}
-                  onClick={() =>
-                    setProfModal("add")
-                  }
-                  style={{
-                    background: "#f9fafb",
-                    border:
-                      "2px dashed #e5e7eb",
-                    borderRadius: "16px",
-                    display: "flex",
-                    flexDirection:
-                      "column",
-                    alignItems: "center",
-                    justifyContent:
-                      "center",
-                    minHeight: "280px",
-                    cursor: "pointer",
-                    gap: "10px",
-                    color: "#9ca3af",
-                    transition:
-                      "all 0.2s"
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor =
-                      "#0f0f0f";
-                    e.currentTarget.style.color =
-                      "#0f0f0f";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor =
-                      "#e5e7eb";
-                    e.currentTarget.style.color =
-                      "#9ca3af";
-                  }}
-                >
-                  <Plus size={32} />
-
-                  <span
-                    style={{
-                      fontWeight: 700,
-                      fontSize:
-                        "0.95rem"
-                    }}
-                  >
-                    Add New Professional
-                  </span>
-                </div>
+                <AddCard onClick={() => setProfModal("add")} label="Add New Professional" minHeight="280px" />
               </div>
             )}
 
             {/* ── EMERGENCIES ───────────────────────────── */}
             {activeSection ===
               "emergencies" && (
-              <div
-                style={{
-                  background: "#fff",
-                  borderRadius: "16px",
-                  boxShadow:
-                    "0 1px 3px rgba(0,0,0,0.07)",
-                  overflow: "hidden"
-                }}
-              >
-                <div
+              <DataTable header={
+<div
                   style={{
                     padding:
                       "18px 24px",
@@ -3073,57 +2673,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                     Refresh
                   </button>
                 </div>
-
-                <div
-                  style={{
-                    overflowX: "auto"
-                  }}
-                >
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse:
-                        "collapse"
-                    }}
-                  >
-                    <thead>
-                      <tr
-                        style={{
-                          background:
-                            "#fef2f2"
-                        }}
-                      >
-                        {[
-                          "User",
-                          "Category & Severity",
-                          "Description",
-                          "Address",
-                          "Specialist",
-                          "Status",
-                          "Time",
-                          "Action"
-                        ].map((h) => (
-                          <th
-                            key={h}
-                            style={{
-                              padding:
-                                "12px 16px",
-                              textAlign:
-                                "left",
-                              fontSize:
-                                "0.78rem",
-                              fontWeight: 700,
-                              color:
-                                "#ef4444",
-                              borderBottom:
-                                "1px solid #fee2e2"
-                            }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
+} columns={["User", "Category & Severity", "Description", "Address", "Specialist", "Status", "Time", "Action"]} headStyle={{ background: "#fef2f2", color: "#ef4444", borderBottom: "1px solid #fee2e2" }}>
 
                     <tbody>
                       {emergencies.map((e) => {
@@ -3180,17 +2730,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                               (el.currentTarget.style.background =
                                 "transparent")
                             }
-                            style={{
-                              borderBottom:
-                                "1px solid #f9fafb"
-                            }}
+                            style={ROW_STYLE}
                           >
-                            <td
-                              style={{
-                                padding:
-                                  "14px 16px"
-                              }}
-                            >
+                            <Td>
                               <div
                                 style={{
                                   fontWeight: 600,
@@ -3214,14 +2756,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                   e.contactNumber ||
                                   "—"}
                               </div>
-                            </td>
+                            </Td>
 
-                            <td
-                              style={{
-                                padding:
-                                  "14px 16px"
-                              }}
-                            >
+                            <Td>
                               <div
                                 style={{
                                   fontWeight: 700,
@@ -3251,7 +2788,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                 {e.severity ||
                                   "High"}
                               </span>
-                            </td>
+                            </Td>
 
                             <td
                               style={{
@@ -3310,12 +2847,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                               })()}
                             </td>
 
-                            <td
-                              style={{
-                                padding:
-                                  "14px 16px"
-                              }}
-                            >
+                            <Td>
                               <span
                                 style={{
                                   padding:
@@ -3333,18 +2865,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                               >
                                 {e.status}
                               </span>
-                            </td>
+                            </Td>
 
-                            <td
-                              style={{
-                                padding:
-                                  "14px 16px",
-                                fontSize:
-                                  "0.78rem",
-                                color:
-                                  "#9ca3af"
-                              }}
-                            >
+                            <Td size="0.78rem" color="#9ca3af">
                               {e.createdAt
                                 ? new Date(
                                     e.createdAt
@@ -3352,14 +2875,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                     "en-IN"
                                   )
                                 : "—"}
-                            </td>
+                            </Td>
 
-                            <td
-                              style={{
-                                padding:
-                                  "14px 16px"
-                              }}
-                            >
+                            <Td>
                               <select
                                 value={e.status}
                                 onChange={async (
@@ -3418,19 +2936,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                     );
                                   }
                                 }}
-                                style={{
-                                  padding:
-                                    "6px 10px",
-                                  borderRadius:
-                                    "8px",
-                                  border:
-                                    "1px solid #e5e7eb",
-                                  fontSize:
-                                    "0.78rem",
-                                  cursor:
-                                    "pointer",
-                                  fontWeight: 600
-                                }}
+                                style={MINI_SELECT}
                               >
                                 <option value="Dispatched">
                                   Dispatched
@@ -3448,7 +2954,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                                   Cancelled
                                 </option>
                               </select>
-                            </td>
+                            </Td>
                           </tr>
                         );
                       })}
@@ -3472,9 +2978,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                         </tr>
                       )}
                     </tbody>
-                  </table>
-                </div>
-              </div>
+</DataTable>
             )}
           </>
         )}

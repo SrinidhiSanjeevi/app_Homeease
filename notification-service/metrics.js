@@ -30,13 +30,13 @@ const httpRequestsInFlight = new client.Gauge({
 
 // ─── Notification Counters ────────────────────────────────────────────────────
 const notificationSuccess = new client.Counter({
-  name: "serviceexpress_notification_success_total",
+  name: "homeease_notification_success_total",
   help: "Total number of notifications sent successfully",
   registers: [register]
 });
 
 const notificationFailures = new client.Counter({
-  name: "serviceexpress_notification_failures_total",
+  name: "homeease_notification_failures_total",
   help: "Total number of failed notifications",
   registers: [register]
 });
