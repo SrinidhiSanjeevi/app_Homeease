@@ -49,3 +49,19 @@ test("start does nothing under NODE_ENV=test; stop is safe to call", () => {
   scheduler.start();
   scheduler.stop();
 });
+
+test("acquireLease lets one instance hold the lock and reports a held lock as not acquired", async (t) => {
+  t.mock.method(mongoose.connection, "collection", () => ({ findOneAndUpdate: async () => ({}) }));
+  assert.equal(await scheduler.acquireLease(), true);
+  t.mock.method(mongoose.connection, "collection", () => ({
+    findOneAndUpdate: async () => { throw Object.assign(new Error("dup"), { code: 11000 }); }
+  }));
+  assert.equal(await scheduler.acquireLease(), false);
+});
+
+test("acquireLease rethrows database errors other than a held lock", async (t) => {
+  t.mock.method(mongoose.connection, "collection", () => ({
+    findOneAndUpdate: async () => { throw new Error("network down"); }
+  }));
+  await assert.rejects(() => scheduler.acquireLease(), /network down/);
+});

@@ -42,7 +42,7 @@ jobs:
 
   static:
     name: Static analysis
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       services: ${{ steps.set-matrix.outputs.services }}
       any_changed: ${{ steps.set-matrix.outputs.any_changed }}
@@ -124,7 +124,7 @@ jobs:
     name: Warm Trivy DB cache
     needs: static
     if: needs.static.outputs.any_changed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Cache Trivy DB
@@ -173,7 +173,7 @@ jobs:
     name: Validate ${{ matrix.service }}
     needs: [static, trivy-db-warmup]
     if: needs.static.outputs.any_changed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -196,6 +196,10 @@ jobs:
         working-directory: ${{ matrix.service }}
         if: matrix.service != 'frontend' && matrix.service != 'admin-frontend'
         run: npm run lint
+
+      - name: Unit tests
+        working-directory: ${{ matrix.service }}
+        run: npm test
 
       - name: npm audit (high+)
         working-directory: ${{ matrix.service }}
@@ -276,7 +280,7 @@ jobs:
     name: Package ${{ matrix.service }}
     needs: [static, validate]
     if: needs.static.outputs.any_changed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read

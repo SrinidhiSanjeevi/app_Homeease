@@ -251,9 +251,7 @@ export default function Auth({ onLoginSuccess, showToast }) {
           ) : (
             <>
               <h2>{isSignup ? "Create your account" : "Welcome back"}</h2>
-              <p className="lead">
-                {isSignup ? "It takes less than a minute." : "Sign in to book and track your services."}
-              </p>
+              {!isSignup && <p className="lead">Sign in to book and track your services.</p>}
 
               <div className="segmented" role="tablist">
                 {[
@@ -283,7 +281,6 @@ export default function Auth({ onLoginSuccess, showToast }) {
                         id="name"
                         type="text"
                         autoComplete="name"
-                        placeholder="e.g. Priya Sharma"
                         value={name}
                         className={errors.name ? "input-error" : ""}
                         onChange={(e) => {
@@ -304,7 +301,6 @@ export default function Auth({ onLoginSuccess, showToast }) {
                       id="email"
                       type="email"
                       autoComplete="email"
-                      placeholder="name@example.com"
                       value={email}
                       className={errors.email ? "input-error" : ""}
                       onChange={(e) => {
@@ -355,16 +351,6 @@ export default function Auth({ onLoginSuccess, showToast }) {
                     </>
                   )}
 
-                  {isSignup && (
-                    <ul className="pw-rules">
-                      {ruleResults.map((r) => (
-                        <li key={r.id} className={r.met ? "is-met" : ""}>
-                          <Icon name={r.met ? "check_circle" : "radio_button_unchecked"} size={15} filled={r.met} />
-                          {r.label}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
                   {errors.password && <span className="field-error">{errors.password}</span>}
                 </div>
 
