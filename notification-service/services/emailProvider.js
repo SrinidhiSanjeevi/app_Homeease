@@ -12,6 +12,20 @@ const createTransporter = () => {
   });
 };
 
+// Mail that is HTML-only scores worse with spam filters, so every message also carries a plain-text version.
+const htmlToText = (html = "") =>
+  String(html)
+    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<\/(tr|p|div|h[1-6]|li)>/gi, "\n")
+    .replace(/<\/t[dh]>/gi, "  ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
 const sendEmail = async ({ to, subject, html }) => {
   const transporter = createTransporter();
   if (!transporter) {
@@ -36,11 +50,13 @@ const sendEmail = async ({ to, subject, html }) => {
       .filter((address) => address && !recipients.has(address));
 
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || `ServiceXpress <${process.env.EMAIL_USER}>`,
+      from: process.env.EMAIL_FROM || `HomeEase <${process.env.EMAIL_USER}>`,
       to: recipientList,
       ...(bcc.length ? { bcc: bcc.join(", ") } : {}),
+      replyTo: process.env.EMAIL_USER,
       subject,
-      html
+      html,
+      text: htmlToText(html)
     });
 
     logger.info({ to: recipientList, messageId: info.messageId }, "[EmailProvider] Real email delivered successfully");

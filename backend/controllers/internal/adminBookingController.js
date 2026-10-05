@@ -587,6 +587,10 @@ const deleteService = async (req, res) => {
   }
 };
 
+// The admin form has no description field, and the model rejects a blank one, so fall back to a generic line.
+const defaultProfessionalDescription = (name, category) =>
+  `${name} is an experienced ${String(category).toLowerCase()} professional serving customers across the area.`;
+
 const createProfessional = async (req, res) => {
   try {
     const { name, category, experience, imageKey, imageAlt, image, description, status, locality, serviceAreas } = req.body;
@@ -613,7 +617,7 @@ const createProfessional = async (req, res) => {
       name: name.trim(),
       category: category.trim(),
       experience: Number(experience),
-      description: description ? description.trim() : "",
+      description: description && description.trim() ? description.trim() : defaultProfessionalDescription(name.trim(), category.trim()),
       imageKey: finalImageKey.trim(),
       imageAlt: finalImageAlt.trim(),
       status: status || "Available",
@@ -659,7 +663,8 @@ const updateProfessional = async (req, res) => {
     const finalImageKey = imageKey !== undefined ? toImageKey(imageKey) : toImageKey(image);
     if (finalImageKey !== undefined) updateData.imageKey = finalImageKey;
     if (imageAlt !== undefined) updateData.imageAlt = imageAlt;
-    if (description !== undefined) updateData.description = description;
+    // A blank description would fail the model's required check; keep whatever is stored instead.
+    if (typeof description === "string" && description.trim()) updateData.description = description.trim();
     if (status !== undefined) updateData.status = status;
 
     if (Object.keys(updateData).length === 0) {
