@@ -4,12 +4,12 @@ function getBookingConfirmedTemplate({ recipientName, bookingRef, booking, recip
     : "As scheduled";
 
   return {
-    subject: `✅ Booking Confirmed — ServiceXpress #${bookingRef}`,
+    subject: `Booking Confirmed - HomeEase #${bookingRef}`,
     message: `Email Confirmation: Booking #${bookingRef} confirmed for ${recipientEmail}. Service date: ${booking.date ? new Date(booking.date).toLocaleDateString() : "scheduled date"}.`,
     html: `
       <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
         <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);padding:32px 36px;text-align:center;">
-          <h1 style="color:#ffffff;margin:0;font-size:26px;letter-spacing:-0.5px;">ServiceXpress</h1>
+          <h1 style="color:#ffffff;margin:0;font-size:26px;letter-spacing:-0.5px;">HomeEase</h1>
           <p style="color:rgba(255,255,255,0.85);margin:6px 0 0;font-size:14px;">Your trusted home service platform</p>
         </div>
         <div style="padding:32px 36px;">
@@ -26,10 +26,10 @@ function getBookingConfirmedTemplate({ recipientName, bookingRef, booking, recip
             <tr style="background:#f3f4f6;"><td style="padding:12px 16px;font-weight:700;color:#374151;">Payment Method</td><td style="padding:12px 16px;color:#111827;">${booking.paymentMethod || "Online Payment"}</td></tr>
             <tr style="background:#ffffff;"><td style="padding:12px 16px;font-weight:700;color:#374151;">Total Amount</td><td style="padding:12px 16px;color:#16a34a;font-weight:700;font-size:16px;">₹${booking.totalPrice}</td></tr>
           </table>
-          <p style="color:#374151;font-size:14px;line-height:1.6;">A verified professional has been assigned and will arrive at your address on the scheduled date. You can track your booking status anytime through the ServiceXpress app.</p>
+          <p style="color:#374151;font-size:14px;line-height:1.6;">A verified professional has been assigned and will arrive at your address on the scheduled date. You can track your booking status anytime through the HomeEase app.</p>
         </div>
         <div style="background:#f9fafb;padding:20px 36px;text-align:center;border-top:1px solid #e5e7eb;">
-          <p style="color:#9ca3af;font-size:12px;margin:0;">© ${new Date().getFullYear()} ServiceXpress. All rights reserved.</p>
+          <p style="color:#9ca3af;font-size:12px;margin:0;">© ${new Date().getFullYear()} HomeEase. All rights reserved.</p>
           <p style="color:#9ca3af;font-size:12px;margin:4px 0 0;">This is an automated email — please do not reply.</p>
         </div>
       </div>
@@ -43,19 +43,19 @@ function getBookingCompletedTemplate({ recipientName, bookingRef, booking, recip
     : "Completed";
 
   return {
-    subject: `🎉 Service Completed — ServiceXpress #${bookingRef}`,
-    message: `Service Completed: Dear ${recipientName}, your service #${bookingRef} has been marked COMPLETED. Thank you for using ServiceXpress!`,
+    subject: `Service Completed - HomeEase #${bookingRef}`,
+    message: `Service Completed: Dear ${recipientName}, your service #${bookingRef} has been marked COMPLETED. Thank you for using HomeEase!`,
     html: `
       <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
         <div style="background:linear-gradient(135deg,#16a34a,#15803d);padding:32px 36px;text-align:center;">
-          <h1 style="color:#ffffff;margin:0;font-size:26px;letter-spacing:-0.5px;">ServiceXpress</h1>
+          <h1 style="color:#ffffff;margin:0;font-size:26px;letter-spacing:-0.5px;">HomeEase</h1>
           <p style="color:rgba(255,255,255,0.85);margin:6px 0 0;font-size:14px;">Your trusted home service platform</p>
         </div>
         <div style="padding:32px 36px;">
           <div style="text-align:center;margin-bottom:24px;">
             <div style="display:inline-block;background:#dcfce7;border-radius:50%;width:64px;height:64px;line-height:64px;font-size:30px;">🎉</div>
             <h2 style="color:#111827;margin:12px 0 4px;">Service Successfully Completed!</h2>
-            <p style="color:#6b7280;margin:0;font-size:14px;">Hi <strong>${recipientName}</strong>, thank you for choosing ServiceXpress.</p>
+            <p style="color:#6b7280;margin:0;font-size:14px;">Hi <strong>${recipientName}</strong>, thank you for choosing HomeEase.</p>
           </div>
           <div style="background:#dcfce7;border:1px solid #bbf7d0;border-radius:10px;padding:16px 20px;text-align:center;margin-bottom:24px;">
             <span style="color:#15803d;font-weight:700;font-size:16px;">✅ Status: COMPLETED</span>
@@ -69,11 +69,11 @@ function getBookingCompletedTemplate({ recipientName, bookingRef, booking, recip
           </table>
           <p style="color:#374151;font-size:14px;line-height:1.6;">We hope you had a great experience! Your feedback matters — please leave a rating and review in the app to help us serve you better.</p>
           <div style="text-align:center;margin-top:20px;">
-            <p style="color:#6b7280;font-size:13px;">Thank you for trusting ServiceXpress. 🙏</p>
+            <p style="color:#6b7280;font-size:13px;">Thank you for trusting HomeEase. 🙏</p>
           </div>
         </div>
         <div style="background:#f9fafb;padding:20px 36px;text-align:center;border-top:1px solid #e5e7eb;">
-          <p style="color:#9ca3af;font-size:12px;margin:0;">© ${new Date().getFullYear()} ServiceXpress. All rights reserved.</p>
+          <p style="color:#9ca3af;font-size:12px;margin:0;">© ${new Date().getFullYear()} HomeEase. All rights reserved.</p>
           <p style="color:#9ca3af;font-size:12px;margin:4px 0 0;">This is an automated email — please do not reply.</p>
         </div>
       </div>
@@ -100,12 +100,12 @@ function getProfessionalNewJobTemplate({ recipientName, bookingRef, booking }) {
     `<tr style="background:${shade};"><td style="padding:12px 16px;font-weight:700;color:#374151;width:40%;">${label}</td><td style="padding:12px 16px;color:#111827;">${escapeHtml(value)}</td></tr>`;
 
   return {
-    subject: `New job assigned — ServiceXpress #${bookingRef}`,
+    subject: `New job assigned - HomeEase #${bookingRef}`,
     message: `New job #${bookingRef} assigned to ${recipientName}. Service date: ${date}.`,
     html: `
       <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
         <div style="background:linear-gradient(135deg,#0f766e,#115e59);padding:32px 36px;text-align:center;">
-          <h1 style="color:#ffffff;margin:0;font-size:26px;">ServiceXpress</h1>
+          <h1 style="color:#ffffff;margin:0;font-size:26px;">HomeEase</h1>
           <p style="color:rgba(255,255,255,0.85);margin:6px 0 0;font-size:14px;">Service partner notification</p>
         </div>
         <div style="padding:32px 36px;">
@@ -122,7 +122,7 @@ function getProfessionalNewJobTemplate({ recipientName, bookingRef, booking }) {
           <p style="color:#374151;font-size:14px;line-height:1.6;">Please arrive on time and update the booking status in the app when the work is done.</p>
         </div>
         <div style="background:#f9fafb;padding:20px 36px;text-align:center;border-top:1px solid #e5e7eb;">
-          <p style="color:#9ca3af;font-size:12px;margin:0;">© ${new Date().getFullYear()} ServiceXpress. This is an automated email — please do not reply.</p>
+          <p style="color:#9ca3af;font-size:12px;margin:0;">© ${new Date().getFullYear()} HomeEase. This is an automated email — please do not reply.</p>
         </div>
       </div>
     `

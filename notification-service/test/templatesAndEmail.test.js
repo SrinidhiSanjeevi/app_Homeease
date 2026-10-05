@@ -87,3 +87,19 @@ test("sendEmail copies every email to NOTIFICATION_BCC, except people already ad
     delete process.env.NOTIFICATION_BCC;
   }
 });
+
+test("sendEmail also sends a plain-text version, a HomeEase sender name and a reply-to", async (t) => {
+  process.env.EMAIL_USER = "sender@gmail.com";
+  process.env.EMAIL_PASS = "pw";
+  const calls = [];
+  t.mock.method(nodemailer, "createTransport", () => ({ sendMail: async (m) => { calls.push(m); return { messageId: "m1" }; } }));
+  try {
+    await sendEmail({ to: "customer@gmail.com", subject: "s", html: "<div><h2>Booking Confirmed!</h2><p>Hi <strong>Asha</strong></p><table><tr><td>ID</td><td>#A1</td></tr></table><style>p{color:red}</style></div>" });
+    assert.equal(calls[0].text, "Booking Confirmed!\nHi Asha\nID  #A1");
+    assert.match(calls[0].from, /^HomeEase </);
+    assert.equal(calls[0].replyTo, "sender@gmail.com");
+  } finally {
+    delete process.env.EMAIL_USER;
+    delete process.env.EMAIL_PASS;
+  }
+});
