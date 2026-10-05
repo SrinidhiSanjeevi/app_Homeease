@@ -30,7 +30,27 @@ const app = express();
 app.set("trust proxy", 1);
 
 app.use(helmet());
-app.use(cors({ origin: true, credentials: true }));
+// CORS: only known origins may make credentialed cross-origin requests. Server-to-server calls
+// (backend, Razorpay webhooks) send no Origin header and are unaffected.
+const defaultOrigins = [
+  "http://localhost:8080",
+  "http://localhost:5173",
+  "http://127.0.0.1:8080",
+  "http://127.0.0.1:5173"
+];
+const envOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+  : [];
+const allowedOrigins = Array.from(new Set([...defaultOrigins, ...envOrigins]));
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(null, false);
+  },
+  credentials: true
+}));
 
 // Capture raw body for Razorpay webhook signature validation
 app.use(

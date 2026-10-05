@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
 const { reassignWaitingWork } = require("./professionalMatcher");
@@ -7,6 +8,24 @@ const logger = require("../utils/logger");
 
 const UNPAID_EXPIRY_MINUTES = Number(process.env.UNPAID_EXPIRY_MINUTES) || 15;
 const INTERVAL_MS = 60 * 1000;
+// With more than one backend instance every instance would run these jobs. A lease document in
+// MongoDB lets only one instance run each tick; if the holder dies, another takes over after LEASE_MS.
+const LEASE_MS = 90 * 1000;
+const INSTANCE_ID = crypto.randomUUID();
+
+async function acquireLease(now = new Date()) {
+  try {
+    await mongoose.connection.collection("locks").findOneAndUpdate(
+      { _id: "scheduler", $or: [{ expiresAt: { $lt: now } }, { owner: INSTANCE_ID }] },
+      { $set: { owner: INSTANCE_ID, expiresAt: new Date(now.getTime() + LEASE_MS) } },
+      { upsert: true }
+    );
+    return true;
+  } catch (error) {
+    if (error.code === 11000) return false; // another instance holds a live lease
+    throw error;
+  }
+}
 
 async function expireUnpaidBookings(now = new Date()) {
   const cutoff = new Date(now.getTime() - UNPAID_EXPIRY_MINUTES * 60 * 1000);
@@ -62,7 +81,10 @@ function start() {
     if (running) return; // previous run still going
     running = true;
     try {
+      if (mongoose.connection.readyState === 1 && !(await acquireLease())) return;
       await runOnce();
+    } catch (error) {
+      logger.error({ err: error.message }, "[scheduler] Tick failed");
     } finally {
       running = false;
     }
@@ -76,4 +98,4 @@ function stop() {
   timer = null;
 }
 
-module.exports = { start, stop, runOnce, expireUnpaidBookings, cancelUnassignableBookings, UNPAID_EXPIRY_MINUTES };
+module.exports = { start, stop, runOnce, acquireLease, expireUnpaidBookings, cancelUnassignableBookings, UNPAID_EXPIRY_MINUTES };
