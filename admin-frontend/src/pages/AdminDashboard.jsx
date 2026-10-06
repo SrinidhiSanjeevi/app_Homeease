@@ -5,7 +5,6 @@ import {
   Users,
   Calendar,
   CalendarDays,
-  CalendarCheck,
   Wrench,
   ShieldAlert,
   Star,
@@ -1680,22 +1679,16 @@ export default function AdminDashboard({ token, user, onLogout }) {
                         color: "#8b5cf6"
                       },
                       {
-                        label: "Unassigned",
-                        value: stats.unassignedBookings ?? stats.pendingBookings,
+                        label: "Pending (Today)",
+                        value: stats.pendingBookings ?? 0,
                         icon: Hourglass,
                         color: "#f59e0b"
                       },
                       {
                         label: "Upcoming",
-                        value: stats.upcomingBookings ?? stats.confirmedBookings ?? 0,
+                        value: stats.upcomingBookings ?? 0,
                         icon: CalendarDays,
                         color: "#3b82f6"
-                      },
-                      {
-                        label: "Today",
-                        value: stats.todayBookings ?? 0,
-                        icon: CalendarCheck,
-                        color: "#8b5cf6"
                       },
                       {
                         label: "Completed",
@@ -1820,18 +1813,13 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
                       {[
                         {
-                          label: "Created",
-                          v: stats.createdBookings || 0,
-                          color: "#6b7280"
-                        },
-                        {
-                          label: "Assigned",
-                          v: stats.assignedBookings !== undefined ? stats.assignedBookings : (stats.pendingBookings || 0),
+                          label: "Pending (today)",
+                          v: stats.pendingBookings || 0,
                           color: "#f59e0b"
                         },
                         {
-                          label: "Confirmed",
-                          v: stats.confirmedBookings || 0,
+                          label: "Upcoming (later days)",
+                          v: stats.upcomingBookings || 0,
                           color: "#3b82f6"
                         },
                         {
@@ -2150,7 +2138,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
             {/* ── BOOKINGS ──────────────────────────────── */}
             {activeSection === "bookings" && (
-              <DataTable header={<SectionTitle>All Bookings ({bookings.length})</SectionTitle>} columns={["Customer", "Service", "Professional", "Rating", "Amount", "Status", "Date", "Update"]}>
+              <DataTable header={<SectionTitle>All Bookings ({bookings.length})</SectionTitle>} columns={["Customer", "Service", "Professional", "Rating", "Amount", "Status", "Scheduled", "Update"]}>
 
                     <tbody>
                       {bookings.map((b) => (
@@ -2290,12 +2278,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
                           </Td>
 
                           <Td size="0.78rem" color="#9ca3af">
-                            {b.createdAt
-                              ? new Date(
-                                  b.createdAt
-                                ).toLocaleDateString(
-                                  "en-IN"
-                                )
+                            {b.date
+                              ? formatNextBooking(b)
                               : "—"}
                           </Td>
 

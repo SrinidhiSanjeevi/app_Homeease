@@ -146,6 +146,13 @@ const bookingsByStatusGauge = new client.Gauge({
   registers: [register]
 });
 
+const bookingsByScheduleGauge = new client.Gauge({
+  name: 'homeease_bookings_by_schedule',
+  help: 'Open bookings by day: Pending = scheduled today or overdue, Upcoming = later days',
+  labelNames: ['bucket'],
+  registers: [register]
+});
+
 const totalRevenueGauge = new client.Gauge({
   name: 'homeease_total_revenue',
   help: 'Total revenue from confirmed and completed bookings',
@@ -215,6 +222,7 @@ module.exports = {
   busyProfessionalsGauge,
   totalBookingsGauge,
   bookingsByStatusGauge,
+  bookingsByScheduleGauge,
   totalRevenueGauge,
   totalUsersGauge,
   totalEmergenciesGauge,
