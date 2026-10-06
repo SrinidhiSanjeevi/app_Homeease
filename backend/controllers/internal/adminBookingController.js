@@ -15,6 +15,7 @@ const { AREAS, MAX_SERVICE_AREAS, findArea, normalizeServiceAreas } = require(".
 const { parsePagination, formatPaginationResult } = require("../../utils/pagination");
 const { attachImageUrls } = require("../../services/blobStorage");
 const { TIME_SLOTS, localToday } = require("../../services/booking/bookingSchedule");
+const { countScheduleBuckets } = require("../../services/booking/bookingBuckets");
 
 const toImageKey = (value) => {
   if (typeof value !== "string") return undefined;
@@ -41,7 +42,7 @@ const getStats = async (req, res) => {
       confirmedBookings,
       cancelledBookings,
       completedBookings,
-      todayBookings,
+      scheduleBuckets,
       recentBookings,
     ] = await Promise.all([
       User.countDocuments({ role: "user", active: { $ne: false } }),
@@ -55,7 +56,7 @@ const getStats = async (req, res) => {
       Booking.countDocuments({ status: "Confirmed" }),
       Booking.countDocuments({ status: "Cancelled" }),
       Booking.countDocuments({ status: "Completed" }),
-      SlotReservation.countDocuments({ date: { $eq: localToday() } }),
+      countScheduleBuckets(),
       Booking.find()
         .sort({ createdAt: -1 })
         .limit(5)
@@ -63,11 +64,8 @@ const getStats = async (req, res) => {
         .populate("service", "name category"),
     ]);
 
-    const pendingBookings = createdBookings + assignedBookings;
-    // Created = still waiting for a professional (needs admin attention); upcoming = a professional is
-    // lined up but the job is not done yet.
-    const unassignedBookings = createdBookings;
-    const upcomingBookings = assignedBookings + confirmedBookings;
+    // Pending = open bookings scheduled for today (or overdue); upcoming = open bookings on later days.
+    const { pending: pendingBookings, upcoming: upcomingBookings } = scheduleBuckets;
 
     const revenueAgg = await Booking.aggregate([
       { $match: { paymentStatus: { $in: ["Paid", "Paid (Cash Collected)", "Partially Refunded"] } } },
@@ -96,9 +94,7 @@ const getStats = async (req, res) => {
         createdBookings,
         assignedBookings,
         pendingBookings,
-        unassignedBookings,
         upcomingBookings,
-        todayBookings,
         confirmedBookings,
         cancelledBookings,
         completedBookings,

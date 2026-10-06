@@ -5,6 +5,7 @@ const User = require("../models/User");
 const EmergencyRequest = require("../models/EmergencyRequest");
 const metrics = require("../metrics");
 const logger = require("../utils/logger");
+const { countScheduleBuckets } = require("./booking/bookingBuckets");
 
 const POLL_INTERVAL_MS = 30000;
 // On AWS nothing scrapes /metrics (no Prometheus), so the same DB-truth numbers
@@ -52,6 +53,7 @@ async function collectDbMetrics() {
       totalEmergencies,
       activeEmergencies,
       revenueAgg,
+      scheduleBuckets,
       ...statusCounts
     ] = await Promise.all([
       Service.countDocuments(),
@@ -75,6 +77,7 @@ async function collectDbMetrics() {
           }
         }
       ]),
+      countScheduleBuckets(),
       ...BOOKING_STATUSES.map((status) => Booking.countDocuments({ status }))
     ]);
 
@@ -91,6 +94,8 @@ async function collectDbMetrics() {
     BOOKING_STATUSES.forEach((status, i) => {
       metrics.bookingsByStatusGauge.labels(status).set(statusCounts[i]);
     });
+    metrics.bookingsByScheduleGauge.labels("Pending").set(scheduleBuckets.pending);
+    metrics.bookingsByScheduleGauge.labels("Upcoming").set(scheduleBuckets.upcoming);
     const activeStatuses = ["Created", "Assigned", "Confirmed"];
     metrics.activeBookings.set(
       BOOKING_STATUSES.reduce((sum, status, i) => (activeStatuses.includes(status) ? sum + statusCounts[i] : sum), 0)
@@ -107,8 +112,9 @@ async function collectDbMetrics() {
           ActiveEmergencies: activeEmergencies,
           TotalEmergencies: totalEmergencies,
           Revenue: revenueAgg.length > 0 ? revenueAgg[0].total : 0,
-          // Same definition as the admin dashboard: Created + Assigned.
-          PendingBookings: statusCounts[0] + statusCounts[1]
+          // Same definitions as the admin dashboard: open bookings scheduled today/overdue vs. later days.
+          PendingBookings: scheduleBuckets.pending,
+          UpcomingBookings: scheduleBuckets.upcoming
         },
         byStatus: statusCounts
       });
