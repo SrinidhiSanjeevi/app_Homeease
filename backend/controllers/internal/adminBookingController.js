@@ -14,6 +14,7 @@ const metrics = require("../../metrics");
 const { AREAS, MAX_SERVICE_AREAS, findArea, normalizeServiceAreas } = require("../../services/areas");
 const { parsePagination, formatPaginationResult } = require("../../utils/pagination");
 const { attachImageUrls } = require("../../services/blobStorage");
+const { TIME_SLOTS, localToday } = require("../../services/booking/bookingSchedule");
 
 const toImageKey = (value) => {
   if (typeof value !== "string") return undefined;
@@ -40,6 +41,7 @@ const getStats = async (req, res) => {
       confirmedBookings,
       cancelledBookings,
       completedBookings,
+      todayBookings,
       recentBookings,
     ] = await Promise.all([
       User.countDocuments({ role: "user", active: { $ne: false } }),
@@ -53,6 +55,7 @@ const getStats = async (req, res) => {
       Booking.countDocuments({ status: "Confirmed" }),
       Booking.countDocuments({ status: "Cancelled" }),
       Booking.countDocuments({ status: "Completed" }),
+      SlotReservation.countDocuments({ date: { $eq: localToday() } }),
       Booking.find()
         .sort({ createdAt: -1 })
         .limit(5)
@@ -61,6 +64,10 @@ const getStats = async (req, res) => {
     ]);
 
     const pendingBookings = createdBookings + assignedBookings;
+    // Created = still waiting for a professional (needs admin attention); upcoming = a professional is
+    // lined up but the job is not done yet.
+    const unassignedBookings = createdBookings;
+    const upcomingBookings = assignedBookings + confirmedBookings;
 
     const revenueAgg = await Booking.aggregate([
       { $match: { paymentStatus: { $in: ["Paid", "Paid (Cash Collected)", "Partially Refunded"] } } },
@@ -89,6 +96,9 @@ const getStats = async (req, res) => {
         createdBookings,
         assignedBookings,
         pendingBookings,
+        unassignedBookings,
+        upcomingBookings,
+        todayBookings,
         confirmedBookings,
         cancelledBookings,
         completedBookings,
@@ -361,6 +371,35 @@ const getAllServices = async (req, res) => {
   }
 };
 
+// Slot reservations exist only for open bookings (cancel/complete release them), so the future ones are
+// exactly a professional's upcoming work. "status" is a current-state flag; this shows the real schedule.
+const attachUpcomingSlots = async (professionals) => {
+  if (!professionals.length) return professionals;
+  const reservations = await SlotReservation.find({
+    professional: { $in: professionals.map((p) => p._id) },
+    date: { $gte: localToday() }
+  })
+    .select("professional date timeSlot")
+    .lean();
+
+  const slotOrder = (r) => r.date.getTime() * 10 + Math.max(TIME_SLOTS.indexOf(r.timeSlot), 0);
+  const byPro = new Map();
+  for (const r of reservations) {
+    const key = String(r.professional);
+    if (!byPro.has(key)) byPro.set(key, []);
+    byPro.get(key).push(r);
+  }
+
+  return professionals.map((p) => {
+    const mine = (byPro.get(String(p._id)) || []).sort((a, b) => slotOrder(a) - slotOrder(b));
+    return {
+      ...p,
+      upcomingBookings: mine.length,
+      nextBooking: mine.length ? { date: mine[0].date, timeSlot: mine[0].timeSlot } : null
+    };
+  });
+};
+
 const getAllProfessionals = async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
@@ -391,7 +430,7 @@ const getAllProfessionals = async (req, res) => {
     ]);
 
     const pagination = formatPaginationResult({ page, limit, total });
-    const enrichedProfessionals = await attachImageUrls(professionals);
+    const enrichedProfessionals = await attachImageUrls(await attachUpcomingSlots(professionals));
 
     res.status(200).json({
       success: true,

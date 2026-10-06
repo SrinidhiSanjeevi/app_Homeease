@@ -4,6 +4,8 @@ import {
   LayoutDashboard,
   Users,
   Calendar,
+  CalendarDays,
+  CalendarCheck,
   Wrench,
   ShieldAlert,
   Star,
@@ -30,6 +32,10 @@ import {
 } from "lucide-react";
 
 const BASE = "/api/admin";
+
+// "7 Oct, 09:00 AM - 11:00 AM" — slot dates are stored as UTC midnight of the booked day.
+const formatNextBooking = ({ date, timeSlot }) =>
+  `${new Date(date).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}, ${timeSlot}`;
 
 const unassignedLabel = (status) => {
   if (["Resolved", "Cancelled", "Completed"].includes(status)) {
@@ -1674,10 +1680,22 @@ export default function AdminDashboard({ token, user, onLogout }) {
                         color: "#8b5cf6"
                       },
                       {
-                        label: "Pending",
-                        value: stats.pendingBookings,
+                        label: "Unassigned",
+                        value: stats.unassignedBookings ?? stats.pendingBookings,
                         icon: Hourglass,
                         color: "#f59e0b"
+                      },
+                      {
+                        label: "Upcoming",
+                        value: stats.upcomingBookings ?? stats.confirmedBookings ?? 0,
+                        icon: CalendarDays,
+                        color: "#3b82f6"
+                      },
+                      {
+                        label: "Today",
+                        value: stats.todayBookings ?? 0,
+                        icon: CalendarCheck,
+                        color: "#8b5cf6"
                       },
                       {
                         label: "Completed",
@@ -2587,6 +2605,18 @@ export default function AdminDashboard({ token, user, onLogout }) {
                     >
                       {p.status} ⇄
                     </button>
+
+                    <div
+                      style={{
+                        fontSize: "0.76rem",
+                        color: p.nextBooking ? "#1d4ed8" : "#6b7280",
+                        marginBottom: "10px"
+                      }}
+                    >
+                      {p.nextBooking
+                        ? `${p.upcomingBookings} upcoming · next ${formatNextBooking(p.nextBooking)}`
+                        : "No upcoming bookings"}
+                    </div>
 
                     <div
                       style={{
