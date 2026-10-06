@@ -4,6 +4,15 @@ HomeEase is a home-services marketplace. Customers browse services (electrician,
 
 This repository holds the **application code and its CI**. Infrastructure lives in `Infrastructure_Homeease` (Terraform) and deployment configuration in `gitops_homeease` (Helm + Argo CD).
 
+## Live demo
+
+| | Customer | Admin |
+|---|---|---|
+| Azure | https://homeease-app.centralindia.cloudapp.azure.com | https://homeease-admin.centralindia.cloudapp.azure.com |
+| AWS | https://d1dtc9ngh4fly7.cloudfront.net | https://d3vprnd9vqtd6q.cloudfront.net |
+
+Grafana, Alertmanager, Argo CD and CloudWatch links are in the parent folder's `README.md`.
+
 ## Architecture
 
 ```mermaid
