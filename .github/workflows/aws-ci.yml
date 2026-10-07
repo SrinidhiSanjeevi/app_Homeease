@@ -16,6 +16,8 @@ on:
       - '.github/workflows/aws-ci.yml'
   pull_request:
     branches: [main]
+    # ready_for_review re-runs the pipeline when a draft is opened for review
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'backend/**'
       - 'admin-backend/**'
@@ -42,6 +44,8 @@ jobs:
 
   static:
     name: Static analysis
+    # Draft PRs skip the whole pipeline (every other job needs this one).
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     outputs:
       services: ${{ steps.set-matrix.outputs.services }}
