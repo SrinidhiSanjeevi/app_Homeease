@@ -428,8 +428,63 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: cosign sign --yes "${{ steps.push.outputs.digest }}"
 
+      - name: Promote tag to Gitops_Homeease (EKS - Argo CD syncs it)
+        # Same idea as the Azure pipeline's Promote stage: CI commits the new image tag into the GitOps
+        # repository and Argo CD rolls it out. CI never touches the cluster. Runs unless AWS_DEPLOY_TARGET
+        # is 'fargate'.
+        if: github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_TARGET != 'fargate'
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_REPO_PAT }}
+          IMAGE_TAG: ${{ needs.static.outputs.image_tag }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            # Fail loudly: a green run that silently deployed nothing hides the problem.
+            echo "::error::GITOPS_REPO_PAT is not set, so the new image tag was NOT promoted to Gitops_Homeease. Add it under Settings > Secrets and variables > Actions (contents: write on that repository)."
+            exit 1
+          fi
+
+          WORKDIR=$(mktemp -d)
+          git clone --quiet \
+            "https://x-access-token:${GH_TOKEN}@github.com/SrinidhiSanjeevi/Gitops_Homeease.git" \
+            "$WORKDIR/gitops"
+          cd "$WORKDIR/gitops"
+          git config user.name "homeease-ci"
+          git config user.email "ci@homeease.local"
+
+          FILE="charts/${SERVICE}/values-aws-dev.yaml"
+          test -f "$FILE" || { echo "::error::$FILE not found in the GitOps repository"; exit 1; }
+
+          # Six services promote in parallel but each edits its OWN file, so conflicts are rare; a push can
+          # still be rejected (non-fast-forward). On every attempt, sync to the newest main and re-apply
+          # THIS service's one-line edit from scratch, so no merge is ever needed.
+          for attempt in 1 2 3 4 5 6; do
+            git fetch --quiet origin main
+            git reset --hard --quiet origin/main
+            # Rewrite only the tag line inside the top-level image: block.
+            sed -i -E '/^image:/,/^[^[:space:]#]/ s/^([[:space:]]+tag:[[:space:]]*).*/\1"'"${IMAGE_TAG}"'"/' "$FILE"
+            awk '/^image:/{f=1;next} f&&/^[^[:space:]#]/{f=0} f' "$FILE" | grep -Eq "tag:[[:space:]]*\"${IMAGE_TAG}\""
+            if git diff --quiet; then
+              echo "${SERVICE} is already ${IMAGE_TAG} - nothing to promote."
+              exit 0
+            fi
+            git add "$FILE"
+            git commit --quiet -m "ci(eks-dev): promote ${SERVICE} to ${IMAGE_TAG}"
+            if git push --quiet origin HEAD:main; then
+              echo "Promoted ${SERVICE} to ${IMAGE_TAG} (attempt ${attempt})."
+              exit 0
+            fi
+            echo "Push rejected - retrying, attempt ${attempt}/6."
+            sleep $((RANDOM % 5 + 2))
+          done
+          echo "::error::Could not push the tag promotion for ${SERVICE} after 6 attempts."
+          exit 1
+
       - name: Promote tag to Infrastructure_Homeease (fargate-dev)
-        if: github.ref == 'refs/heads/main'
+        # Kept for the ECS Fargate path. Runs only when the repository variable AWS_DEPLOY_TARGET is
+        # 'fargate' or 'both'; the default (unset / 'eks') promotes to the GitOps repository instead.
+        if: github.ref == 'refs/heads/main' && (vars.AWS_DEPLOY_TARGET == 'fargate' || vars.AWS_DEPLOY_TARGET == 'both')
         env:
           GH_TOKEN: ${{ secrets.INFRA_REPO_PAT }}
           IMAGE_TAG: ${{ needs.static.outputs.image_tag }}
