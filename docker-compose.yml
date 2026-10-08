@@ -40,7 +40,9 @@ services:
     environment:
       - NODE_ENV=production
       - METRICS_COLLECTOR_ENABLED=true
-  
+      - MONGO_URI=mongodb://mongo:27017/homeease_booking
+      - PAYMENT_SERVICE_URL=http://payment-service:5002
+      - NOTIFICATION_SERVICE_URL=http://notification-service:5003
     expose:
       - "5000"
     networks:
@@ -69,7 +71,8 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5001
-  
+      - MONGO_URI=mongodb://mongo:27017/homeease_admin
+      - BOOKING_SERVICE_URL=http://backend:5000
     expose:
       - "5001"
     networks:
@@ -101,7 +104,8 @@ services:
       - NODE_ENV=production
       - PAYMENT_SERVICE_PORT=5002
       - PORT=5002
-    
+      - MONGO_URI=mongodb://mongo:27017/homeease_payment
+      - BOOKING_SERVICE_URL=http://backend:5000
     expose:
       - "5002"
     networks:
@@ -133,7 +137,8 @@ services:
       - NODE_ENV=production
       - NOTIFICATION_SERVICE_PORT=5003
       - PORT=5003
-    
+      - MONGO_URI=mongodb://mongo:27017/homeease_notification
+      - BOOKING_SERVICE_URL=http://backend:5000
     expose:
       - "5003"
     networks:
