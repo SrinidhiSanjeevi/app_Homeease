@@ -9,15 +9,13 @@ from a commit in this repo.
 
 Stage 4 (Promote) bumps `image.tag` in
 [`Gitops_Homeease`](https://github.com/SrinidhiSanjeevi/Gitops_Homeease)'s
-`charts/<service>/values-azure-dev.yaml` files (all 5 services: backend,
-admin-backend, frontend, admin-frontend, payment-service) and pushes the
-commit directly to that repo's `main` — that's what Argo CD's
-already-automated sync policy then picks up.
+`charts/<service>/values-azure-dev.yaml` files (all 6 services: backend,
+admin-backend, payment-service, notification-service, frontend,
+admin-frontend) and pushes the commit directly to that repo's `main` —
+that's what Argo CD's automated sync policy then picks up.
 
-**As of this writing, `GITOPS_PAT` does not yet exist in the
-`homeease-ci` variable group** (verified via `az pipelines
-variable-group variable list`) — the Promote stage will fail fast with
-an explicit error until it's added. Follow the steps below once.
+If `GITOPS_PAT` is missing from the `homeease-ci` variable group, the
+Promote stage fails fast with an explicit error.
 
 To let this pipeline push there, add a secret pipeline variable named
 `GITOPS_PAT`:
@@ -51,6 +49,16 @@ stage changes is a `tag:` value in a file Argo CD already watches. For
 DEV, continuous deployment is the goal: every verified merge should be
 running within minutes, and a review of "old SHA -> new SHA" adds a
 wait without adding information. PROD is different — see below.
+
+## STAGING / PROD preview stages (7a, 7c)
+
+With `enableStagingPromotion: 'true'` (the current setting), every `main`
+run ends with two approval-gated stages, *7a. Promote to STAGING* and
+*7c. Promote to PROD*, from `templates/promotion-demo.yml`. They run in
+`dryRun` mode: after approval on the `homeease-staging` /
+`homeease-prod` environment they print the tags that would be written to
+`values-azure-staging.yaml` / `values-azure-prod.yaml`, but push nothing.
+Create both environments with an approval check before enabling them.
 
 ## PROD promotion (stage 7) — one-time setup
 
