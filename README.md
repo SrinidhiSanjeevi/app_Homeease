@@ -29,7 +29,7 @@ kubectl -n argocd port-forward svc/argocd-server 8443:443                       
 
 ## Related repositories
 
-- [Infrastruture_Homeease](https://github.com/SrinidhiSanjeevi/Infrastruture_Homeease) — Terraform for the AKS, EKS and ECS Fargate environments.
+- [Infrastructure_Homeease]([https://github.com/SrinidhiSanjeevi/Infrastruture_Homeease](https://github.com/SrinidhiSanjeevi/Infrastructure_Homeease)) — Terraform for the AKS, EKS and ECS Fargate environments.
 - [Gitops_Homeease](https://github.com/SrinidhiSanjeevi/Gitops_Homeease) — Helm charts and Argo CD apps; CI in this repo writes the new image tags there.
 
 ## Architecture
